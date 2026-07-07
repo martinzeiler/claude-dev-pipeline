@@ -57,6 +57,8 @@ Spusť subagenta `plan-check` nad čerstvým PRD (předej mu cestu k PRD; kontro
 
 (Plné kolečko — thermo-nuclear, /simplify, 2× code-review, 2× security — běží až JEDNOU na konci celé vize, ne per řez.)
 
+**Řez bez runtime dopadu** (jen testy, tooling, dokumentace): zapiš to do PRD frontmatteru (`runtime_dopad: ne`) — fáze 5 se pak redukuje na commit (bez deploye) a fáze 6 na kompletní test run + typecheck místo E2E.
+
 ## Fáze 5 — Commit + deploy
 
 1. Commit na vize branchi (nikdy na main). Zpráva: `rez NN: <shrnutí>`. Jedna logická jednotka práce = jeden commit (rollback řezu pak = `git reset --hard HEAD~1`).
