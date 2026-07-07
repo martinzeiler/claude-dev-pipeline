@@ -29,6 +29,22 @@ Do `~/.claude/settings.json` přidat:
 
 Skripty musí být spustitelné: `chmod +x ~/claude-dev-pipeline/dev-pipeline/hooks/*.sh ~/claude-dev-pipeline/dev-pipeline/scripts/*.sh`
 
+## DŮLEŽITÉ: refresh po editaci pluginu
+
+Directory-source marketplace se při registraci **kopíruje do cache** — editace zdrojového adresáře se do sessions NEpropíše sama. Po každé změně pluginu (i po `git pull` na jiném stroji):
+
+```
+/plugin marketplace update claude-dev-pipeline
+```
+
+a pak novou session (případně `/reload-plugins` v běžící). Při aktivním vývoji pluginu je jednodušší spouštět session s živým čtením bez cache:
+
+```bash
+claude --plugin-dir ~/claude-dev-pipeline/dev-pipeline
+```
+
+Příznak stale verze: session dostane při invokaci skillu starší obsah, než je na disku, nebo nezná nově přidané agenty (`dev-pipeline:*`).
+
 ## Workflow
 
 1. **`/vize`** — několikahodinová debatní session: grilování otázkami (vyjasňovací + proaktivní), deep research, na závěr kontrola čerstvýma očima. Výstup `docs/vize/<slug>.md` včetně nezávazné osnovy řezů. **Tohle je jediný schvalovací bod.**
