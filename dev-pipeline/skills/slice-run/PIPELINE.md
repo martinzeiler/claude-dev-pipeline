@@ -65,7 +65,7 @@ Spusť subagenta `dev-pipeline:prd-check` nad čerstvým PRD (předej cesty k PR
 
 1. Commit na vize branchi (nikdy na main). Zpráva: `rez NN: <shrnutí>`. Jedna logická jednotka práce = jeden commit; rollback řezu = `git reset --hard` na `commit` hash z frontmatteru posledního done PRD (po opravných iteracích může mít řez víc commitů, HEAD~1 nestačí).
 2. Přečti deploy config projektu (sekce Deploy v CLAUDE.md projektu, případně `docs/deploy.md`). Dodrž projektová pravidla (pre-checky, build verze, pořadí).
-3. Vytvoř `docs/.deploy-unlocked` (teprve teď — hook guard jinak deploy zablokuje), proveď deploy, ověř že doběhl (health check / deploy status).
+3. Vytvoř `docs/.deploy-unlocked` (teprve teď — hook guard jinak deploy zablokuje), proveď deploy a **počkej na jeho dokončení**. Výstup fáze MUSÍ být doložený stav, ne slib: deployment status SUCCESS (např. `railway deployment list --json`) + health check odpověď + commit hash. „Deploy spuštěn" nebo obecný placeholder NENÍ výsledek — fáze bez doloženého stavu se považuje za nedokončenou a stav se musí doověřit.
 
 ## Fáze 6 — E2E verifikace
 
