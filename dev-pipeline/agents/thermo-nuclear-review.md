@@ -2,7 +2,6 @@
 name: thermo-nuclear-review
 description: Thermo-nuclear code quality audit (maintainability, structure, 1k-line rule, spaghetti, code-judo). Use for an unusually strict maintainability review of branch/PR changes focused on structure and abstraction quality, not correctness bugs. Gathers the diff itself and returns prioritized, high-conviction structural findings. Read-only — never edits code.
 tools: Bash, Read, Grep, Glob
-model: fable
 ---
 
 # Thermo-Nuclear Code Quality Review

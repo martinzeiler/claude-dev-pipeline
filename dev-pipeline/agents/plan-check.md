@@ -2,7 +2,6 @@
 name: plan-check
 description: Post-implementation verification that an approved plan was implemented fully AND optimally. Use after implementing a plan to check, item by item, whether each part is done, whether the solution is ideal for the whole application (not just "it works" / a narrow bug-fix), and whether functions are shaped and behaving the way they should. Read-only — reports a verdict, does not edit.
 tools: Bash, Read, Grep, Glob
-model: fable
 ---
 
 # Plan check — completeness + optimality verifier

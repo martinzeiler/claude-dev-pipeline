@@ -40,9 +40,9 @@ Vstup: vize, `docs/prd/` (stav dokončených/přeskočených řezů), tail `docs
 3. Jinak urči rozsah dalšího řezu **z aktuálního stavu**, ne z osnovy — osnova ve vizi je orientační, realita po předchozích řezech má přednost. Řez = souvislý, samostatně testovatelný a nasaditelný kus vize: **ucelená funkce nebo skupina souvisejících menších věcí, nikdy mini-funkce** — režie PRD + review + deploy + E2E se musí vyplatit, drobnosti seskupuj do jednoho řezu. Velikostní vodítko: práce na řezu se má pohodlně vejít do ~250k tokenů kontextu (implementační session/agent); tolerance do ~400k, když si iterace a dolaďování řeknou, výš nikdy — pokud odhad zjevně přesahuje, rozděl na dva ucelené řezy.
 4. Napiš `docs/prd/rez-NN-<slug>.md`: cíl řezu, vazba na konkrétní body vize, rozsah (co ano / co ne), technický postup validovaný proti kódu (soubory, moduly, migrace), **akceptační kritéria** (ověřitelná, každé buď testem, nebo E2E krokem; formuluj je na nejvyšším možném švu — user-visible chování, ne implementační detail), rizika. Zapiš E2E scénáře do `docs/e2e/rez-NN.md`.
 
-## Fáze 2 — Plan-check
+## Fáze 2 — PRD check
 
-Spusť subagenta `plan-check` nad čerstvým PRD (předej mu cestu k PRD; kontroluje proti vizi + kódu + CLAUDE.md konvencím projektu: úplnost, optimálnost, intent fit). Nálezy zapracuj do PRD. Neptej se uživatele — jediný schválený vstup je vize; odchylky od osnovy jen zapiš do journalu se zdůvodněním.
+Spusť subagenta `prd-check` nad čerstvým PRD (předej cesty k PRD a vizi; kontroluje úplnost vůči vizi, technickou validitu proti kódu, kvalitu akceptačních kritérií a rozsah řezu). Nálezy zapracuj do PRD; při `needs-fixes` po zapracování spusť prd-check znovu (max 2 kola). Neptej se uživatele — jediný schválený vstup je vize; odchylky od osnovy jen zapiš do journalu se zdůvodněním. (Agent `plan-check` je post-implementační nástroj — v pipeline se nepoužívá.)
 
 ## Fáze 3 — Implementace (TDD)
 
@@ -61,7 +61,7 @@ Spusť subagenta `plan-check` nad čerstvým PRD (předej mu cestu k PRD; kontro
 
 ## Fáze 5 — Commit + deploy
 
-1. Commit na vize branchi (nikdy na main). Zpráva: `rez NN: <shrnutí>`. Jedna logická jednotka práce = jeden commit (rollback řezu pak = `git reset --hard HEAD~1`).
+1. Commit na vize branchi (nikdy na main). Zpráva: `rez NN: <shrnutí>`. Jedna logická jednotka práce = jeden commit; rollback řezu = `git reset --hard` na poslední commit předchozího done řezu (po opravných iteracích jich řez může mít víc, HEAD~1 nestačí).
 2. Přečti deploy config projektu (sekce Deploy v CLAUDE.md projektu, případně `docs/deploy.md`). Dodrž projektová pravidla (pre-checky, build verze, pořadí).
 3. Vytvoř `docs/.deploy-unlocked` (teprve teď — hook guard jinak deploy zablokuje), proveď deploy, ověř že doběhl (health check / deploy status).
 

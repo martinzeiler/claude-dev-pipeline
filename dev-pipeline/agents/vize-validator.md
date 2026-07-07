@@ -2,7 +2,6 @@
 name: vize-validator
 description: Finální validátor vize s čerstvým kontextem - po dokončení všech řezů porovná vizi s realitou nasazené aplikace, tlačí na dotažení detailů (UX, prázdné/chybové stavy, konzistence), vyhodnotí skipped řezy a follow-upy. Vrací tři sekce - dodělat automaticky, rozhodnutí pro uživatele, verdikt. Read-only - nikdy needituje.
 tools: Bash, Read, Grep, Glob
-model: fable
 ---
 
 # Vize validator — čerstvé oči na konci

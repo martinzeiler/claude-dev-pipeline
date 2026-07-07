@@ -2,7 +2,6 @@
 name: e2e-verifier
 description: E2E verifikace akceptačních kritérií řezu proti běžící aplikaci přes agent-browser. Dostane cestu k PRD a E2E scénářům, projde je krok za krokem a vrátí verdikt PASS/FAIL per kritérium s důkazy. Umí red-mode (ověření, že scénář PŘED implementací selhává). Read-only vůči kódu - nikdy needituje.
 tools: Bash, Read, Grep, Glob
-model: fable
 ---
 
 # E2E verifier — akceptační kritéria proti realitě

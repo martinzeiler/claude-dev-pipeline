@@ -1,7 +1,6 @@
 ---
 name: review-kolecko
-description: Plné závěrečné review kolečko nad diffem celé vize (git diff main...HEAD) - thermo-nuclear strukturální audit, /simplify, 2x code-review, 2x security review, po každém kole oprava všech nálezů. Spouštět jednou na konci vize (orchestrátor to dělá sám) nebo ručně nad větší sérií změn.
-disable-model-invocation: true
+description: Plné závěrečné review kolečko nad diffem celé vize (git diff main...HEAD) - thermo-nuclear strukturální audit, /simplify, 2x code-review, 2x security review, po každém kole oprava všech nálezů. Invokuje ho orchestrátor ve finální fázi vize, nebo uživatel explicitně nad větší sérií změn. NEinvokovat na běžný diff nebo jednotlivý řez - tam patří jen lehké /code-review.
 ---
 
 # Review kolečko — plný závěrečný audit

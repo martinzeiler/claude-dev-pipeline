@@ -22,7 +22,7 @@ Kanonická definice fází řezu: `PIPELINE.md` ve vedlejším skillu `slice-run
 Pro každý řez spouštěj fáze jako subagenty (Agent tool, general-purpose, pokud není uvedeno jinak). Každému předej: cwd projektu, absolutní cestu k PIPELINE.md + číslo fáze, cestu k vizi a PRD, a instrukci „tvůj finální text je návratová hodnota pro orchestrátor — vrať stručný strukturovaný souhrn, žádné dumpy souborů".
 
 1. **PRD agent** (PIPELINE fáze 1): rozhodne vize-done / pokračování rozpracovaného / nový řez; napíše PRD + E2E scénáře. Vrátí: číslo+slug řezu, cíl, akceptační kritéria, nebo `VIZE_DONE` se zdůvodněním. Pokud `VIZE_DONE` → ukonči smyčku.
-2. **plan-check** (subagent_type `plan-check`, PIPELINE fáze 2): předej cestu k PRD s poznámkou, že jde o kontrolu plánu před implementací (úplnost vůči vizi, optimálnost, intent fit). Nálezy → krátký PRD-fix agent je zapracuje.
+2. **prd-check** (subagent_type `prd-check`, PIPELINE fáze 2): předej cesty k PRD a vizi. Nálezy → krátký PRD-fix agent je zapracuje; při `needs-fixes` jedno opakovací kolo.
 3. **Implementační agent** (PIPELINE fáze 3): TDD podle PRD. Vrátí: co změnil (soubory + podstata), stav testů/typechecku, poznámky pro journal.
 4. **Lehké review** (PIPELINE fáze 4): invokuj skill `/code-review` (medium). Nálezy → fix agent (předej mu seznam nálezů, ne diff). Poté krátký verify agent: typecheck + testy.
 5. **Deploy agent** (PIPELINE fáze 5): commit + deploy podle pravidel projektu. Vrátí: commit hash, deploy výsledek/health.
