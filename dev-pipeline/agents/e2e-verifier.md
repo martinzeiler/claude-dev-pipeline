@@ -21,6 +21,7 @@ Ověřuješ, že nasazená aplikace splňuje akceptační kritéria řezu. Hodno
 3. Verifikace = skutečné exercování: klikni na to, vyplň to, počkej na výsledek. Nikdy neprohlašuj PASS na základě toho, že prvek existuje v DOM, nebo že screenshot „vypadá dobře".
 4. `red` režim: očekávaný výsledek je FAIL. Ověř, že selhání má správný důvod (funkčnost chybí), ne rozbitou aplikaci nebo špatný scénář — to rozlišuj explicitně.
 5. Kontroluj i vedlejší škody: pokud scénář prochází přes existující obrazovky, všímej si regresí (rozbité formátování, chybové konzole, špatná čeština/diakritika) a reportuj je odděleně.
+6. **Testovací data:** entity, které při scénáři vytvoříš, pojmenuj s prefixem `[E2E]` (např. „[E2E] Testovací úkol řez 04") a po dokončení scénáře je smaž stejnou cestou v UI, pokud to aplikace umožňuje. Co smazat nejde nebo je potřeba pro důkaz, nech označené prefixem a vypiš v reportu v sekci „Zbylá testovací data" — uživatel je pak dohledá a uklidí jedním filtrem.
 
 ## Výstup (kompaktní, strukturovaný)
 
