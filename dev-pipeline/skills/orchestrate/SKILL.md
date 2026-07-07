@@ -24,7 +24,7 @@ Pro každý řez spouštěj fáze jako subagenty (Agent tool, general-purpose, p
 1. **PRD agent** (PIPELINE fáze 1): rozhodne vize-done / pokračování rozpracovaného / nový řez; napíše PRD + E2E scénáře. Vrátí: číslo+slug řezu, cíl, akceptační kritéria, nebo `VIZE_DONE` se zdůvodněním. Pokud `VIZE_DONE` → ukonči smyčku.
 2. **prd-check** (subagent_type `dev-pipeline:prd-check`, PIPELINE fáze 2): předej cesty k PRD a vizi. Nálezy → krátký PRD-fix agent je zapracuje; při `needs-fixes` jedno opakovací kolo.
 3. **Implementační agent** (PIPELINE fáze 3): TDD podle PRD. Vrátí: co změnil (soubory + podstata), stav testů/typechecku, poznámky pro journal.
-4. **Lehké review** (PIPELINE fáze 4): invokuj skill `/code-review` (medium). Nálezy → fix agent (předej mu seznam nálezů, ne diff). Poté krátký verify agent: typecheck + testy.
+4. **Lehké review** (PIPELINE fáze 4): spusť general-purpose subagenta s instrukcí „invokuj skill code-review (medium) nad aktuálním diffem a vrať POUZE seznam nálezů (file:line, problém, kategorie)". NIKDY neinvokuj code-review přímo v této session — plní dirigentův kontext. Nálezy → fix agent (předej mu seznam nálezů, ne diff). Poté krátký verify agent: typecheck + testy.
 5. **Deploy agent** (PIPELINE fáze 5): commit + deploy podle pravidel projektu. Vrátí: commit hash, deploy výsledek/health.
 6. **e2e-verifier** (subagent_type `dev-pipeline:e2e-verifier`, PIPELINE fáze 6): verdikt per akceptační kritérium. FAIL → fix agent → deploy agent → e2e znovu; počítej pokusy dle failure policy PIPELINE.md (3. neúspěch = skipped, úklid přes fix agenta).
 7. **Uzavření** (PIPELINE fáze 7): proveď sám — status flip PRD, append journal (z posbíraných souhrnů), přepiš handoff, follow-upy. Smaž `docs/.deploy-unlocked`.
