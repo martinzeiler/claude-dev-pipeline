@@ -37,7 +37,7 @@ Vstup: vize, `docs/prd/` (stav dokončených/přeskočených řezů), tail `docs
 
 1. Pokud existuje PRD se `status: in_progress`, pokračuj v něm (nedokončený řez z minula) a přeskoč na fázi, kde skončil (viz journal).
 2. Jinak rozhodni: **je vize naplněna?** Projdi vizi bod po bodu proti stavu done řezů. Pokud ano → vytvoř `docs/.vize-done`, zapiš zdůvodnění do journalu a SKONČI (žádný další řez).
-3. Jinak urči rozsah dalšího řezu **z aktuálního stavu**, ne z osnovy — osnova ve vizi je orientační, realita po předchozích řezech má přednost. Řez = souvislý, samostatně testovatelný a nasaditelný kus vize; má se vejít do jedné session (orientačně do ~200k tokenů práce). Radši menší řez než přerostlý.
+3. Jinak urči rozsah dalšího řezu **z aktuálního stavu**, ne z osnovy — osnova ve vizi je orientační, realita po předchozích řezech má přednost. Řez = souvislý, samostatně testovatelný a nasaditelný kus vize: **ucelená funkce nebo skupina souvisejících menších věcí, nikdy mini-funkce** — režie PRD + review + deploy + E2E se musí vyplatit, drobnosti seskupuj do jednoho řezu. Velikostní vodítko: práce na řezu se má pohodlně vejít do ~250k tokenů kontextu (implementační session/agent); tolerance do ~400k, když si iterace a dolaďování řeknou, výš nikdy — pokud odhad zjevně přesahuje, rozděl na dva ucelené řezy.
 4. Napiš `docs/prd/rez-NN-<slug>.md`: cíl řezu, vazba na konkrétní body vize, rozsah (co ano / co ne), technický postup validovaný proti kódu (soubory, moduly, migrace), **akceptační kritéria** (ověřitelná, každé buď testem, nebo E2E krokem; formuluj je na nejvyšším možném švu — user-visible chování, ne implementační detail), rizika. Zapiš E2E scénáře do `docs/e2e/rez-NN.md`.
 
 ## Fáze 2 — Plan-check
