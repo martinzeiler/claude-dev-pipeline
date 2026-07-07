@@ -1,0 +1,14 @@
+{
+  "name": "claude-dev-pipeline",
+  "owner": {
+    "name": "Martin Zeiler",
+    "email": "claude2@zeiler.cz"
+  },
+  "plugins": [
+    {
+      "name": "dev-pipeline",
+      "source": "./dev-pipeline",
+      "description": "Vize → řezy → autonomní implementace: grill-me vize session, orchestrátor se subagenty s čerstvými kontexty, TDD pipeline per řez, plné review kolečko a validátor vize na konci. Fallback Ralph driver + blast-radius hook guardy."
+    }
+  ]
+}
