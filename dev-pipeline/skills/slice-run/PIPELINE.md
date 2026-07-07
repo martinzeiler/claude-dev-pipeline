@@ -38,7 +38,7 @@ Vstup: vize, `docs/prd/` (stav dokončených/přeskočených řezů), tail `docs
 1. Pokud existuje PRD se `status: in_progress`, pokračuj v něm (nedokončený řez z minula) a přeskoč na fázi, kde skončil (viz journal).
 2. Jinak rozhodni: **je vize naplněna?** Projdi vizi bod po bodu proti stavu done řezů. Pokud ano → vytvoř `docs/.vize-done`, zapiš zdůvodnění do journalu a SKONČI (žádný další řez).
 3. Jinak urči rozsah dalšího řezu **z aktuálního stavu**, ne z osnovy — osnova ve vizi je orientační, realita po předchozích řezech má přednost. Řez = souvislý, samostatně testovatelný a nasaditelný kus vize; má se vejít do jedné session (orientačně do ~200k tokenů práce). Radši menší řez než přerostlý.
-4. Napiš `docs/prd/rez-NN-<slug>.md`: cíl řezu, vazba na konkrétní body vize, rozsah (co ano / co ne), technický postup validovaný proti kódu (soubory, moduly, migrace), **akceptační kritéria** (ověřitelná, každé buď testem, nebo E2E krokem), rizika. Zapiš E2E scénáře do `docs/e2e/rez-NN.md`.
+4. Napiš `docs/prd/rez-NN-<slug>.md`: cíl řezu, vazba na konkrétní body vize, rozsah (co ano / co ne), technický postup validovaný proti kódu (soubory, moduly, migrace), **akceptační kritéria** (ověřitelná, každé buď testem, nebo E2E krokem; formuluj je na nejvyšším možném švu — user-visible chování, ne implementační detail), rizika. Zapiš E2E scénáře do `docs/e2e/rez-NN.md`.
 
 ## Fáze 2 — Plan-check
 
@@ -72,7 +72,7 @@ Spusť subagenta `e2e-verifier`: dostane cestu k PRD a `docs/e2e/rez-NN.md`, pro
 1. PRD frontmatter `status: done`. Smaž `docs/.deploy-unlocked`.
 2. Append do `docs/journal.md`: datum, řez NN, co je hotové, odchylky od vize/osnovy + proč, změněná rozhodnutí, počet pokusů, výsledek E2E.
 3. Nápady a resty mimo scope → append `docs/follow-ups.md` (jedna odrážka = jedna položka, s kontextem proč).
-4. Přepiš `docs/handoff.md`: branch, poslední done řez, stav (co funguje), co je logicky další, klíčové pasti/poznatky z tohoto řezu (max ~30 řádků — čte to čerstvý kontext, stručnost > úplnost).
+4. Přepiš `docs/handoff.md`: branch, poslední done řez, stav (co funguje), co je logicky další, klíčové pasti/poznatky z tohoto řezu (max ~30 řádků — čte to čerstvý kontext, stručnost > úplnost). Neduplikuj obsah PRD/journalu — odkazuj cestou. Do handoffu ani journalu nikdy nepatří secrets (klíče, hesla, tokeny).
 
 ## Failure policy
 
