@@ -43,7 +43,7 @@ fi
 if [ -n "$proj" ] && [ -f "$proj/docs/.orchestrator-run" ]; then
   if printf '%s' "$cmd" | grep -Eq '(railway[[:space:]]+up|wrangler[[:space:]]+pages[[:space:]]+deploy)'; then
     if [ ! -f "$proj/docs/.deploy-unlocked" ]; then
-      block "deploy během autonomního běhu vyžaduje marker docs/.deploy-unlocked (vytváří ho pipeline fáze 5 až po zeleném review a testech — viz PIPELINE.md)."
+      block "deploy během autonomního běhu vyžaduje marker docs/.deploy-unlocked (vytváří ho pipeline fáze 5 až po zeleném review a testech — viz PIPELINE.md). Pokud žádný autonomní běh neběží, je docs/.orchestrator-run stale pozůstatek spadlé session — smaž ho a zkus to znovu."
     fi
   fi
 fi

@@ -11,7 +11,7 @@ Scope: `git diff main...HEAD` (jiný base jen pokud ho uživatel/orchestrátor p
 
 ## Sekvence (po každém kroku: opravit nálezy → typecheck + testy → až pak další krok)
 
-1. **Thermo-nuclear**: spusť subagenta `thermo-nuclear-review` nad diffem. Opravy strukturálních nálezů dělej přes fix subagenty (předávej jim konkrétní nálezy, ne celý report). Presumptivní blockery z rubriky se opravují vždy; u sporných zapiš rozhodnutí do journalu.
+1. **Thermo-nuclear**: spusť subagenta `dev-pipeline:thermo-nuclear-review` nad diffem. Opravy strukturálních nálezů dělej přes fix subagenty (předávej jim konkrétní nálezy, ne celý report). Presumptivní blockery z rubriky se opravují vždy; u sporných zapiš rozhodnutí do journalu.
 2. **/simplify**: invokuj skill `simplify` (opravy aplikuje sám).
 3. **Code-review kolo 1**: invokuj skill `code-review` (high). Oprav všechny CONFIRMED nálezy; PLAUSIBLE posuď individuálně, rozhodnutí do journalu.
 4. **Code-review kolo 2**: znovu `code-review` — ověří opravy a čerstvým pohledem najde, co kolo 1 minulo. Oprav.
