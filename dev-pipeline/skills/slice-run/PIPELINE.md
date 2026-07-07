@@ -77,6 +77,7 @@ Spusť subagenta `dev-pipeline:e2e-verifier`: dostane cestu k PRD a `docs/e2e/re
 2. Append do `docs/journal.md`: datum, řez NN, co je hotové, odchylky od vize/osnovy + proč, změněná rozhodnutí, počet pokusů, výsledek E2E.
 3. Nápady a resty mimo scope → append `docs/follow-ups.md` (jedna odrážka = jedna položka, s kontextem proč).
 4. Přepiš `docs/handoff.md`: branch, poslední done řez, stav (co funguje), co je logicky další, klíčové pasti/poznatky z tohoto řezu (max ~30 řádků — čte to čerstvý kontext, stručnost > úplnost). Neduplikuj obsah PRD/journalu — odkazuj cestou. Do handoffu ani journalu nikdy nepatří secrets (klíče, hesla, tokeny).
+5. **CLAUDE.md hygiena:** pokud řez změnil něco, co CLAUDE.md projektu tvrdí (příkazy, konvence, struktura, pasti), aktualizuj ho — ale minimálně: NIC, co se dá zjistit z kódu; udržuj CLAUDE.md co nejmenší; tvrzení, která přestala platit, smaž (neopravuj kolem nich). Když řez CLAUDE.md nemění, nesahej na něj.
 
 ## Failure policy
 
