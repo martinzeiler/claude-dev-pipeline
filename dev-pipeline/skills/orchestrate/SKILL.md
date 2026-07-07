@@ -35,7 +35,7 @@ Mezi řezy napiš uživateli 1–3 řádky průběhu (řez NN hotový/skipped, c
 
 1. Invokuj skill `/dev-pipeline:review-kolecko` (plné kolečko nad `git diff main...HEAD`; opravy dělá samo).
 2. Spusť subagenta `dev-pipeline:vize-validator` (předej cesty: vize, prd/, journal, follow-ups + jak se dostat do běžící appky).
-3. Sekci „DODĚLAT AUTOMATICKY" z jeho reportu zpracuj jako mini-řezy hlavní smyčkou (max 5, pak stop — zbytek do follow-ups).
+3. Sekci „DODĚLAT AUTOMATICKY" z jeho reportu zpracuj jako mini-řezy hlavní smyčkou — **bez pevného stropu počtu**: pokračuj, dokud jsou položky malé a jednoznačné (zjevné chyby, UX dotažení, věci rozhodnutelné bez uživatele). Pojistky místo stropu: mini-řez, který napoprvé neprojde testy/E2E, jde rovnou do follow-ups (žádná 3 opakování — u dotažení se neurputňuj); položka velká jako samostatná vize nebo vyžadující rozhodnutí uživatele patří do follow-ups / sekce B, ne do smyčky.
 4. Smaž `docs/.orchestrator-run`. Závěrečný commit, pokud něco zbývá.
 5. Notifikace uživateli: PushNotification tool, pokud je k dispozici; jinak `osascript -e 'display notification "Vize <slug> hotová" with title "dev-pipeline"'`.
 6. Závěrečná zpráva: co je hotové (per řez, 1 řádek), skipped řezy + doporučení validátora, **ROZHODNUTÍ PRO TEBE** sekce z validátora (jen skutečné odchylky od vize, s doporučením), odkaz na journal.
