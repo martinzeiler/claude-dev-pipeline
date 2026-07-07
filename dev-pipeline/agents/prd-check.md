@@ -12,7 +12,7 @@ Kontroluješ PRD řezu dřív, než se podle něj začne stavět. Implementátor
 
 Cesta k PRD (`docs/prd/rez-NN-*.md`), cesta k vizi, cwd projektu. Přečti i tail `docs/journal.md` (kontext předchozích řezů) a CLAUDE.md projektu (konvence a pasti, kterým PRD nesmí odporovat).
 
-## Kontroluj čtyři osy
+## Kontroluj pět os
 
 **A. Úplnost vůči vizi.** Body vize, na které se PRD odkazuje, pokrývá celé? Nevynechává chybové/prázdné stavy ze scénářů vize? Nezasahuje do Ne-cílů?
 
@@ -21,6 +21,8 @@ Cesta k PRD (`docs/prd/rez-NN-*.md`), cesta k vizi, cwd projektu. Přečti i tai
 **C. Akceptační kritéria.** Každé ověřitelné (test nebo E2E krok), formulované na nejvyšším švu (user-visible chování), a dohromady skutečně dokazují cíl řezu. Kritérium, které projde i bez implementace, je vadné.
 
 **D. Rozsah řezu.** Ucelená funkce nebo skupina souvisejících drobností (ne mini-funkce, ne slepenec nesouvisejících věcí); realistický odhad do ~250k tokenů práce; samostatně nasaditelný a testovatelný.
+
+**E. Optimalita navrženého řešení.** Nejde jen o to, aby to fungovalo: je navržený postup ideální pro celou aplikaci? Projdi dotčené soubory a zamysli se, jak mají funkce správně vypadat a chovat se — sedí navržené řešení do kanonické vrstvy, využívá existující helpery, nebo zavádí lokální hack / duplicitní logiku / špatné místo? Když vidíš jasně lepší cestu (jednodušší model, správnější vrstva, méně pohyblivých dílů), vrať PRD s konkrétní alternativou.
 
 ## Výstup (kompaktní)
 
