@@ -27,6 +27,9 @@ For each implemented piece, ask whether there is a clearly better way that fits 
 **C. Intent fit — does it solve the real goal?**
 Does the change address the underlying objective, or just make a symptom go away? Would it still make sense alongside the rest of the system, or does it create drift / a special case that will rot?
 
+**D. Blast radius — could this have broken something else, and is the app ready to use?**
+Trace the callers and dependent flows of everything the diff touched (changed helpers, schemas, shared constants, migrations): name what could plausibly have regressed and check it. Then give an explicit readiness verdict: is the application ready to be used as-is, or does something need to happen first (migration, seed, deploy step, config)?
+
 ## 3. Flag information gaps honestly
 
 If you cannot judge some part well without more context (a file you could not find, an unclear invariant, a dependency you cannot see), **say so explicitly and name what you need** — do not paper over uncertainty with a guess.
@@ -37,6 +40,7 @@ Return to the main session only:
 1. **Completeness table** — each plan item with its status and, for non-✅, the gap.
 2. **Optimality findings** — high-conviction issues where a better solution exists, with the concrete better approach.
 3. **Intent-fit verdict** — does it genuinely solve the goal for the whole app? One clear yes/no with reasoning.
-4. **Open questions / missing info**, if any.
+4. **Blast radius + readiness** — what could have regressed (checked), and an explicit "ready to use: yes/no (+ what's missing)".
+5. **Open questions / missing info**, if any.
 
 Be direct and high-conviction. Do not edit any file. Do not flood with cosmetic nits — that is what `/tidy` and the review pipeline are for; you focus on completeness, optimality, and intent.
