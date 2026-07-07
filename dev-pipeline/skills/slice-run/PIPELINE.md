@@ -59,7 +59,7 @@ Spusť subagenta `dev-pipeline:prd-check` nad čerstvým PRD (předej cesty k PR
 
 (Plné kolečko — thermo-nuclear, /simplify, 2× code-review, 2× security — běží až JEDNOU na konci celé vize, ne per řez.)
 
-**Řez bez runtime dopadu** (jen testy, tooling, dokumentace): zapiš to do PRD frontmatteru (`runtime_dopad: ne`) — fáze 5 se pak redukuje na commit (bez deploye) a fáze 6 na kompletní test run + typecheck místo E2E.
+**Řez bez runtime dopadu** (jen testy, tooling, dokumentace): zapiš to do PRD frontmatteru (`runtime_dopad: ne`) — fáze 5 se pak redukuje na commit (bez deploye) a fáze 6 na: kompletní test run + typecheck A nezávislý průchod akceptačních kritérií PRD **bod po bodu s verdiktem per kritérium** (verifikační agent v roli e2e-verifiera nad neběžícím povrchem: každé kritérium doloží konkrétním důkazem — výstupem příkazu, existencí a obsahem souboru — ne souhrnným „testy zelené").
 
 ## Fáze 5 — Commit + deploy
 
