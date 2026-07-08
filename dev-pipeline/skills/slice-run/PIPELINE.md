@@ -16,7 +16,8 @@ Změna procesu se dělá VÝHRADNĚ tady, ne v jednotlivých skill souborech.
 | `docs/handoff.md` | přepisovaný | Aktuální stav pro čerstvý kontext |
 | `docs/follow-ups.md` | append-only, **kontinuální napříč vizemi** | Nápady/resty mimo scope; vyřešené/převzaté se přeškrtávají; setup další vize přeškrtnuté přesune do archivu (živý soubor = jen otevřené) |
 | `docs/e2e/rez-NN.md` | per řez | E2E scénáře (akceptační kritéria v krocích) |
-| `docs/archive/<slug>/` | vzniká při startu další vize | Archiv předchozí vize: prd/, e2e/, journal.md |
+| `docs/zaverecna-zprava.md` | přepisovaný, per vize | Závěrečná zpráva finální fáze (co je hotové, rozhodnutí pro uživatele) |
+| `docs/archive/<slug>/` | vzniká při startu další vize | Archiv předchozí vize: prd/, e2e/, journal.md, zaverecna-zprava.md |
 | `docs/.vize-done` | marker | Vize naplněna, smyčka končí |
 | `docs/.orchestrator-run` | marker | Běží autonomní run (aktivuje deploy gate v hooku) |
 | `docs/.deploy-unlocked` | marker | Deploy povolen (vytváří fáze 5, maže fáze 7) |

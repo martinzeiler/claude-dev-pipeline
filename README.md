@@ -58,7 +58,7 @@ Příznak stale verze: session dostane při invokaci skillu starší obsah, než
    - **Smyčka řezů**: PRD (lazy rozsah z aktuálního stavu) → nezávislý prd-check → TDD implementace → lehké code-review → commit + deploy (s doloženým SUCCESS) → E2E verifikace (agent-browser) → uzavření (journal, handoff, follow-upy).
    - **Finální fáze**: plné review kolečko → vize-validator proti živé appce → mini-řezy z jeho nálezů → follow-ups sweep → notifikace + závěrečná zpráva.
 
-3. **Přečti závěrečnou zprávu**: co je hotové per řez, skipped řezy, sekce **Rozhodnutí pro tebe** (skutečné odchylky od vize s doporučením), sekce **Paměť a dokumentace** (co stojí za uložení). Detail v `docs/journal.md`.
+3. **Přečti závěrečnou zprávu** — je v session I v souboru `docs/zaverecna-zprava.md`: co je hotové per řez, skipped řezy, sekce **Rozhodnutí pro tebe** (skutečné odchylky od vize s doporučením), sekce **Paměť a dokumentace** (co stojí za uložení). Pořadí čtení po běhu: `docs/zaverecna-zprava.md` (souhrn + rozhodnutí) → `docs/follow-ups.md` (živé resty) → `docs/journal.md` (detail per řez, jen když tě něco zajímá).
 
 4. **Tvoje kontrola**: proklikej nasazenou aplikaci / otestuj, co vize slibuje. Případné opravy zadej téže orchestrátor session (nebo nové session s odkazem na journal).
 
@@ -101,7 +101,8 @@ Ve všech případech platí: stav běhu žije v souborech (handoff, journal, PR
 | `docs/handoff.md` | Přepisovaný aktuální stav (kotva pro čerstvé kontexty; po compactu ho hook re-injektuje) |
 | `docs/follow-ups.md` | Resty a nápady mimo scope |
 | `docs/e2e/rez-NN.md` | E2E scénáře řezu (akceptační kritéria v krocích) |
-| `docs/archive/<slug>/` | Archiv předchozí vize (prd/, e2e/, journal) — vytváří setup další vize |
+| `docs/zaverecna-zprava.md` | Závěrečná zpráva finální fáze (souhrn, rozhodnutí pro tebe) — přepisovaný per vize |
+| `docs/archive/<slug>/` | Archiv předchozí vize (prd/, e2e/, journal, zaverecna-zprava) — vytváří setup další vize |
 | `docs/.vize-done` | Marker: vize naplněna |
 | `docs/.orchestrator-run` | Marker: běží autonomní run (aktivuje deploy gate) |
 | `docs/.deploy-unlocked` | Marker: deploy povolen (po zeleném review+testech) |
