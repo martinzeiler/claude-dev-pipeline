@@ -17,10 +17,14 @@ block() {
 }
 
 # 1) Force-push je zakázán vždy (včetně --force-with-lease). Chce-li ho uživatel, udělá ho ručně.
-if printf '%s' "$cmd" | grep -Eq 'git([^|;&]*)push' \
-   && printf '%s' "$cmd" | grep -Eq '(--force|(^|[[:space:]])-f([[:space:]]|$))'; then
-  block "force-push je blokován. Pokud je opravdu potřeba, musí ho spustit uživatel ručně."
-fi
+# Kontrola per segment složeného příkazu — force flag musí být ve STEJNÉM segmentu jako git push
+# (jinak false positive: `git add -f x && git push` není force-push).
+while IFS= read -r seg; do
+  if printf '%s' "$seg" | grep -Eq 'git.*push' \
+     && printf '%s' "$seg" | grep -Eq '(--force|(^|[[:space:]])-f([[:space:]]|$))'; then
+    block "force-push je blokován. Pokud je opravdu potřeba, musí ho spustit uživatel ručně."
+  fi
+done < <(printf '%s\n' "$cmd" | tr '|;&' '\n')
 
 # 2) Destruktivní git na main/master větvi.
 if printf '%s' "$cmd" | grep -Eq 'git([^|;&]*)(reset[[:space:]]+--hard|clean[[:space:]]+-[a-zA-Z]*f)'; then
@@ -40,6 +44,10 @@ if printf '%s' "$cmd" | grep -Eq '(^|[[:space:]])rm[[:space:]]+(-[a-zA-Z]*r[a-zA
 fi
 
 # 4) Deploy gate během autonomního běhu: deploy jen po zeleném review+testech (marker .deploy-unlocked).
+# ZNÁMÉ OMEZENÍ: gate zná jen railway + wrangler pages. Projekt s jinou deploy platformou
+# (fly, vercel, kubectl, ...) gate NEchrání — přidej její příkaz do regexu níže.
+# POZOR na UX past: marker musí vzniknout SAMOSTATNÝM příkazem před deployem — hook čte
+# marker před spuštěním, takže `touch .deploy-unlocked && railway up` v jednom příkazu neprojde.
 if [ -n "$proj" ] && [ -f "$proj/docs/.orchestrator-run" ]; then
   if printf '%s' "$cmd" | grep -Eq '(railway[[:space:]]+up|wrangler[[:space:]]+pages[[:space:]]+deploy)'; then
     if [ ! -f "$proj/docs/.deploy-unlocked" ]; then

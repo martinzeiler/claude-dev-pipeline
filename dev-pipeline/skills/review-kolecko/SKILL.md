@@ -5,7 +5,9 @@ description: Plné závěrečné review kolečko nad diffem celé vize (git diff
 
 # Review kolečko — plný závěrečný audit
 
-Běží **jednou nad celkovým diffem vize** (per řez běží jen lehké review — to už proběhlo). Pořadí je záměrné: nejdřív struktura, pak zjednodušení, pak korektnost, nakonec bezpečnost — ať se correctness review nedělá nad kódem, který se ještě přestrukturuje.
+**Kontrola před startem:** tohle kolečko patří jen do finální fáze vize (invokoval tě orchestrátor) nebo nad větší sérii změn na explicitní žádost uživatele. Pokud ani jedno neplatí — byl jsi invokován omylem nad běžným diffem — zastav se a doporuč lehké `/code-review`.
+
+Běží **jednou nad celkovým diffem vize** (per řez běží jen lehké review — to už proběhlo). Pořadí je záměrné: nejdřív struktura, pak zjednodušení, pak korektnost, nakonec bezpečnost — ať se correctness review nedělá nad kódem, který se ještě přestrukturuje. Kola 3–6 záměrně běží i nad opravami předchozích kroků kolečka (thermo/simplify refaktory umí zavést vlastní bugy — correctness kola je chytají).
 
 Scope: `git diff main...HEAD` (jiný base jen pokud ho uživatel/orchestrátor předá).
 

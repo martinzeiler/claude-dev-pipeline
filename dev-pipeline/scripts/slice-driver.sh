@@ -22,7 +22,11 @@ DIR="$(pwd)"
 while [ $# -gt 0 ]; do
   case "$1" in
     --watch) MODE="watch"; shift ;;
-    --max) MAX="$2"; shift 2 ;;
+    --max)
+      if [ $# -lt 2 ] || ! printf '%s' "$2" | grep -Eq '^[0-9]+$'; then
+        echo "--max vyžaduje číselnou hodnotu (např. --max 10)"; exit 1
+      fi
+      MAX="$2"; shift 2 ;;
     *) DIR="$1"; shift ;;
   esac
 done
@@ -33,6 +37,12 @@ mkdir -p docs
 notify() {
   osascript -e "display notification \"$1\" with title \"dev-pipeline\"" 2>/dev/null || true
 }
+
+# Usage limit v headless režimu: claude -p skončí exit 1 s hláškou "usage limit reached ...
+# resets at <čas>". Čas resetu nejde spolehlivě strojově parsovat (plain text) → čekej
+# v půlhodinových krocích a zkoušej znovu; limit-retry NEspotřebovává iterace (stav řezů
+# žije v souborech, opakované spuštění slice-run je bezpečné — naváže na in_progress PRD).
+LIMIT_PATTERN='usage limit reached|limit will reset'
 
 i=0
 while [ "$i" -lt "$MAX" ]; do
@@ -45,7 +55,14 @@ while [ "$i" -lt "$MAX" ]; do
   if [ "$MODE" = "watch" ]; then
     claude "/dev-pipeline:slice-run"
   else
-    claude -p "/dev-pipeline:slice-run" --dangerously-skip-permissions --verbose 2>&1 | tee -a docs/driver.log
+    out=$(claude -p "/dev-pipeline:slice-run" --dangerously-skip-permissions --verbose 2>&1)
+    printf '%s\n' "$out" | tee -a docs/driver.log
+    if printf '%s' "$out" | grep -Eqi "$LIMIT_PATTERN"; then
+      i=$((i - 1))
+      notify "Usage limit — driver čeká 30 min a zkusí to znovu."
+      echo "── Usage limit ($(date '+%H:%M')) — čekám 30 min, iterace se nepočítá."
+      sleep 1800
+    fi
   fi
 done
 

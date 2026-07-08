@@ -37,7 +37,7 @@ Directory-source marketplace se při registraci **kopíruje do cache** — edita
 /plugin marketplace update claude-dev-pipeline
 ```
 
-a pak novou session (případně `/reload-plugins` v běžící). Při aktivním vývoji pluginu je jednodušší spouštět session s živým čtením bez cache:
+nebo neinteraktivně z terminálu: `claude plugin marketplace update claude-dev-pipeline`. Pak novou session (případně `/reload-plugins` v běžící). Při aktivním vývoji pluginu je jednodušší spouštět session s živým čtením bez cache:
 
 ```bash
 claude --plugin-dir ~/claude-dev-pipeline/dev-pipeline
@@ -47,7 +47,7 @@ Příznak stale verze: session dostane při invokaci skillu starší obsah, než
 
 ## Workflow
 
-1. **`/vize`** — několikahodinová debatní session: grilování otázkami (vyjasňovací + proaktivní), deep research, na závěr kontrola čerstvýma očima. Výstup `docs/vize/<slug>.md` včetně nezávazné osnovy řezů. **Tohle je jediný schvalovací bod.**
+1. **`/vize`** — debatní session (délka podle rozsahu): fact-finding průzkum, grilování otázkami (vyjasňovací + proaktivní), na závěr kontrola čerstvýma očima; deep research jen na vyžádání. Výstup `docs/vize/<slug>.md` včetně nezávazné osnovy řezů, commitnutý. **Tohle je jediný schvalovací bod.**
 2. **`/dev-pipeline:orchestrate`** — v nové session. Orchestrátor drží jen souhrny; každou fázi každého řezu dělá subagent s čerstvým kontextem: PRD (rozsah řezu se určuje lazy z aktuálního stavu, ne z osnovy) → plan-check → TDD implementace → lehké code-review → commit + deploy → E2E verifikace (agent-browser) → uzavření (journal, handoff, status). Po naplnění vize: plné review kolečko, vize-validator, mini-řezy z jeho nálezů, notifikace.
 3. Hotovo. Závěrečná zpráva obsahuje i sekci **Rozhodnutí pro tebe** (jen skutečné odchylky od vize) a odkaz na deník.
 
@@ -58,7 +58,23 @@ Příznak stale verze: session dostane při invokaci skillu starší obsah, než
 ~/claude-dev-pipeline/dev-pipeline/scripts/slice-driver.sh           # headless, spusť a odejdi
 ```
 
-Stejný souborový kontrakt, každý řez = nová session. Po dokončení: `claude "/dev-pipeline:orchestrate final"`.
+Stejný souborový kontrakt, každý řez = nová session. Po dokončení: `claude "/dev-pipeline:orchestrate final"`. Headless režim usage limit přežije sám (detekce hlášky → 30min čekání → retry, iterace se nepočítá).
+
+### Usage limity při dlouhém běhu
+
+Claude Code nemá auto-resume po usage limitu. Pipeline to řeší třemi vrstvami:
+
+1. **Subagent umře na limit** → chybu vidí orchestrátor a řeší ji sám (TaskStop + resume; nepočítá se jako pokus řezu — viz failure policy v PIPELINE.md).
+2. **Orchestrátor session sama narazí na limit** → stojí, dokud jí někdo nenapíše. Na dlouhé běhy „spusť a odejdi" proto orchestrátor spouštěj v tmuxu a vedle nech běžet watcher, který po resetu pošle „pokračuj":
+
+```bash
+tmux new -s pipeline          # v něm: claude → /dev-pipeline:orchestrate ...
+~/claude-dev-pipeline/dev-pipeline/scripts/limit-watcher.sh   # druhý terminál
+```
+
+3. **Ralph driver (headless)** má retry vestavěný.
+
+Ve všech případech platí: stav běhu žije v souborech (handoff, journal, PRD statusy), takže přerušení kdekoli je bezpečné — nejhorší scénář je čekání, nikdy ztráta práce.
 
 ## Souborový kontrakt (v repu cílového projektu)
 
@@ -86,6 +102,6 @@ Kanonická definice fází: `dev-pipeline/skills/slice-run/PIPELINE.md` — **pr
 
 - Review: per řez jen lehké (code-review medium); plné kolečko (thermo-nuclear → /simplify → 2× code-review → 2× security-review) jednou na konci vize.
 - TDD červená → zelená: test/E2E scénář vzniká před implementací a musí nejdřív selhat ze správného důvodu.
-- Zaseknutý řez: 3 pokusy → `skipped` + poctivý záznam; vyhodnotí validátor na konci.
+- Zaseknutý řez: 3 **funkční** neúspěchy → `skipped` + poctivý záznam; vyhodnotí validátor na konci. Infra smrt agenta (limit, API error) se nepočítá — řeší se resume.
 - Git: všechno na `vize/<slug>` branchi; merge do main dělá uživatel po vlastním otestování. Deploy target per projekt (sekce Deploy v CLAUDE.md projektu; staging = přepnutí configu, promotion = deploy téhož commitu).
 - Autonomní běh se nikdy neptá uživatele; odchylky žurnaluje, rozhodnutí eskaluje až validátor v závěrečném reportu.

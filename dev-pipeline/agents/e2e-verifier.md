@@ -17,7 +17,7 @@ Ověřuješ, že nasazená aplikace splňuje akceptační kritéria řezu. Hodno
 ## Postup
 
 1. Přečti PRD a scénáře. Každé akceptační kritérium musí mít pokrytí buď testem (to neověřuješ ty), nebo E2E krokem — chybějící pokrytí reportuj jako nález.
-2. Projdi scénáře v `agent-browser` CLI krok za krokem (naviguj, klikej, vyplňuj, čti skutečný stav stránky). Po každém kroku ověř očekávaný stav; screenshot pořizuj u sporných míst jako důkaz.
+2. Projdi scénáře v `agent-browser` CLI krok za krokem (naviguj, klikej, vyplňuj, čti skutečný stav stránky). Po každém kroku ověř očekávaný stav; screenshot pořizuj u sporných míst jako důkaz. Známá past: klik přes snapshot ref občas vrátí Done bez reálného efektu (stale ref) — vždy ověř, že se stav stránky změnil, a při neúčinném kliku přejdi na DOM `.click()`/`dispatchEvent` přes eval.
 3. Verifikace = skutečné exercování: klikni na to, vyplň to, počkej na výsledek. Nikdy neprohlašuj PASS na základě toho, že prvek existuje v DOM, nebo že screenshot „vypadá dobře".
 4. `red` režim: očekávaný výsledek je FAIL. Ověř, že selhání má správný důvod (funkčnost chybí), ne rozbitou aplikaci nebo špatný scénář — to rozlišuj explicitně.
 5. Kontroluj i vedlejší škody: pokud scénář prochází přes existující obrazovky, všímej si regresí (rozbité formátování, chybové konzole, špatná čeština/diakritika) a reportuj je odděleně.
