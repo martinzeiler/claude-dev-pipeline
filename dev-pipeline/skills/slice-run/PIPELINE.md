@@ -14,7 +14,7 @@ Změna procesu se dělá VÝHRADNĚ tady, ne v jednotlivých skill souborech.
 | `docs/prd/rez-NN-<slug>.md` | 1 soubor per řez, vzniká lazy | PRD řezu, frontmatter níže |
 | `docs/journal.md` | append-only, per vize | Deník: co, odchylky, rozhodnutí, pokusy |
 | `docs/handoff.md` | přepisovaný | Aktuální stav pro čerstvý kontext |
-| `docs/follow-ups.md` | append-only, **kontinuální napříč vizemi** | Nápady/resty mimo scope; vyřešené/převzaté se přeškrtávají, soubor se nikdy nearchivuje |
+| `docs/follow-ups.md` | append-only, **kontinuální napříč vizemi** | Nápady/resty mimo scope; vyřešené/převzaté se přeškrtávají; setup další vize přeškrtnuté přesune do archivu (živý soubor = jen otevřené) |
 | `docs/e2e/rez-NN.md` | per řez | E2E scénáře (akceptační kritéria v krocích) |
 | `docs/archive/<slug>/` | vzniká při startu další vize | Archiv předchozí vize: prd/, e2e/, journal.md |
 | `docs/.vize-done` | marker | Vize naplněna, smyčka končí |

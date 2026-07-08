@@ -55,7 +55,7 @@ Příznak stale verze: session dostane při invokaci skillu starší obsah, než
 
 ### Mezi vizemi (lifecycle stavových souborů)
 
-Po dokončení vize: otestuj branch, mergni do main, smaž vize branch — **nic v `docs/` ruční nemažeš**. Setup další vize sám archivuje `prd/`, `e2e/` a `journal.md` předchozí vize do `docs/archive/<slug>/` a smaže stale markery. `docs/follow-ups.md` je kontinuální backlog napříč vizemi: vyřešené položky se přeškrtávají (per řez i závěrečným sweepem), položky převzaté do nové vize přeškrtne /vize session s `PŘEVZATO do vize <slug>`. Novou vizi začínej až po merge té předchozí (branch nové vize vzniká z main).
+Po dokončení vize: otestuj branch, mergni do main, smaž vize branch — **nic v `docs/` ručně nemažeš**. Setup další vize sám archivuje `prd/`, `e2e/` a `journal.md` předchozí vize do `docs/archive/<slug>/` a smaže stale markery. `docs/follow-ups.md` je kontinuální backlog napříč vizemi: vyřešené položky se přeškrtávají (per řez i závěrečným sweepem), položky převzaté do nové vize přeškrtne /vize session s `PŘEVZATO do vize <slug>`; setup další vize pak přeškrtnuté přesune do `docs/archive/<slug>/follow-ups-uzavrene.md`, takže živý soubor drží jen otevřené položky a neroste donekonečna. Novou vizi začínej až po merge té předchozí (branch nové vize vzniká z main).
 
 ### Fallback: Ralph driver (bez orchestrátor session)
 
