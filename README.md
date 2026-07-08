@@ -39,6 +39,8 @@ Directory-source marketplace se při registraci **kopíruje do cache** — edita
 
 nebo neinteraktivně z terminálu: `claude plugin marketplace update claude-dev-pipeline`. Pak novou session (případně `/reload-plugins` v běžící). Při aktivním vývoji pluginu je jednodušší spouštět session s živým čtením bez cache:
 
+**POZOR na verzi:** updater porovnává `version` v `plugin.json` — při stejné verzi hlásí „already at latest" a obsah cache NEobnoví (známý bug). Proto **každá změna pluginu = bump verze v `dev-pipeline/.claude-plugin/plugin.json`** (pak stačí `claude plugin update dev-pipeline@claude-dev-pipeline`). Nouzový workaround bez bumpu: `claude plugin uninstall dev-pipeline@claude-dev-pipeline && claude plugin install dev-pipeline@claude-dev-pipeline`.
+
 ```bash
 claude --plugin-dir ~/claude-dev-pipeline/dev-pipeline
 ```

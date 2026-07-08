@@ -1,7 +1,7 @@
 {
   "name": "dev-pipeline",
   "description": "Osobní vývojová pipeline: /vize (debatní session nad vizí), /orchestrate (autonomní implementace po řezech přes subagenty), /slice-run (jeden řez pro fallback driver), /review-kolecko (plný závěrečný audit). Agenti: plan-check, thermo-nuclear-review, e2e-verifier, vize-validator. Hooky: blast-radius guard + handoff re-injekce po compactu.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Martin Zeiler",
     "email": "claude2@zeiler.cz"
