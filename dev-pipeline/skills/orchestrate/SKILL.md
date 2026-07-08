@@ -42,9 +42,10 @@ Mezi řezy napiš uživateli 1–3 řádky průběhu (řez NN hotový/skipped, c
 1. Invokuj skill `/dev-pipeline:review-kolecko` (plné kolečko nad `git diff main...HEAD`; opravy dělá samo). Po jeho skončení ověř, že vznikl `docs/.review-passed` — bez něj kolečko nedoběhlo a nesmíš pokračovat dál.
 2. Spusť subagenta `dev-pipeline:vize-validator` (předej cesty: vize, prd/, journal, follow-ups + jak se dostat do běžící appky).
 3. Sekci „DODĚLAT AUTOMATICKY" z jeho reportu zpracuj jako mini-řezy hlavní smyčkou — **bez pevného stropu počtu**: pokračuj, dokud jsou položky malé a jednoznačné (zjevné chyby, UX dotažení, věci rozhodnutelné bez uživatele). Pojistky místo stropu: mini-řez, který napoprvé neprojde testy/E2E, jde rovnou do follow-ups (žádná 3 opakování — u dotažení se neurputňuj); položka velká jako samostatná vize nebo vyžadující rozhodnutí uživatele patří do follow-ups / sekce B, ne do smyčky.
-4. Smaž `docs/.orchestrator-run` a `docs/.review-passed` (konzumované markery). Závěrečný commit, pokud něco zbývá.
-5. Notifikace uživateli: PushNotification tool, pokud je k dispozici; jinak `osascript -e 'display notification "Vize <slug> hotová" with title "dev-pipeline"'`.
-6. Závěrečná zpráva: co je hotové (per řez, 1 řádek), skipped řezy + doporučení validátora, **ROZHODNUTÍ PRO TEBE** sekce z validátora (jen skutečné odchylky od vize, s doporučením), odkaz na journal. Přidej sekci **PAMĚŤ A DOKUMENTACE**: z journalu vytáhni poznatky, které přesahují tuto vizi (nové pasti projektu, změněné konvence, rozhodnutí s trvalou platností), a navrhni uživateli, co z nich uložit do paměti/CLAUDE.md — sám mimo mandát nezapisuj.
+4. **Follow-ups sweep:** spusť krátkého subagenta, který projde `docs/follow-ups.md` a položky vyřešené během běhu (review-kolečkem, validátorovými dodělávkami, mini-řezy) přeškrtne s `VYŘEŠENO <datum>: <čím>` — každé odškrtnutí ověří proti kódu/aplikaci, ne podle journalu. Nevyřešené položky nech beze změny — do nové vize se nesou jen živé resty.
+5. Smaž `docs/.orchestrator-run` a `docs/.review-passed` (konzumované markery). Závěrečný commit, pokud něco zbývá.
+6. Notifikace uživateli: PushNotification tool, pokud je k dispozici; jinak `osascript -e 'display notification "Vize <slug> hotová" with title "dev-pipeline"'`.
+7. Závěrečná zpráva: co je hotové (per řez, 1 řádek), skipped řezy + doporučení validátora, **ROZHODNUTÍ PRO TEBE** sekce z validátora (jen skutečné odchylky od vize, s doporučením), odkaz na journal. Přidej sekci **PAMĚŤ A DOKUMENTACE**: z journalu vytáhni poznatky, které přesahují tuto vizi (nové pasti projektu, změněné konvence, rozhodnutí s trvalou platností), a navrhni uživateli, co z nich uložit do paměti/CLAUDE.md — sám mimo mandát nezapisuj.
 
 ## Disciplína kontextu (kritické)
 
