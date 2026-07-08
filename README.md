@@ -53,6 +53,10 @@ Příznak stale verze: session dostane při invokaci skillu starší obsah, než
 2. **`/dev-pipeline:orchestrate`** — v nové session. Orchestrátor drží jen souhrny; každou fázi každého řezu dělá subagent s čerstvým kontextem: PRD (rozsah řezu se určuje lazy z aktuálního stavu, ne z osnovy) → plan-check → TDD implementace → lehké code-review → commit + deploy → E2E verifikace (agent-browser) → uzavření (journal, handoff, status). Po naplnění vize: plné review kolečko, vize-validator, mini-řezy z jeho nálezů, notifikace.
 3. Hotovo. Závěrečná zpráva obsahuje i sekci **Rozhodnutí pro tebe** (jen skutečné odchylky od vize) a odkaz na deník.
 
+### Mezi vizemi (lifecycle stavových souborů)
+
+Po dokončení vize: otestuj branch, mergni do main, smaž vize branch — **nic v `docs/` ruční nemažeš**. Setup další vize sám archivuje `prd/`, `e2e/` a `journal.md` předchozí vize do `docs/archive/<slug>/` a smaže stale markery. `docs/follow-ups.md` je kontinuální backlog napříč vizemi: vyřešené položky se přeškrtávají (per řez i závěrečným sweepem), položky převzaté do nové vize přeškrtne /vize session s `PŘEVZATO do vize <slug>`. Novou vizi začínej až po merge té předchozí (branch nové vize vzniká z main).
+
 ### Fallback: Ralph driver (bez orchestrátor session)
 
 ```bash
@@ -88,6 +92,7 @@ Ve všech případech platí: stav běhu žije v souborech (handoff, journal, PR
 | `docs/handoff.md` | Přepisovaný aktuální stav (kotva pro čerstvé kontexty; po compactu ho hook re-injektuje) |
 | `docs/follow-ups.md` | Resty a nápady mimo scope |
 | `docs/e2e/rez-NN.md` | E2E scénáře řezu (akceptační kritéria v krocích) |
+| `docs/archive/<slug>/` | Archiv předchozí vize (prd/, e2e/, journal) — vytváří setup další vize |
 | `docs/.vize-done` | Marker: vize naplněna |
 | `docs/.orchestrator-run` | Marker: běží autonomní run (aktivuje deploy gate) |
 | `docs/.deploy-unlocked` | Marker: deploy povolen (po zeleném review+testech) |

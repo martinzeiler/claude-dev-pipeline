@@ -12,10 +12,11 @@ Změna procesu se dělá VÝHRADNĚ tady, ne v jednotlivých skill souborech.
 |---|---|---|
 | `docs/vize/<slug>.md` | read-only pro pipeline | Vize + nezávazná osnova řezů |
 | `docs/prd/rez-NN-<slug>.md` | 1 soubor per řez, vzniká lazy | PRD řezu, frontmatter níže |
-| `docs/journal.md` | append-only | Deník: co, odchylky, rozhodnutí, pokusy |
+| `docs/journal.md` | append-only, per vize | Deník: co, odchylky, rozhodnutí, pokusy |
 | `docs/handoff.md` | přepisovaný | Aktuální stav pro čerstvý kontext |
-| `docs/follow-ups.md` | append-only | Nápady/resty mimo scope aktuálního řezu |
+| `docs/follow-ups.md` | append-only, **kontinuální napříč vizemi** | Nápady/resty mimo scope; vyřešené/převzaté se přeškrtávají, soubor se nikdy nearchivuje |
 | `docs/e2e/rez-NN.md` | per řez | E2E scénáře (akceptační kritéria v krocích) |
+| `docs/archive/<slug>/` | vzniká při startu další vize | Archiv předchozí vize: prd/, e2e/, journal.md |
 | `docs/.vize-done` | marker | Vize naplněna, smyčka končí |
 | `docs/.orchestrator-run` | marker | Běží autonomní run (aktivuje deploy gate v hooku) |
 | `docs/.deploy-unlocked` | marker | Deploy povolen (vytváří fáze 5, maže fáze 7) |
