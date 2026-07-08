@@ -47,15 +47,24 @@ claude --plugin-dir ~/claude-dev-pipeline/dev-pipeline
 
 Příznak stale verze: session dostane při invokaci skillu starší obsah, než je na disku, nebo nezná nově přidané agenty (`dev-pipeline:*`).
 
-## Workflow
+## Workflow — celý cyklus jedné vize
 
-1. **`/vize`** — debatní session (délka podle rozsahu): fact-finding průzkum, grilování otázkami (vyjasňovací + proaktivní), na závěr kontrola čerstvýma očima; deep research jen na vyžádání. Výstup `docs/vize/<slug>.md` včetně nezávazné osnovy řezů, commitnutý. **Tohle je jediný schvalovací bod.**
-2. **`/dev-pipeline:orchestrate`** — v nové session. Orchestrátor drží jen souhrny; každou fázi každého řezu dělá subagent s čerstvým kontextem: PRD (rozsah řezu se určuje lazy z aktuálního stavu, ne z osnovy) → plan-check → TDD implementace → lehké code-review → commit + deploy → E2E verifikace (agent-browser) → uzavření (journal, handoff, status). Po naplnění vize: plné review kolečko, vize-validator, mini-řezy z jeho nálezů, notifikace.
-3. Hotovo. Závěrečná zpráva obsahuje i sekci **Rozhodnutí pro tebe** (jen skutečné odchylky od vize) a odkaz na deník.
+**Tvoje kroky jsou jen 1, 4 a 5. Zbytek běží sám.**
 
-### Mezi vizemi (lifecycle stavových souborů)
+1. **`/vize`** (interaktivní — jediný schvalovací bod). Debatní session, délka podle rozsahu: fact-finding průzkum, grilování otázkami s doporučeními, na závěr kontrola čerstvýma očima; deep research jen na vyžádání. Vstupem může být i backlog `docs/follow-ups.md` — session živé položky probere a roztřídí (převzaté do vize přeškrtne s `PŘEVZATO`, zamítnuté s důvodem). Výstup: `docs/vize/<slug>.md` commitnutý. Spouštěj na main, **až po merge předchozí vize** (branch nové vize vzniká z main).
 
-Po dokončení vize: otestuj branch, mergni do main, smaž vize branch — **nic v `docs/` ručně nemažeš**. Setup další vize sám archivuje `prd/`, `e2e/` a `journal.md` předchozí vize do `docs/archive/<slug>/` a smaže stale markery. `docs/follow-ups.md` je kontinuální backlog napříč vizemi: vyřešené položky se přeškrtávají (per řez i závěrečným sweepem), položky převzaté do nové vize přeškrtne /vize session s `PŘEVZATO do vize <slug>`; setup další vize pak přeškrtnuté přesune do `docs/archive/<slug>/follow-ups-uzavrene.md`, takže živý soubor drží jen otevřené položky a neroste donekonečna. Novou vizi začínej až po merge té předchozí (branch nové vize vzniká z main).
+2. **`/dev-pipeline:orchestrate`** — v nové session; na dlouhý běh „spusť a odejdi" v tmuxu s limit-watcherem (viz Usage limity). Co proběhne samo:
+   - **Setup**: branch `vize/<slug>`; archivace předchozí vize (`prd/`, `e2e/`, `journal.md` → `docs/archive/<starý-slug>/`), kompakce follow-ups (přeškrtnuté → archiv, živý soubor = jen otevřené), smazání stale markerů; pre-flight check projektu (testy/deploy/přístup do appky). **Nic z toho neděláš ručně.**
+   - **Smyčka řezů**: PRD (lazy rozsah z aktuálního stavu) → nezávislý prd-check → TDD implementace → lehké code-review → commit + deploy (s doloženým SUCCESS) → E2E verifikace (agent-browser) → uzavření (journal, handoff, follow-upy).
+   - **Finální fáze**: plné review kolečko → vize-validator proti živé appce → mini-řezy z jeho nálezů → follow-ups sweep → notifikace + závěrečná zpráva.
+
+3. **Přečti závěrečnou zprávu**: co je hotové per řez, skipped řezy, sekce **Rozhodnutí pro tebe** (skutečné odchylky od vize s doporučením), sekce **Paměť a dokumentace** (co stojí za uložení). Detail v `docs/journal.md`.
+
+4. **Tvoje kontrola**: proklikej nasazenou aplikaci / otestuj, co vize slibuje. Případné opravy zadej téže orchestrátor session (nebo nové session s odkazem na journal).
+
+5. **Merge do main — děláš ty, až po kontrole** (nebo na tvůj pokyn Claude: „mergni vizi do main" = checkout main → merge → push na GitHub → `git branch -d vize/<slug>`). Autonomní běh na main NIKDY nesahá. Po merge je cyklus uzavřený a můžeš od kroku 1 začít další vizi.
+
+**Nikdy ručně nemažeš nic v `docs/`** — archivaci i kompakci dělá setup další vize; `docs/follow-ups.md` je kontinuální backlog napříč vizemi a díky kompakci neroste donekonečna.
 
 ### Fallback: Ralph driver (bez orchestrátor session)
 
