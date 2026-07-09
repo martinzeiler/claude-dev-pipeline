@@ -55,12 +55,15 @@ Spusť subagenta `dev-pipeline:prd-check` nad čerstvým PRD (předej cesty k PR
 
 1. **Červená napřed:** pro každé akceptační kritérium s testovatelným povrchem napiš nejdřív test (vitest, pokud projekt harness má) a ověř, že selhává ze správného důvodu (chybějící funkčnost, ne syntax error). U kritérií pokrytých jen E2E ověř červenou přes agenta `dev-pipeline:e2e-verifier` (scénář z `docs/e2e/` proti běžící appce PŘED implementací), pokud to dává smysl (u zcela nové obrazovky netřeba).
 2. Implementuj podle PRD. Řiď se CLAUDE.md cílového projektu (konvence, pasti, helpers) — má přednost před obecnými zvyky. Soubory >500 LOC edituj přes Serena symbol tools, pokud je projekt má nakonfigurované.
-3. Testy do zelené. Typecheck projektu musí projít.
+3. **Nová/neznámá verze knihovny** (major upgrade, API novější než tvá znalost): načti si aktuální dokumentaci PŘED implementací. context7 MCP je dostupný i subagentům — tooly jsou jen deferred: nejdřív je načti přes ToolSearch (`select:mcp__plugin_context7_context7__resolve-library-id,mcp__plugin_context7_context7__query-docs`), pak je volej normálně; „tool neexistuje" bez předchozího ToolSearch NENÍ důkaz nedostupnosti. Když context7 v prostředí opravdu není, použij WebFetch na oficiální release notes / migration guide. Major upgrade nikdy naslepo z trénovacích dat.
+4. Testy do zelené. Typecheck projektu musí projít.
 
 ## Fáze 4 — Lehké review + opravy
 
 1. Spusť `/code-review` (medium effort) nad aktuálním diffem. Oprav všechny CONFIRMED nálezy; PLAUSIBLE posuď a rozhodnutí zapiš do journalu.
 2. Znovu typecheck + testy.
+
+**Bezpečnostní nález = oprav hned:** potvrzená security chyba (org isolation, auth, únik tokenů/credentials) se opravuje okamžitě v aktuální fázi, i když je pre-existing a mimo scope řezu — samostatný commit `fix(security): …` + záznam do journalu. Neodkládá se do follow-ups a nečeká na schválení uživatele; do follow-ups smí jen sporný nález bez jasného fixu (se zdůvodněním).
 
 (Plné kolečko — thermo-nuclear, /simplify, 2× code-review, 2× security — běží až JEDNOU na konci celé vize, ne per řez.)
 

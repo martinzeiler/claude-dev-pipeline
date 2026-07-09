@@ -24,5 +24,6 @@ Scope: `git diff main...HEAD` (jiný base jen pokud ho uživatel/orchestrátor p
 ## Pravidla
 
 - Nikdy nepřeskakuj kolo, protože „minulé nic nenašlo".
+- **Security nálezy se opravují hned**, i pre-existing mimo diff vize: potvrzená bezpečnostní chyba (org isolation, auth, únik tokenů) nikdy nečeká na schválení uživatele ani nejde do follow-ups — samostatný commit `fix(security): …` + záznam do journalu. Follow-up je přípustný jen u sporného nálezu bez jasného fixu. U multi-tenant projektů audituj i child tabulky bez vlastního org_id sloupce (izolace přes join chain na parent).
 - Oprava nálezu nesmí obejít podstatu (žádné suppress/ignore/quick fix) — pokud je nález sporný, radši ho zapiš jako vědomé rozhodnutí do journalu, než ho zamaskovat.
 - Držení kontextu: reporty konzumuj, oprav, zahoď — nenos celé reporty dál.
