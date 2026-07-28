@@ -26,6 +26,7 @@ Scope: `git diff main...HEAD` (jiný base jen pokud ho uživatel/orchestrátor p
 ## Pravidla
 
 - Nikdy nepřeskakuj kolo, protože „minulé nic nenašlo".
+- **Když invokace skillu selže** (`simplify`, `security-review` — typicky hláška `cannot be used with Skill tool due to disable-model-invocation`, Anthropic tenhle příznak mezi verzemi mění): kolo nepřeskakuj ani ho tiše nenahrazuj vlastním průchodem v téhle session. Postup je vždy stejný: (1) proveď náhradní průchod v general-purpose subagentovi s explicitním zadáním, co má hledat, (2) zapiš záznam typu `SELHALO` do `~/.claude/dev-pipeline-feedback.md` (formát v PIPELINE.md, sekce Zpětná vazba na pipeline) s názvem skillu a náhradou, (3) uveď to v souhrnu kolečka do journalu. Tichá ruční náhrada je nejhorší varianta — vypadá jako úspěch a kvalita kola přitom spadne na improvizaci.
 - **Security nálezy se opravují hned**, i pre-existing mimo diff vize: potvrzená bezpečnostní chyba (org isolation, auth, únik tokenů) nikdy nečeká na schválení uživatele ani nejde do follow-ups — samostatný commit `fix(security): …` + záznam do journalu. Follow-up je přípustný jen u sporného nálezu bez jasného fixu. U multi-tenant projektů audituj i child tabulky bez vlastního org_id sloupce (izolace přes join chain na parent).
 - Oprava nálezu nesmí obejít podstatu (žádné suppress/ignore/quick fix) — pokud je nález sporný, radši ho zapiš jako vědomé rozhodnutí do journalu, než ho zamaskovat.
 - Držení kontextu: reporty konzumuj, oprav, zahoď — nenos celé reporty dál.

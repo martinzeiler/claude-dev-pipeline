@@ -36,6 +36,22 @@ runtime_dopad: ano    # ne = řez bez runtime dopadu (jen testy/tooling/dokument
 ---
 ```
 
+## Zpětná vazba na pipeline (globální soubor mimo repo projektu)
+
+`~/.claude/dev-pipeline-feedback.md` — append-only, vzniká lazy při prvním záznamu. Patří sem všechno, co je vada nebo brzda **pipeline samotné**: krok, který selhal a musel se obejít, fáze, která trvala nesmyslně dlouho, instrukce, která se ukázala jako nejednoznačná, nástroj, který přestal fungovat. Resty projektu zůstávají v `docs/follow-ups.md` — nemíchej to; tenhle soubor čte údržba pluginu, ne vývoj projektu, a musí přežít i jeho reinstalaci (proto leží mimo plugin i mimo projekt).
+
+```markdown
+## <YYYY-MM-DD> | <projekt> | <fáze nebo krok>
+**Typ:** SELHALO | POMALÉ | NEJASNÉ | ZLEPŠENÍ
+**Co se stalo:** <konkrétně, včetně chybové hlášky, když nějaká byla>
+**Jak se to obešlo:** <co proběhlo místo toho, nebo „nic, krok vypadl">
+**Návrh:** <co by to vyřešilo natrvalo; když nevíš, napiš to>
+```
+
+Nikdy nepřepisuj cizí záznamy, jen připoj vlastní na konec. Zapisuje ten, kdo drží stav běhu (orchestrátor při uzavření řezu ze souhrnů subagentů, v single-session režimu ty sám); subagent problém hlásí ve svém výstupu, sám nezapisuje.
+
+**Vždy zapiš, když selhala invokace skillu.** Typicky `Skill <name> cannot be used with Skill tool due to disable-model-invocation` — Anthropic tenhle příznak u vestavěných skillů mění mezi verzemi a bez záznamu se to projeví jen jako tiché zhoršení kvality kroku. Uveď název skillu a čím jsi ho nahradil.
+
 **Hranice fází (závazné pro všechny agenty):** každý agent vykonává VÝHRADNĚ fázi, kterou dostal v zadání — nikdy si sám nespouští fázi následující ani kontrolní, i kdyby to vypadalo efektivně (kontrola ztrácí nezávislost, když si ji spustí kontrolovaný). Záznamy v journalu typu „rozhodnutí orchestrátora" jsou jednorázové výjimky pro danou situaci, ne precedenty — agent je z vlastní iniciativy nereplikuje.
 
 ## Fáze 1 — Výběr a PRD řezu

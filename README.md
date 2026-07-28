@@ -107,6 +107,7 @@ Ve všech případech platí: stav běhu žije v souborech (handoff, journal, PR
 | `docs/.orchestrator-run` | Marker: běží autonomní run (aktivuje deploy gate) |
 | `docs/.deploy-unlocked` | Marker: deploy povolen (po zeleném review+testech) |
 | `docs/.review-passed` | Marker: plné kolečko prošlo |
+| `~/.claude/dev-pipeline-feedback.md` | **Globální, mimo repo projektu i pluginu** (přežije reinstalaci). Append-only deník vad a brzd pipeline samotné: co selhalo a muselo se obejít, co trvalo nesmyslně dlouho, kde je instrukce nejednoznačná. Zapisuje orchestrátor při uzavření řezu a review-kolečko při selhání kroku; závěrečná zpráva to shrne v sekci **Pipeline**. Čti ho, když se chystáš plugin vylepšovat — resty projektu tu nemají co dělat, ty patří do `docs/follow-ups.md`. |
 
 Kanonická definice fází: `dev-pipeline/skills/slice-run/PIPELINE.md` — **proces se mění jen tam**.
 
