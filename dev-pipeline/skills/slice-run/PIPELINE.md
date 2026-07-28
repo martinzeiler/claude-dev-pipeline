@@ -60,12 +60,16 @@ Spusť subagenta `dev-pipeline:prd-check` nad čerstvým PRD (předej cesty k PR
 
 ## Fáze 4 — Lehké review + opravy
 
-1. Spusť `/code-review` (medium effort) nad aktuálním diffem. Oprav všechny CONFIRMED nálezy; PLAUSIBLE posuď a rozhodnutí zapiš do journalu.
+1. Spusť subagenta `dev-pipeline:code-review` (effort `medium`) nad aktuální rozpracovanou změnou — diff si posbírá sám včetně netrackovaných souborů. Oprav všechny CONFIRMED nálezy; PLAUSIBLE posuď a rozhodnutí zapiš do journalu.
 2. Znovu typecheck + testy.
+
+**Nikdy neinvokuj skill `code-review`** (ani `/code-review`): má `disable-model-invocation: true`, takže ho žádný model přes Skill tool nespustí a improvizovaná náhrada dělá review pokaždé jinak hluboko. Agent `dev-pipeline:code-review` je jeho definovaná náhrada.
+
+**Když subagent typ `dev-pipeline:code-review` neexistuje** (session nastartovala před jeho přidáním — registr agentů se čte při startu, na rozdíl od těchhle souborů): spusť general-purpose subagenta a předej mu absolutní cestu k `agents/code-review.md` téhož pluginu (sourozenec `skills/` vedle tohohle souboru) s pokynem řídit se jím doslova. Review nikdy nedělej vlastní improvizovanou metodikou.
 
 **Bezpečnostní nález = oprav hned:** potvrzená security chyba (org isolation, auth, únik tokenů/credentials) se opravuje okamžitě v aktuální fázi, i když je pre-existing a mimo scope řezu — samostatný commit `fix(security): …` + záznam do journalu. Neodkládá se do follow-ups a nečeká na schválení uživatele; do follow-ups smí jen sporný nález bez jasného fixu (se zdůvodněním).
 
-(Plné kolečko — thermo-nuclear, /simplify, 2× code-review, 2× security — běží až JEDNOU na konci celé vize, ne per řez.)
+(Plné kolečko — thermo-nuclear, simplify, 2× code-review, 2× security — běží až JEDNOU na konci celé vize, ne per řez.)
 
 **Řez bez runtime dopadu** (jen testy, tooling, dokumentace): zapiš to do PRD frontmatteru (`runtime_dopad: ne`) — fáze 5 se pak redukuje na commit (bez deploye; commit smí udělat orchestrátor sám, deploy agent netřeba) a fáze 6 na: kompletní test run + typecheck A nezávislý průchod akceptačních kritérií PRD **bod po bodu s verdiktem per kritérium**. Fázi 6 v tomto režimu dělá general-purpose verifikační subagent (ne `dev-pipeline:e2e-verifier` — ten je read-only a bez browseru tu není potřeba): každé kritérium doloží konkrétním důkazem — výstupem příkazu, existencí a obsahem souboru — ne souhrnným „testy zelené". Dočasné verifikační artefakty (scratch skripty, záměrně failující commit pro důkaz červené) jsou povolené, agent je po ověření uklidí a working tree nechá čistý.
 

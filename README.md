@@ -117,7 +117,7 @@ Kanonická definice fází: `dev-pipeline/skills/slice-run/PIPELINE.md` — **pr
 
 ## Zásady
 
-- Review: per řez jen lehké (code-review medium); plné kolečko (thermo-nuclear → /simplify → 2× code-review → 2× security-review) jednou na konci vize.
+- Review: per řez jen lehké (agent `dev-pipeline:code-review`, effort medium); plné kolečko (thermo-nuclear → simplify → 2× code-review → 2× security-review) jednou na konci vize. Vestavěný skill `code-review` se nepoužívá — má `disable-model-invocation: true`, takže ho žádný model přes Skill tool nespustí; agent je jeho náhrada s pevně danou metodikou.
 - TDD červená → zelená: test/E2E scénář vzniká před implementací a musí nejdřív selhat ze správného důvodu.
 - Zaseknutý řez: 3 **funkční** neúspěchy → `skipped` + poctivý záznam; vyhodnotí validátor na konci. Infra smrt agenta (limit, API error) se nepočítá — řeší se resume.
 - Git: všechno na `vize/<slug>` branchi; merge do main dělá uživatel po vlastním otestování. Deploy target per projekt (sekce Deploy v CLAUDE.md projektu; staging = přepnutí configu, promotion = deploy téhož commitu).
