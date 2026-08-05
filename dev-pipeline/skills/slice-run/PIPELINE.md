@@ -18,13 +18,14 @@ Změna procesu se dělá VÝHRADNĚ tady, ne v jednotlivých skill souborech.
 | `docs/handoff.md` | přepisovaný | Aktuální stav pro čerstvý kontext |
 | `docs/follow-ups.md` | append-only, **kontinuální napříč vizemi** | Nápady/resty mimo scope; vyřešené/převzaté se přeškrtávají; setup další vize přeškrtnuté přesune do archivu (živý soubor = jen otevřené) |
 | `docs/e2e/rez-NN.md` | per řez | E2E scénáře (akceptační kritéria v krocích) |
+| `docs/reviews/rez-NN-*.md` | per kolo, **gitignorováno** | Plné reporty `prd-check` a `code-review`. Pracovní materiál mezi reviewerem a fix agentem; orchestrátor dostává jen verdikt a cestu, obsah nikdy nečte |
 | `docs/zaverecna-zprava.md` | přepisovaný, per vize | Závěrečná zpráva finální fáze (co je hotové, rozhodnutí pro uživatele) |
 | `docs/archive/<slug>/` | vzniká při startu další vize | Archiv předchozí vize: prd/, e2e/, journal.md, zaverecna-zprava.md |
 | `docs/.vize-done` | marker | Vize naplněna, smyčka končí |
 | `docs/.orchestrator-run` | marker | Běží autonomní run (aktivuje deploy gate v hooku) |
 | `docs/.deploy-unlocked` | marker | Deploy povolen (vytváří fáze 5, maže fáze 7) |
 
-Markery (`.orchestrator-run`, `.deploy-unlocked`, `.vize-done`, `.review-passed`) a adresáře `CLAUDE-SECURITY-*/` (reporty bezpečnostního skenu z finální fáze) patří do `.gitignore` — setup je tam doplní, pokud chybí. Nikdy je necommituj do řezu.
+Markery (`.orchestrator-run`, `.deploy-unlocked`, `.vize-done`, `.review-passed`), adresář `docs/reviews/` a adresáře `CLAUDE-SECURITY-*/` (reporty bezpečnostního skenu z finální fáze) patří do `.gitignore` — setup je tam doplní, pokud chybí. Nikdy je necommituj do řezu.
 
 Frontmatter PRD:
 ```yaml
@@ -89,7 +90,13 @@ Nikdy nepřepisuj cizí záznamy, jen připoj vlastní na konec. Zapisuje ten, k
 
 **Hranice fází (závazné pro všechny agenty):** každý agent vykonává VÝHRADNĚ fázi, kterou dostal v zadání — nikdy si sám nespouští fázi následující ani kontrolní, i kdyby to vypadalo efektivně (kontrola ztrácí nezávislost, když si ji spustí kontrolovaný). Záznamy v journalu typu „rozhodnutí orchestrátora" jsou jednorázové výjimky pro danou situaci, ne precedenty — agent je z vlastní iniciativy nereplikuje.
 
-**Souběh fází je věc orchestrátora, ne agentů.** Fáze jednoho řezu jdou po sobě; co smí běžet souběžně (PRD dalšího řezu vedle deploye a E2E toho současného, dělená implementace po balíčcích, paralelní fix agenti nad disjunktními soubory), rozhoduje orchestrátor a je to popsané u příslušných fází. V inline režimu `slice-run` se nic z toho nepoužívá — jedna session, jedna fáze po druhé.
+**Souběh fází je věc orchestrátora, ne agentů.** Fáze jednoho řezu jdou po sobě. Souběžně smí běžet jen tyhle tři vzory a rozhoduje o nich orchestrátor:
+
+- **Blok fází 1+2 dalšího řezu vedle fází 4 až 7 toho současného** — startuje po fázi 3, popsáno na konci fáze 3 níž. Není to volba.
+- **Dělená implementace po balíčcích** — fáze 3.
+- **Paralelní fix agenti nad disjunktními soubory** — fáze 4.
+
+V inline režimu `slice-run` se nic z toho nepoužívá — jedna session, jedna fáze po druhé.
 
 ## Fáze 1 — Výběr a PRD řezu
 
@@ -137,7 +144,7 @@ Když akceptační kritérium ověřuje UI prvek, který se objeví **jen u urč
 
 ## Fáze 2 — PRD check
 
-Spusť subagenta `dev-pipeline:prd-check` nad čerstvým PRD (předej cesty k PRD, vizi a — pokud existuje — k `docs/produkt.md`; kontroluje úplnost vůči vizi a severce včetně zákazů převedených na záporná kritéria, technickou validitu proti kódu, kvalitu akceptačních kritérií a rozsah řezu). Nálezy zapracuj do PRD; při `needs-fixes` po zapracování spusť prd-check znovu (max 2 kola). Smysl opakovacího kola: nový check s čerstvým kontextem ověřuje, že zapracování nálezy skutečně vyřešilo — není to duplicitní kontrola. Opakovací kolo smí přeskočit JEN orchestrátor, a jen když byly nálezy čistě formulační (žádný technický ani akceptační dopad); přeskok zapíše do journalu jako jednorázové rozhodnutí. Fázi 2 NIKDY nespouští PRD agent sám (viz Hranice fází). Neptej se uživatele — jediný schválený vstup je vize; odchylky od osnovy jen zapiš do journalu se zdůvodněním. (Agent `plan-check` je post-implementační nástroj — v pipeline se nepoužívá.)
+Spusť subagenta `dev-pipeline:prd-check` nad čerstvým PRD (předej cesty k PRD, vizi, — pokud existuje — k `docs/produkt.md` a **cestu pro report** `docs/reviews/rez-NN-prd-check-kolo-M.md`; kontroluje úplnost vůči vizi a severce včetně zákazů převedených na záporná kritéria, technickou validitu proti kódu, kvalitu akceptačních kritérií a rozsah řezu). Vrátí ti verdikt a jednořádkové nálezy; plný rozbor je v reportu, který **nečteš** — jeho cestu jen předáš PRD-fix agentovi. Nálezy zapracuj do PRD; při `needs-fixes` po zapracování spusť prd-check znovu (max 2 kola). Smysl opakovacího kola: nový check s čerstvým kontextem ověřuje, že zapracování nálezy skutečně vyřešilo — není to duplicitní kontrola. Opakovací kolo smí přeskočit JEN orchestrátor, a jen když byly nálezy čistě formulační (žádný technický ani akceptační dopad); přeskok zapíše do journalu jako jednorázové rozhodnutí. Fázi 2 NIKDY nespouští PRD agent sám (viz Hranice fází). Neptej se uživatele — jediný schválený vstup je vize; odchylky od osnovy jen zapiš do journalu se zdůvodněním. (Agent `plan-check` je post-implementační nástroj — v pipeline se nepoužívá.)
 
 ## Fáze 3 — Implementace (TDD)
 
@@ -158,11 +165,23 @@ Vykonává ji agent `dev-pipeline:implement` (metodika je v něm; tahle sekce je
 
 Dva agenti nad týmž souborem si přepíšou práci; hranice jde po balíčcích, ne po „tématech". Když řez sahá jen na jeden balíček, dělení nemá smysl a nedělá se.
 
+### Konec fáze 3 spouští blok 1+2 dalšího řezu (orchestrátor, na pozadí)
+
+Jakmile implementace řezu N doběhne, orchestrátor spustí **na pozadí celý blok fází 1 a 2 pro řez N+1** jako jeden řetěz v jednom agentovi: PRD → prd-check → PRD-fix → prd-check kolo 2 → PRD-fix. Teprve pak jde řez N do fáze 4. (V inline režimu `slice-run` se tohle nedělá.)
+
+Proč zrovna tady:
+
+- **Dřív ne.** Fáze 1 i 2 se opírají o skutečný kód (PRD píše technický postup proti němu, prd-check osa B ho ověřuje). Před koncem fáze 3 by psaly proti stavu, který ještě neexistuje.
+- **Později ne.** Blok 1+2 trvá v ostrém běhu ~1 h 45 min a je to nejdražší část řezu; okno fází 4 až 7 je ~4 h 30 min. Po fázi 3 se vejde celý i s rezervou, po fázi 4 už jen tak tak.
+- **Celý blok, ne jen psaní PRD.** Fáze 2 (dvě kola checku + dva PRD-fixy) je tři čtvrtiny toho času.
+- **Když E2E řezu N vrátí FAIL**, hotové PRD se zahazuje a po opravě píše znovu — stálo nad stavem, který neplatí.
+- Implementace N+1 souběžně s čímkoli z N **nikdy**. Paralelní je pouze psaní dokumentu.
+
 **Scratch skripty patří mimo repo** (do scratchpadu session), aby po fázi nezůstal špinavý strom. U pnpm workspace projektů to má daň, na kterou nezávisle narazili tři agenti: `/private/tmp` nemá `node_modules` a `tsx` resolvuje od souboru, ne od cwd. Na CJS pomůže `cwd=<app>` + `NODE_PATH=<repo>/<app>/node_modules`; **na ESM `NODE_PATH` neplatí** a jediná spolehlivá cesta je `createRequire('<repo>/<app>/package.json')`. A `pg.query` bere **jeden** příkaz, ne `psql`-styl dávku oddělenou středníky.
 
 ## Fáze 4 — Lehké review + opravy
 
-1. Spusť subagenta `dev-pipeline:code-review` (`rozsah: pracovní-strom`) nad aktuální rozpracovanou změnou — diff si posbírá sám včetně netrackovaných souborů. Oprav všechny CONFIRMED nálezy přes agenta `dev-pipeline:fix`; PLAUSIBLE posuď a rozhodnutí zapiš do journalu.
+1. Spusť subagenta `dev-pipeline:code-review` (`rozsah: pracovní-strom`, plus cesta pro report `docs/reviews/rez-NN-code-review-kolo-M.md`) nad aktuální rozpracovanou změnou — diff si posbírá sám včetně netrackovaných souborů. Vrátí ti strojový verdikt a jednořádkové nálezy; plný report **nečteš**, jeho cestu předáš fix agentovi. Oprav všechny CONFIRMED nálezy přes agenta `dev-pipeline:fix` (dostane cestu k reportu a výčet, které nálezy jsou jeho); PLAUSIBLE posuď a rozhodnutí zapiš do journalu.
 2. Znovu typecheck + testy (agent `dev-pipeline:verify`).
 
 **Cílené re-review, když oprava přeroste reviewovanou změnu.** Když fix agent nasadí **nový plošný mechanismus**, sáhne do **sdíleného layoutu nebo kanonického helperu**, nebo zasáhne soubory **mimo** ty, ke kterým se nálezy vztahovaly, spusť nad **tou opravnou várkou** druhé cílené code-review. Není to opakování kola 1 — je to první nezávislý pohled na kód, který kolem 1 neprošel. Vyplácí se to doložitelně: jedno takové re-review našlo druhou kopii téhož úniku PII živou v produkci a tři latentní díry v čerstvě nasazeném guardu. Fix agent má povinnost rozšířený zásah nahlásit; když ho nahlásí, re-review není volba.

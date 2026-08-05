@@ -17,8 +17,8 @@ Kroky 1 až 4 jdou **striktně po sobě** — pořadí je celý smysl kolečka. 
 
 1. **Thermo-nuclear**: spusť subagenta `dev-pipeline:thermo-nuclear-review` nad diffem. Opravy strukturálních nálezů dělej přes `dev-pipeline:fix` (předávej jim konkrétní nálezy, ne celý report). Presumptivní blockery z rubriky se opravují vždy; u sporných zapiš rozhodnutí do journalu.
 2. **/simplify**: invokuj skill `simplify` (opravy aplikuje sám).
-3. **Code-review kolo 1**: spusť subagenta `dev-pipeline:code-review` (`rozsah: vetev`, scope `git diff main...HEAD`). Oprav všechny CONFIRMED nálezy; PLAUSIBLE posuď individuálně, rozhodnutí do journalu.
-4. **Code-review kolo 2**: znovu tentýž agent (čerstvý kontext) — ověří opravy a novým pohledem najde, co kolo 1 minulo. Oprav.
+3. **Code-review kolo 1**: spusť subagenta `dev-pipeline:code-review` (`rozsah: vetev`, scope `git diff main...HEAD`, report do `docs/reviews/kolecko-code-review-kolo-1.md`). Vrátí verdikt a jednořádkové nálezy; plný report **nečti** — jeho cestu předej fix agentovi. Oprav všechny CONFIRMED nálezy; PLAUSIBLE posuď individuálně, rozhodnutí do journalu.
+4. **Code-review kolo 2**: znovu tentýž agent (čerstvý kontext, report do `docs/reviews/kolecko-code-review-kolo-2.md`) — ověří opravy a novým pohledem najde, co kolo 1 minulo. Oprav.
 
 **Nikdy neinvokuj skill `code-review`** (ani `/code-review`): má `disable-model-invocation: true`, žádný model ho přes Skill tool nespustí. Kdybys ho po chybě nahradil vlastním průchodem, review celé vize by ti navíc proteklo do téhle session — proto obě kola vždy v subagentovi. Když subagent typ `dev-pipeline:code-review` v téhle session neexistuje (nastartovala před jeho přidáním), spusť general-purpose subagenta s absolutní cestou k `agents/code-review.md` téhož pluginu a pokynem řídit se jím doslova.
 5. **Bezpečnost — dvě metodiky, spuštěné souběžně.** Obě jsou read-only, takže si nemají kde vadit; rozešli je **jedním blokem tool callů v jedné zprávě** a opravuj až po návratu obou.
