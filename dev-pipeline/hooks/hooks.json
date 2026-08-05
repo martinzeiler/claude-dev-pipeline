@@ -1,5 +1,5 @@
 {
-  "description": "dev-pipeline guardy: blast-radius blokace destruktivních příkazů + re-injekce handoffu po compactu",
+  "description": "dev-pipeline guardy: blast-radius blokace destruktivních příkazů + re-injekce handoffu a kanonických kroků po compactu i resume",
   "hooks": {
     "PreToolUse": [
       {
@@ -15,7 +15,7 @@
     ],
     "SessionStart": [
       {
-        "matcher": "compact",
+        "matcher": "compact|resume",
         "hooks": [
           {
             "type": "command",

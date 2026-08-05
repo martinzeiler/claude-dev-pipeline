@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# dev-pipeline SessionStart hook (matcher: compact).
+# dev-pipeline SessionStart hook (matcher: compact, resume).
 #
-# Po každém compactu re-injektuje aktuální docs/handoff.md, aby autonomní běh
-# neztratil nit — handoff je záchranná kotva stavu (viz PIPELINE.md).
+# Po compactu i po obnovení session re-injektuje aktuální docs/handoff.md, aby
+# autonomní běh neztratil nit — handoff je záchranná kotva stavu (viz PIPELINE.md).
 #
 # Vedle handoffu injektuje i skills/slice-run/PO-COMPACTU.md, ale JEN když běží
 # autonomní běh (marker docs/.orchestrator-run). Důvod: `orchestrate/SKILL.md` se
-# čte jen jednou při invokaci a compact ho nezachová, takže se z běhu tiše
+# čte jen jednou při invokaci a compact ani resume ho nezachovají, takže se z běhu tiše
 # vytrácejí kroky, které v něm jsou (souběh fází, stropy subagentů, disciplína
 # kontextu). Měřeno na ostrém běhu: za tři řezy a dva compacty orchestrátor znovu
 # nepřečetl ani PIPELINE.md, přestože mu to SKILL.md nařizuje — souběžné psaní PRD
@@ -16,7 +16,16 @@ set -uo pipefail
 
 input=$(cat)
 src=$(printf '%s' "$input" | jq -r '.source // .session_type // empty' 2>/dev/null)
-[ "$src" = "compact" ] || exit 0
+
+# `compact` i `resume`: obojí pokračuje ve staré historii, takže si orchestrátor
+# nese to, co mu z procesu zbylo, a skill soubory se znovu nenačítají. Při
+# `startup` se naopak skill invokuje znovu a čerstvý text dostane přímo — tam
+# by injekce jen duplikovala.
+case "$src" in
+  compact) uvod="Právě proběhl compact." ;;
+  resume)  uvod="Pokračuješ v obnovené session." ;;
+  *) exit 0 ;;
+esac
 
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 proj="${CLAUDE_PROJECT_DIR:-$cwd}"
@@ -38,9 +47,9 @@ if [ -f "$proj/docs/.orchestrator-run" ] && [ -f "$po_compactu" ]; then
 **Absolutní cesta ke kanonickému PIPELINE.md:** \`$pipeline_md\`"
 fi
 
-jq -n --rawfile handoff "$f" --arg extra "$extra" '{
+jq -n --rawfile handoff "$f" --arg extra "$extra" --arg uvod "$uvod" '{
   additionalContext: (
-    "Právě proběhl compact. Aktuální stav práce podle docs/handoff.md:\n\n"
+    $uvod + " Aktuální stav práce podle docs/handoff.md:\n\n"
     + $handoff
     + "\n\nDeník: docs/journal.md · PRD řezy: docs/prd/ · kanonický proces: PIPELINE.md ve skillu dev-pipeline:slice-run. Pokračuj tam, kde handoff říká."
     + (if $extra == "" then "" else "\n\n---\n\n" + $extra end)
