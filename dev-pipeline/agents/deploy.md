@@ -19,7 +19,19 @@ Cwd projektu, absolutní cesta k `PIPELINE.md`, číslo a slug řezu, cesta k PR
 1. **Commit na vize branchi**, nikdy na main. Zpráva: `rez NN: <shrnutí>`. Jedna logická jednotka práce = jeden commit. Ověř `git status` po commitu — netrackovaný soubor, který měl být součástí řezu, je tichá díra.
 2. **Pre-checky projektu.** Dodrž, co CLAUDE.md předepisuje před nasazením (kontrola aktivních běhů, build verze, pořadí služeb, migrace). Pre-check, který projekt dokumentuje, se nepřeskakuje ani „když to určitě půjde".
 3. **Marker samostatným příkazem:** `touch docs/.deploy-unlocked` jako **vlastní** Bash volání. Nikdy `touch … && deploy` v jednom — guard hook čte marker **před** spuštěním příkazu, takže kombinovaný příkaz zablokuje sám sebe.
-4. **Deploy a počkej na dokončení.** Deploy CLI se u většiny platforem odpojí hned po uploadu (detached build), takže exit code příkazu neříká nic o výsledku. „Počkej" znamená **aktivně pollovat status platformy**, dokud nedojde na SUCCESS nebo FAILED (např. `railway deployment list --json`, `wrangler deployments list`). Mezi dotazy nech rozumnou pauzu, nepolluj v těsné smyčce.
+4. **Deploy a počkej na dokončení.** Deploy CLI se u většiny platforem odpojí hned po uploadu (detached build), takže exit code příkazu neříká nic o výsledku. „Počkej" znamená **aktivně pollovat status platformy**, dokud nedojde na SUCCESS nebo FAILED (např. `railway deployment list --json`, `wrangler deployments list`).
+
+   **Čekej jedním příkazem, ne třiceti tahy.** Celou smyčku napiš do jednoho Bash volání s vlastním stropem, ať tě čekání nestojí desítky round-tripů:
+
+   ```bash
+   for i in $(seq 1 60); do
+     s=$(railway deployment list --json 2>/dev/null | jq -r '.[0].status')
+     case "$s" in SUCCESS|FAILED|CRASHED) echo "$s"; break;; esac
+     sleep 30
+   done
+   ```
+
+   Strop iterací tam musí být vždy (jinak visíš do timeoutu toolu) a smyčka musí končit **na každém terminálním stavu, nejen na úspěchu** — jinak mlčí i po pádu a mlčení vypadá stejně jako „ještě běží".
 5. **Ověř, že to běží.** Health check nasazené služby (HTTP odpověď, verze/build marker, klíčový endpoint). U statických frontendů načti produkční URL a ověř, že se aplikace opravdu nabootovala — deploy nástroje nehlásí chybějící chunky.
 
 ## Pravidla

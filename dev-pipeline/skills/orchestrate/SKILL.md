@@ -19,7 +19,7 @@ Kanonická definice fází řezu: `PIPELINE.md` ve vedlejším skillu `slice-run
 3. **Archivace předchozí vize:** pokud `docs/prd/` obsahuje PRD patřící jiné vizi (frontmatter `vize:` ≠ aktuální), přesuň `docs/prd/*.md`, `docs/e2e/*.md`, `docs/journal.md`, `docs/vize-spory.md` a `docs/zaverecna-zprava.md` do `docs/archive/<slug-předchozí-vize>/` (git mv, samostatný commit `archiv: <slug>`) a smaž stale markery `docs/.vize-done` + `docs/.review-passed` (jinak by PRD agent novou vizi rovnou prohlásil za hotovou). Zároveň **kompaktuj follow-ups**: přeškrtnuté položky (vyřešené/převzaté/zamítnuté) přesuň z `docs/follow-ups.md` do `docs/archive/<slug-předchozí-vize>/follow-ups-uzavrene.md` — živý soubor drží jen otevřené položky. Samotný `docs/follow-ups.md`, `docs/produkt.md` a `docs/vize/` se NIKDY nearchivují — follow-ups je kontinuální backlog napříč vizemi a severka je trvalá norma. Pak založ chybějící stavové soubory (`docs/journal.md`, `docs/handoff.md`, `docs/follow-ups.md`, `docs/prd/`, `docs/e2e/`), přepiš `docs/handoff.md` na čistý start nové vize a `touch docs/.orchestrator-run`.
 4. **Pre-flight check projektu:** ověř, že CLAUDE.md/docs projektu pokrývá (a) příkazy pro testy + typecheck, (b) deploy postup včetně pre-checků (např. kontrola aktivních runů), (c) přístup do běžící aplikace pro E2E (URL + login). Co našel jsi, budeš předávat agentům. Co chybí, zapiš do journalu a degraduj předem: bez deploy configu poběží řezy commit-only (uživatel nasadí sám), bez přístupu do appky poběží fáze 6 v režimu bez runtime dopadu. Nikdy si chybějící konfiguraci nedomýšlej.
 5. **Zjisti, jestli projekt má produktovou severku** `docs/produkt.md`. Když ano, budeš její cestu předávat PRD agentovi, prd-checku a validátorovi (a nikomu jinému — viz PIPELINE.md). Když ne, nic se neděje a **nezakládáš ji** — to je rozhodnutí uživatele v `/vize` session, ne artefakt běhu.
-6. Zapiš start běhu do journalu. Založ v hlavě **počítadlo spuštěných subagentů** (viz Stropy session níže) — startuje na 0.
+6. Zapiš start běhu do journalu.
 
 ## Hlavní smyčka (dokud nevznikne `docs/.vize-done`, max 20 řezů)
 
@@ -72,6 +72,13 @@ Tenhle krok se v ostrém běhu ztratil hned po prvním compactu (proběhl u řez
 
 Co se paralelizovat **nesmí**: dva řezy, E2E řezu N vedle implementace N+1 (stavělo by se na neověřeném základu), review kola v kolečku 1 až 4 (pořadí struktura → zjednodušení → korektnost je záměrné).
 
+**Na běžícího agenta se nečeká pollingem.** Když agent doběhne, dostaneš notifikaci sám od sebe — do té doby buď dělej něco jiného, nebo tah ukonči. Zakázané je: `sleep` v popředí (v aktuálních verzích ho harness stejně blokuje), smyčky typu `until [ -n "$(git status --short)" ]; do sleep 20; done`, opakované `git status` „jak mu to jde" a hlavně `tail` na `tasks/<id>.output` — u agenta je to symlink na celý jeho transcript. Naměřeno na jedné ostré session: **530 volání `sleep` a 219 `date`, dohromady 38 % všech tahů**, a s nimi špička kontextu 982k tokenů, protože každý takový tah přeprefilluje celý kontext.
+
+Když opravdu potřebuješ počkat na **stav mimo harness** (deploy platformy, CI, migrace), platí:
+- **jedna** background Bash s `until`-smyčkou, která skončí, jakmile podmínka platí (`run_in_background: true`) — dostaneš jednu notifikaci, ne třicet tahů;
+- `Monitor`, když chceš vědět o každé události zvlášť (log deploye, postup CI);
+- nikdy ne opakované ruční kontroly v hlavní smyčce.
+
 ## Stropy session a handoff
 
 **Ruční protokol compactu (uživatel si ho řídí sám).** Když ti během běhu napíše pokyn typu „po tomto řezu uděláme compact":
@@ -80,7 +87,14 @@ Co se paralelizovat **nesmí**: dva řezy, E2E řezu N vedle implementace N+1 (s
 3. **Další řez nezačínej.** Zastav se krátkou zprávou, že je připraveno a čeká se na compact.
 4. **Compact nikdy neinicuj sám** a nenabízej ho. Je to jeho rozhodnutí; ty jen připravíš stav.
 
-**Pojistka na strop subagentů.** Session má strop ~200 spuštěných subagentů a naražení na něj uprostřed řezu znamená mrtvou session (stalo se: 162 agentů na jedné vizi). Počítej si spuštěné agenty od začátku běhu. **Při 170** dokonči běžící řez, uzavři ho fází 7, přepiš handoff a **sám se zastav** zprávou, že jsi na stropu a pokračuje se v nové session. Když je uživatel pryč, najde čistý stav místo mrtvé session uprostřed řezu.
+**Limity subagentů — počet za session už mezi ně nepatří.** Dřívější pojistka „při 170 se zastav" tady byla proto, že Claude Code měl strop ~200 spuštěných subagentů na session. Ten strop je pryč (ověřeno v 2.1.229: `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` už neváže žádnou logiku ani hlášku) a **žádné počítadlo agentů si nevedeš** — vize běžně spotřebuje stovky agentů (naměřeno: 367 na dvanáctiřezové vizi) a zastavovat se kvůli počtu znamená zbytečně půlit běh.
+
+Co je vynucené a na co narazíš doopravdy:
+- **Souběžnost 20** (`Concurrent subagent limit reached`). Nad ni tool cally neposílej, přebytek stejně čeká; a `Do not retry` znamená nezkoušet znovu, ale počkat na doběhnutí.
+- **Hloubka zanoření.** Orchestrátor → code-review → jeho lensy jsou už tři patra. Nikdy nespouštěj agenta, který má sám spouštět další agenty spouštějící agenty; při hlášce `Subagent nesting limit reached` fázi dokonči mělčeji, ne opakovaným pokusem.
+- **Rozpočet v dolarech** (`Budget limit reached ($X spent of the $Y maximum)`), když je nastavený. Tohle je tvrdý konec: nové agenty už nespustíš, takže po té hlášce dokonči řez vlastními nástroji, uzavři ho fází 7 a zastav se.
+
+**Skutečný důvod, proč session končí, je zaplněný kontext, ne počet agentů.** Když ti systém oznámí blížící se compact nebo usage limit, dokonči běžící řez, uzavři ho fází 7, přepiš handoff a zastav se — aby uživatel našel čistý stav místo mrtvé session uprostřed řezu.
 
 ## Infra výpadky, limity a eskalace
 
@@ -100,9 +114,13 @@ Co se paralelizovat **nesmí**: dva řezy, E2E řezu N vedle implementace N+1 (s
 
 ## Disciplína kontextu (kritické)
 
+Měřeno na ostré vizi (12 řezů, 5 sessions): do kontextu orchestrátora proteklo ~1,7 M tokenů, z toho **44 % výsledky nástrojů, 37 % text, který napsal on sám** (zadání agentům + obsah Write/Edit). Návratovky agentů se už zmenšily sedminásobně tím, že reporty jdou do souboru; zbytek téhle sekce je o té druhé polovině, kterou si orchestrátor plní vlastní rukou.
+
 - Nikdy nečti diffy, velké soubory ani celé reporty subagentů znovu — pracuj se souhrny, které vrátili.
 - **Nikdy nečti obrázek** (viz úvod) — jeden screenshot je přes 100k tokenů.
-- Vlastní editace omez na stavové soubory (PRD frontmatter, journal, handoff, markery). `docs/produkt.md` needituj nikdy.
+- **Zadání agentovi drž kolem 1 200 znaků, strop 2 000.** Patří do něj: cwd, absolutní cesty (PIPELINE.md + číslo fáze, PRD, vize, report), hranice role („vykonej JEN fázi N"), pokyn o návratové hodnotě a **tři až pět řádků specifik, která nikde nestojí psaná**. Nepatří do něj nic, co si agent přečte sám: obsah PRD, výčet změněných souborů, převyprávěný diff, obsah reportu review, ani metodika, kterou má ve svém `agents/*.md`. Naměřený medián byl **5 631 znaků u `implement` a 4 205 u `deploy`** — u agenta, který má celý postup ve vlastní instrukci. Za převyprávěný diff platíš dvakrát: jednou, když ho skládáš ze souhrnů, podruhé, když ho pošleš dál. Když má agent dostat kontext delší než pár řádků, **napiš ho do souboru a pošli cestu**.
+- **Produkční kód needituješ nikdy.** Vlastní Edit/Write patří jen na stavové soubory (PRD frontmatter, journal, handoff, follow-ups, markery); `docs/produkt.md` needituj vůbec. Jakmile sáhneš do `apps/`, `src/` nebo testů, přestal jsi dirigovat a začal implementovat — a kontext ti od té chvíle roste čtením kódu, který jsi neměl mít. Naměřeno: `admin.ts` 9×, `measurement.ts` 8×, `KpiSection.tsx` 8×. I jednořádkovou opravu pošli fix agentovi.
+- **Do journalu a follow-ups zapisuj appendem přes Bash heredoc, ne Editem.** Edit do velkého souboru platí za unikátní kotvu v `old_string` i v `new_string`, takže jeden zápis do journalu vyšel na 5,6 kB kontextu; heredoc stojí jen ten nový text. Handoff se naopak přepisuje celý (Write), a právě proto musí zůstat **pod ~2 kB**: je to „branch, rozjetý řez a fáze, co dál", ne shrnutí vize. Naměřeno 7 kB na přepis, čtrnáctkrát za běh.
 - Velké stavové soubory nečti znovu celé: z journalu ber tail, z follow-ups jen to, co potřebuješ k rozhodnutí.
 - Po případném compactu tě hook re-injektuje `docs/handoff.md` — handoff proto udržuj tak, aby z něj šlo plynule navázat (branch, rozjetý řez + fáze, co dál).
 - Žádné otázky na uživatele během běhu — rozhoduj podle vize, odchylky žurnaluj. Zastav se jen u nevratných akcí mimo mandát (mandát = branch, deploy dle configu projektu, DB migrace projektu).

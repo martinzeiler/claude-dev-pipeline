@@ -1,6 +1,6 @@
 ---
 name: review-kolecko
-description: Plné závěrečné review kolečko nad diffem celé vize (git diff main...HEAD) - thermo-nuclear strukturální audit, simplify, 2x code-review, pak dvě souběžné bezpečnostní metodiky (vestavěný security-review + claude-security), po každém kole oprava všech nálezů. Invokuje ho orchestrátor ve finální fázi vize, nebo uživatel explicitně nad větší sérií změn. NEinvokovat na běžný diff nebo jednotlivý řez - tam patří jen lehké review přes agenta dev-pipeline:code-review.
+description: Plné závěrečné review kolečko nad diffem celé vize (git diff main...HEAD) - thermo-nuclear strukturální audit, simplify, dvě code-review kola různými metodikami (vlastní agent + vestavěný workflow s širokým fan-outem), pak dvě souběžné bezpečnostní metodiky (vestavěný security-review + claude-security), po každém kole oprava všech nálezů. Invokuje ho orchestrátor ve finální fázi vize, nebo uživatel explicitně nad větší sérií změn. NEinvokovat na běžný diff nebo jednotlivý řez - tam patří jen lehké review přes agenta dev-pipeline:code-review.
 ---
 
 # Review kolečko — plný závěrečný audit
@@ -18,9 +18,20 @@ Kroky 1 až 4 jdou **striktně po sobě** — pořadí je celý smysl kolečka. 
 1. **Thermo-nuclear**: spusť subagenta `dev-pipeline:thermo-nuclear-review` nad diffem. Opravy strukturálních nálezů dělej přes `dev-pipeline:fix` (předávej jim konkrétní nálezy, ne celý report). Presumptivní blockery z rubriky se opravují vždy; u sporných zapiš rozhodnutí do journalu.
 2. **/simplify**: invokuj skill `simplify` (opravy aplikuje sám).
 3. **Code-review kolo 1**: spusť subagenta `dev-pipeline:code-review` (`rozsah: vetev`, scope `git diff main...HEAD`, report do `docs/reviews/kolecko-code-review-kolo-1.md`). Vrátí verdikt a jednořádkové nálezy; plný report **nečti** — jeho cestu předej fix agentovi. Oprav všechny CONFIRMED nálezy; PLAUSIBLE posuď individuálně, rozhodnutí do journalu.
-4. **Code-review kolo 2**: znovu tentýž agent (čerstvý kontext, report do `docs/reviews/kolecko-code-review-kolo-2.md`) — ověří opravy a novým pohledem najde, co kolo 1 minulo. Oprav.
+4. **Code-review kolo 2 — širokým fan-outem přes Workflow.** Kolo 1 běželo naším agentem (rodič + 3 lensy = 4 subagenti, laděné na přesnost). Kolo 2 nad diffem celé vize pusť naopak nejširší dostupnou metodikou: vestavěný workflow `code-review`.
 
-**Nikdy neinvokuj skill `code-review`** (ani `/code-review`): má `disable-model-invocation: true`, žádný model ho přes Skill tool nespustí. Kdybys ho po chybě nahradil vlastním průchodem, review celé vize by ti navíc proteklo do téhle session — proto obě kola vždy v subagentovi. Když subagent typ `dev-pipeline:code-review` v téhle session neexistuje (nastartovala před jeho přidáním), spusť general-purpose subagenta s absolutní cestou k `agents/code-review.md` téhož pluginu a pokynem řídit se jím doslova.
+   ```
+   Workflow({ name: "code-review", args: "xhigh <base>...HEAD — <2-4 věty kontextu: co vize dělala, kde je největší riziko, co je vědomé rozhodnutí a nemá se hlásit jako regrese>" })
+   ```
+
+   - **Tenhle bod je platný opt-in k orchestraci** — Workflow tool smí model spustit, když mu to instrukce skillu nařizuje. Neptej se uživatele na svolení a nenahrazuj to vlastním průchodem.
+   - Co to je: scope agent → 5 correctness finderů (každý jiná osa: diff po řádcích, odstraněné chování, cross-file volající, jazykové pasti, wrapper/proxy) + 1 cleanup finder → jeden nezávislý verifier na každou dvojici (soubor, řádek) → sweep finder na mezery → synthesize. Naměřeno na ostrém běhu: **40 subagentů, ~50 minut, 23 souborů**. Proto patří jen sem, nad diff celé vize — na jeden řez je to desetinásobek ceny lehkého review.
+   - Běží na pozadí a nálezy dorazí jako task notifikace (max 15, seřazené podle závažnosti). Mezitím **nezačínej krok 5** — pořadí kolečka je celý jeho smysl.
+   - **Verifikace tam jede v recall režimu** („PLAUSIBLE by default"): na ostrém běhu prošlo 51 z 52 kandidátů. Nálezy proto **nejdřív triážuj** podle pravidla o velkém diffu níž (opravit teď / follow-up / odmítnout se zdůvodněním), teprve pak pouštěj fix agenty. Brát celý seznam jako CONFIRMED znamená přepisovat funkční kód.
+   - Report do souboru si workflow nepíše. Než pustíš fix agenty, **zapiš nálezy sám** do `docs/reviews/kolecko-code-review-kolo-2.md` (jeden odstavec na nález, formát jako u našeho agenta) a fixům předávej cestu k souboru, ne obsah.
+   - **Fallback:** když Workflow tool v session není, workflows jsou vypnuté nebo invokace selže, jeď kolo 2 agentem `dev-pipeline:code-review` jako kolo 1 (čerstvý kontext, report do téže cesty) a zapiš záznam `SELHALO` do `~/.claude/dev-pipeline-feedback.md`.
+
+**Skill `code-review` neinvokuj nikdy** (ani `/code-review`): má `disable-model-invocation: true`, žádný model ho přes Skill tool nespustí a pokus jen spálí tah. To je něco jiného než `Workflow({name: "code-review"})` z kroku 4 — ta cesta zakázaná není a je to právě ta metodika, kterou by skill spustil, kdyby ho spustit šlo. Ani jedno kolo **nikdy nedělej vlastním průchodem v téhle session**: review celé vize by ti proteklo do kontextu, ze kterého pak řídíš opravy. Když subagent typ `dev-pipeline:code-review` v téhle session neexistuje (nastartovala před jeho přidáním), spusť general-purpose subagenta s absolutní cestou k `agents/code-review.md` téhož pluginu a pokynem řídit se jím doslova.
 5. **Bezpečnost — dvě metodiky, spuštěné souběžně.** Obě jsou read-only, takže si nemají kde vadit; rozešli je **jedním blokem tool callů v jedné zprávě** a opravuj až po návratu obou.
    - **5a. Vestavěné:** invokuj skill `security-review` nad diffem.
    - **5b. claude-security:** spusť subagenta `claude-security:claude-security` se zadáním, které **plně určuje job** a přeskočí tak jeho interaktivní menu:

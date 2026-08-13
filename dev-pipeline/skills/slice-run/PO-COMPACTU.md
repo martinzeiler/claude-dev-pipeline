@@ -24,12 +24,15 @@ Proč to není volitelné: blok fází 1+2 trvá v ostrém běhu okolo 1 h 45 mi
 
 ## 3. Stropy session
 
-- **Počítadlo spuštěných subagentů.** Při **170** dokonči běžící řez, uzavři ho fází 7, přepiš handoff a **sám se zastav** zprávou, že jsi na stropu. Strop session je ~200 a naražení uprostřed řezu = mrtvá session.
+- **Počet subagentů se nepočítá.** Strop ~200 na session už neplatí a žádné počítadlo si nevedeš; vize běžně spotřebuje stovky agentů. Vynucené jsou jen souběžnost (20 najednou), hloubka zanoření a dolarový rozpočet.
+- **Zastavuješ se na kontextu, ne na agentech.** Když systém ohlásí blížící se compact, usage limit nebo vyčerpaný rozpočet, dokonči běžící řez, uzavři ho fází 7, přepiš handoff a zastav se.
 - **Compact nikdy neinicuj sám a nenabízej ho.** Když si ho uživatel vyžádá, dokonči rozdělaný řez celý včetně fáze 7, přepiš handoff, další řez nezačínej a zastav se.
 
 ## 4. Disciplína kontextu
 
 - **Nikdy nečti obrázek** — jeden screenshot je přes 100k tokenů. Vizuální kontrolu dělají subagenti a vracejí popis.
 - Diffy, velké soubory a celé reporty subagentů nečti **znovu**; pracuj se souhrny, které vrátili. (Vizi a PIPELINE.md číst smíš — ty potřebuješ k rozhodování.)
-- Vlastní editace omez na stavové soubory (PRD frontmatter, journal, handoff, markery). `docs/produkt.md` needituj nikdy.
+- **Zadání agentovi ~1 200 znaků, strop 2 000**: cesty, hranice role, tři až pět řádků specifik. Nikdy do něj neopisuj obsah PRD, diff ani report — agent si je přečte sám z cesty. Delší kontext napiš do souboru a pošli cestu.
+- **Produkční kód needituješ.** Vlastní Edit/Write jen na stavové soubory; i jednořádkovou opravu pošli fix agentovi. Do journalu a follow-ups zapisuj Bash heredocem, ne Editem; handoff drž pod 2 kB.
+- **Na běžícího agenta se nečeká pollingem** — notifikace přijde sama. Žádný `sleep`, žádné smyčky nad `git status`, žádný `tail` na `tasks/<id>.output` (u agenta je to symlink na celý transcript). Na externí stav (deploy, CI) jedna background Bash s `until`-smyčkou nebo `Monitor`.
 - Žádné otázky na uživatele během běhu — rozhoduj podle vize, odchylky žurnaluj.

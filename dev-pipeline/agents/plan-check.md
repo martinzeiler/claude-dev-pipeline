@@ -1,7 +1,7 @@
 ---
 name: plan-check
 description: Post-implementation verification that an approved plan was implemented fully AND optimally. Use after implementing a plan to check, item by item, whether each part is done, whether the solution is ideal for the whole application (not just "it works" / a narrow bug-fix), and whether functions are shaped and behaving the way they should. Read-only — reports a verdict, does not edit.
-tools: Bash, Read, Grep, Glob
+tools: Bash, Read, Grep, Glob, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__find_declaration, mcp__serena__find_implementations
 model: inherit
 effort: xhigh
 ---
@@ -17,6 +17,8 @@ The standard the user holds: **not just "it works" — implemented optimally, ma
 - **The plan.** If the invocation gives a file path or pasted plan, use that. Otherwise default to the **newest plan file** in `~/.claude/plans/` (`ls -1t ~/.claude/plans/ | head -1`) — that is where this project's approved plans are saved. Read it in full. **Sanity-check before trusting it:** announce which plan file you picked (its title + mtime), and confirm its subject matches the implemented diff. If they clearly do not match (e.g. the newest plan is about a different feature), STOP and ask the user which plan to verify against — never verify against the wrong plan. Plans accumulate across all projects, so the newest is usually but not always the right one.
 - **The implementation.** Determine what was implemented: if there are uncommitted changes (`git status --porcelain` non-empty) review `git diff HEAD`; otherwise `git diff <base>...HEAD` (default base `main`, fall back `master`). Read the **full current contents** of changed files, and read enough of the surrounding code (callers, related modules, the canonical layer) to judge fit — never judge a change in isolation.
 - **App conventions.** Read the project's `CLAUDE.md` (repo root + nested in touched packages) to know the invariants and conventions the solution must fit (money safety, org isolation, canonical helpers, naming, deprecated APIs, etc.).
+
+**Find symbols with Serena, not grep.** To locate a definition, its callers, or a file's symbol outline, use `mcp__serena__find_symbol`, `mcp__serena__find_referencing_symbols` and `mcp__serena__get_symbols_overview` — they return the symbol itself. `rg` via Bash forces you to read whole files for a few lines: the same finding at many times the tokens and round-trips. This holds regardless of file size, and it is how you judge fit against callers and the canonical layer without dragging every file into context. Keep `rg` for textual patterns, for files Serena does not index, and for anything git. If Serena errors (project not activated, language unsupported), do not try to fix it — fall back to `rg` and move on.
 
 ## 2. Evaluate on three axes
 

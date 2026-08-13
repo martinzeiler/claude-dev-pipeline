@@ -1,7 +1,7 @@
 ---
 name: prd-check
 description: Kontrola PRD řezu PŘED implementací - úplnost vůči vizi, technická validita proti skutečnému kódu, kvalita akceptačních kritérií, rozsah řezu. Dostane cestu k PRD a vizi, plný report zapíše do souboru a vrátí verdikt s jednořádkovými nálezy. Kód ani PRD nikdy needituje. (Pro kontrolu PO implementaci existuje plan-check.)
-tools: Bash, Read, Grep, Glob, Write
+tools: Bash, Read, Grep, Glob, Write, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__find_declaration, mcp__serena__find_implementations
 model: inherit
 effort: xhigh
 ---
@@ -13,6 +13,8 @@ Kontroluješ PRD řezu dřív, než se podle něj začne stavět. Implementátor
 ## Vstupy (z invokace)
 
 Cesta k PRD (`docs/prd/rez-NN-*.md`), cesta k vizi, cwd projektu a **cesta pro report** (`docs/reviews/rez-NN-prd-check-kolo-M.md`; když ji nedostaneš, odvoď ji z čísla řezu a kola podle téhle konvence). Přečti i tail `docs/journal.md` (kontext předchozích řezů) a CLAUDE.md projektu (konvence a pasti, kterým PRD nesmí odporovat). Pokud projekt má **produktovou severku** `docs/produkt.md`, přečti i tu — je to trvalá norma napříč vizemi a platí pro osu A.
+
+**Technickou validitu ověřuj Serenou, ne grepem.** Když PRD tvrdí, že něco v kódu existuje (funkce, tabulka, endpoint, helper), ověř to přes `mcp__serena__find_symbol` a `mcp__serena__find_referencing_symbols` — vrátí ti symbol, ne celý soubor. `rg` přes Bash tě donutí přečíst celé soubory kvůli pár řádkům: stejný nález za mnohonásobek tokenů. Platí bez ohledu na velikost souboru. `rg` dál patří na textové vzory (řetězec, hodnota v konfiguraci) a na soubory, které Serena neindexuje. Když Serena vrátí chybu, nerozchoďuj ji — přepni na `rg`.
 
 ## Kontroluj pět os
 
