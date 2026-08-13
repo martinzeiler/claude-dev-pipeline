@@ -16,6 +16,40 @@ block() {
   exit 2
 }
 
+# Tělo heredocu, který teče do SOUBORU, není příkaz — je to text.
+# Bez tohohle guard blokoval `cat >> docs/journal.md <<'EOF' … railway up … EOF`,
+# tedy poctivý zápis do deníku o tom, co se v řezu nasadilo (v ostrém běhu 2×).
+# Heredoc do INTERPRETU (`bash <<EOF`, `ssh host <<EOF`) se nechává, protože tam
+# tělo příkaz opravdu je — jinak by šlo guard obejít jedním přesměrováním.
+strip_data_heredocs() {
+  local line delim="" out="" probe trimmed d
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ -n "$delim" ]; then
+      trimmed=$(printf '%s' "$line" | sed 's/^[[:space:]]*//')
+      [ "$trimmed" = "$delim" ] && delim=""
+      continue
+    fi
+    probe=$(printf '%s' "$line" | sed 's/<<</@@HS@@/g')   # herestring není heredoc
+    case "$probe" in
+      *"<<"*)
+        # jen datový heredoc: cat/tee nebo přesměrování do souboru na témže řádku
+        if printf '%s' "$probe" | grep -Eq '(^|[|;&[:space:]])(cat|tee)([[:space:]]|$)|>>?[[:space:]]*[^[:space:]|&]'; then
+          d=$(printf '%s' "$probe" | sed -n "s/.*<<-\{0,1\}[[:space:]]*[\"']\{0,1\}\([A-Za-z_][A-Za-z0-9_]*\)[\"']\{0,1\}.*/\1/p")
+          [ -n "$d" ] && delim="$d"
+        fi
+        ;;
+    esac
+    out="$out$line
+"
+  done <<HEREDOC_STRIPPER_EOF
+$1
+HEREDOC_STRIPPER_EOF
+  printf '%s' "$out"
+}
+
+cmd=$(strip_data_heredocs "$cmd")
+[ -z "$cmd" ] && exit 0
+
 # 1) Force-push je zakázán vždy (včetně --force-with-lease). Chce-li ho uživatel, udělá ho ručně.
 # Kontrola per segment složeného příkazu — force flag musí být ve STEJNÉM segmentu jako git push
 # (jinak false positive: `git add -f x && git push` není force-push).
