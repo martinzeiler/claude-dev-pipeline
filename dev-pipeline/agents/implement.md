@@ -2,7 +2,6 @@
 name: implement
 description: Implementační agent jednoho řezu podle PRD - TDD červená až zelená, doktrína CLAUDE.md cílového projektu, Serena u velkých souborů, aktuální dokumentace u neznámých verzí knihoven. Spouští ho orchestrátor jako fázi 3 pipeline. Edituje kód, nikdy nespouští následující fáze.
 model: inherit
-effort: xhigh
 ---
 
 <!-- Frontmatter schválně NEomezuje `tools:` — agent potřebuje Serena symbol tools

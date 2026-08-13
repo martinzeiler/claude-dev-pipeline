@@ -1,7 +1,7 @@
 {
   "name": "dev-pipeline",
   "description": "Osobní vývojová pipeline: /vize (debatní session nad vizí), /orchestrate (autonomní implementace po řezech přes subagenty), /slice-run (jeden řez pro fallback driver), /review-kolecko (plný závěrečný audit), /prototyp (varianty UI nebo logiky, když se tvar nedá rozhodnout prózou). Agenti: prd, prd-check, plan-check, code-review, thermo-nuclear-review, e2e-verifier, vize-validator, implement, fix, deploy, verify, diagnose. Hooky: blast-radius guard + re-injekce handoffu a kanonických kroků po compactu.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "author": {
     "name": "Martin Zeiler",
     "email": "claude2@zeiler.cz"

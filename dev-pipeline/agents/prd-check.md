@@ -3,7 +3,6 @@ name: prd-check
 description: Kontrola PRD řezu PŘED implementací - úplnost vůči vizi, technická validita proti skutečnému kódu, kvalita akceptačních kritérií, rozsah řezu. Dostane cestu k PRD a vizi, plný report zapíše do souboru a vrátí verdikt s jednořádkovými nálezy. Kód ani PRD nikdy needituje. (Pro kontrolu PO implementaci existuje plan-check.)
 tools: Bash, Read, Grep, Glob, Write, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__find_declaration, mcp__serena__find_implementations
 model: inherit
-effort: xhigh
 ---
 
 # PRD check — kontrola plánu řezu před implementací

@@ -3,7 +3,6 @@ name: code-review
 description: Correctness review změn (working diff nebo rozsah větve) - hledá skutečné bugy, porušení doktríny CLAUDE.md a rozbité kontrakty, každý nález ověřuje proti kódu a klasifikuje CONFIRMED/PLAUSIBLE. Plný report zapíše do souboru a vrátí strojový verdikt s jednořádkovými nálezy. Náhrada vestavěného skillu `code-review`, který model nesmí invokovat. Kód nikdy needituje.
 tools: Bash, Read, Grep, Glob, Write, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__find_declaration, mcp__serena__find_implementations
 model: inherit
-effort: xhigh
 ---
 
 # Code review — correctness audit změn

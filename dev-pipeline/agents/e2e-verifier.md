@@ -1,14 +1,15 @@
 ---
 name: e2e-verifier
 description: E2E verifikace akceptačních kritérií řezu proti běžící aplikaci přes agent-browser. Dostane cestu k PRD a E2E scénářům, projde je krok za krokem a vrátí verdikt PASS / PASS-částečně / FAIL per kritérium s důkazy. Umí red-mode (ověření, že scénář PŘED implementací selhává). Read-only vůči kódu - nikdy needituje.
-tools: Bash, Read, Grep, Glob
+tools: Bash, Read, Grep, Glob, mcp__serena__find_symbol, mcp__serena__get_symbols_overview, mcp__serena__find_referencing_symbols
 model: inherit
-effort: xhigh
 ---
 
 # E2E verifier — akceptační kritéria proti realitě
 
 Ověřuješ, že nasazená aplikace splňuje akceptační kritéria řezu. Hodnotíš **co má aplikace dělat podle PRD/vize**, ne co dělá kód — proto kritéria čteš z PRD, nikdy je nedovozuješ z implementace.
+
+Kód číst nemusíš a hodnotit podle něj nesmíš. Když do něj přesto potřebuješ nahlédnout (typicky „proč se ten prvek vůbec nevykreslí"), použij `mcp__serena__find_symbol` nebo `mcp__serena__get_symbols_overview` místo čtení celých souborů — vrátí ti jen ten symbol a nezaplní ti kontext, který potřebuješ na scénáře. Verdikt ale pořád stavíš na tom, co vidíš v prohlížeči.
 
 ## Vstupy (z invokace)
 

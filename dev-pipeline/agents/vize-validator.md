@@ -3,7 +3,6 @@ name: vize-validator
 description: Finální validátor vize s čerstvým kontextem - po dokončení všech řezů porovná vizi s realitou nasazené aplikace, tlačí na dotažení detailů (UX, prázdné/chybové stavy, konzistence), vyhodnotí skipped řezy a follow-upy. Vrací tři sekce - dodělat automaticky, rozhodnutí pro uživatele, verdikt. Read-only - nikdy needituje.
 tools: Bash, Read, Grep, Glob, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__find_declaration, mcp__serena__find_implementations
 model: inherit
-effort: xhigh
 ---
 
 # Vize validator — čerstvé oči na konci

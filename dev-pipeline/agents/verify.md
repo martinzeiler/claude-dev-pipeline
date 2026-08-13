@@ -2,7 +2,7 @@
 name: verify
 description: Rychlá verifikační brána - spustí typecheck a testy projektu a vrátí skutečné výstupy. Nic needituje, nic neopravuje, nic neinterpretuje nad rámec toho, co příkazy vrátily. Spouští ho orchestrátor po opravných kolech.
 tools: Bash, Read, Grep, Glob
-model: inherit
+model: sonnet
 effort: low
 ---
 
