@@ -17,7 +17,7 @@ Kroky 1 až 4 jdou **striktně po sobě** — pořadí je celý smysl kolečka. 
 
 1. **Thermo-nuclear**: spusť subagenta `dev-pipeline:thermo-nuclear-review` nad diffem. Opravy strukturálních nálezů dělej přes `dev-pipeline:fix` (předávej jim konkrétní nálezy, ne celý report). Presumptivní blockery z rubriky se opravují vždy; u sporných zapiš rozhodnutí do journalu.
 2. **/simplify**: invokuj skill `simplify` (opravy aplikuje sám).
-3. **Code-review kolo 1**: spusť subagenta `dev-pipeline:code-review` (`rozsah: vetev`, scope `git diff main...HEAD`, report do `docs/reviews/kolecko-code-review-kolo-1.md`). Vrátí verdikt a jednořádkové nálezy; plný report **nečti** — jeho cestu předej fix agentovi. Oprav všechny CONFIRMED nálezy; PLAUSIBLE posuď individuálně, rozhodnutí do journalu.
+3. **Code-review kolo 1**: spusť subagenta `dev-pipeline:code-review` (`rozsah: vetev`, scope `git diff main...HEAD`, report do `docs/reviews/kolecko-code-review-kolo-1.md`). Vrátí verdikt a rozdělení nálezů do disjunktních balíčků po souborech; samotné nálezy ani plný report **nečti** — cestu k reportu a čísla nálezů předej fix agentům (jeden na balíček). Oprav všechny CONFIRMED nálezy; PLAUSIBLE posuď individuálně, rozhodnutí do journalu.
 4. **Code-review kolo 2 — širokým fan-outem přes Workflow.** Kolo 1 běželo naším agentem (rodič + 3 lensy = 4 subagenti, laděné na přesnost). Kolo 2 nad diffem celé vize pusť naopak nejširší dostupnou metodikou: vestavěný workflow `code-review`.
 
    ```

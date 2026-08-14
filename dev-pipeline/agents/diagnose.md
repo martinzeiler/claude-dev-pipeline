@@ -51,6 +51,8 @@ Zásah do produkčního kódu při ověřování je **dočasný**: dělej ho po 
 
 ## Výstup (návratová hodnota pro orchestrátor)
 
+**Strop 2 000 znaků** — harness návratovku zobrazuje celou i uživateli v chatu. Výpisy z reprodukční smyčky, logy a mezikroky zužování patří do souboru ve scratchpadu, na který odkážeš cestou; sem jde jen tohle:
+
 1. **Reprodukce** — přesný příkaz nebo kroky, které chybu vyvolají, a jak dlouho trvají. Když se postavit nedala, co k tomu chybí.
 2. **Příčina** — `file:line` + mechanismus. Ne „něco s cachem", ale „funkce X vrací Y, protože podmínka na řádku N je obrácená, což u vstupu Z znamená W".
 3. **Doklad obou směrů** — čím smyčka zezelenala a čím zčervenala zpátky.

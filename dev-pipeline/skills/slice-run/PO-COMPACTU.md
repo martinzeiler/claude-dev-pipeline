@@ -8,7 +8,7 @@ Drž tenhle soubor krátký. Jde do kontextu po každém compactu, takže sem pa
 
 ## 1. PIPELINE.md čti znovu z disku
 
-Na začátku každého dalšího řezu přečti kanonický `PIPELINE.md` z disku (absolutní cestu připojuje hook na konec tohoto bloku). Jedeš podle verze na disku, ne podle toho, co ti z procesu zbylo v komprimované historii — uživatel skilly upravuje za běhu.
+Po compactu ho přečti (absolutní cestu připojuje hook na konec tohoto bloku) — jedeš podle verze na disku, ne podle toho, co ti z procesu zbylo v komprimované historii; uživatel skilly upravuje za běhu. **Ulož si k němu `shasum -a 256` do handoffu a na začátku dalších řezů čti jen hash**; `Read` pusť, až když se liší. Soubor má přes 37 kB (~9k tokenů) a mezi řezy se mění výjimečně.
 
 ## 2. Souběh: blok fází 1+2 dalšího řezu běží na pozadí (není to volba)
 
@@ -19,6 +19,7 @@ Jakmile řez N doběhne **fázi 3** (implementace hotová, kód leží v pracovn
 - **Když E2E řezu N vrátí FAIL**, hotové PRD zahoď a po opravě ho nech napsat znovu. Stálo nad stavem, který neplatí.
 - Nikdy nespouštěj **implementaci** N+1 souběžně s čímkoli z N. Paralelní je pouze psaní dokumentu.
 - Dva řezy najednou nikdy — sdílená produkce.
+- **Do zadání běžce dej doslova: „mezi kroky řetězu nečekej pollingem — spusť subagenta, ukonči tah a navaž notifikací."** Je to general-purpose agent, který zákaz pollingu ve tvém skillu nevidí, a bez té věty si vyrobí bashovou `sleep` smyčku nad výstupem podagenta — dvakrát po sobě to stálo hodiny a před uživatelem to vypadá jako zaseknutá pipeline. Stav řezu N mu předej **cestou k souboru**, ne vypsaný v promptu (zadání běžce je jediné, kde strop 2 000 znaků pravidelně praská).
 
 Proč to není volitelné: blok fází 1+2 trvá v ostrém běhu okolo 1 h 45 min, okno fází 4 až 7 je 4 h 30 min. Sériově je to nejdražší část řezu, souběžně stojí nula.
 

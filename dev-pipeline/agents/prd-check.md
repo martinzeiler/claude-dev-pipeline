@@ -1,6 +1,6 @@
 ---
 name: prd-check
-description: Kontrola PRD řezu PŘED implementací - úplnost vůči vizi, technická validita proti skutečnému kódu, kvalita akceptačních kritérií, rozsah řezu. Dostane cestu k PRD a vizi, plný report zapíše do souboru a vrátí verdikt s jednořádkovými nálezy. Kód ani PRD nikdy needituje. (Pro kontrolu PO implementaci existuje plan-check.)
+description: Kontrola PRD řezu PŘED implementací - úplnost vůči vizi, technická validita proti skutečnému kódu, kvalita akceptačních kritérií, rozsah řezu. Dostane cestu k PRD a vizi, plný report zapíše do souboru a vrátí verdikt s počtem blokujících a osami, na kterých nález padl (nálezy samotné nevrací). Kód ani PRD nikdy needituje. (Pro kontrolu PO implementaci existuje plan-check.)
 tools: Bash, Read, Grep, Glob, Write, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__find_declaration, mcp__serena__find_implementations
 model: inherit
 ---
@@ -61,15 +61,14 @@ Tvůj plný report je pracovní materiál pro PRD-fix agenta, ne čtivo pro orch
 - **Zákazy z vize, kterých se řez dotýká** — krátká tabulka: zákaz (+ kde ve vizi je) → **důvod, který vize uvádí** → má PRD záporné kritérium a **proti kterému povrchu** je psané → zúžil si PRD zákaz? → odložil si důsledek? Uveď i tehdy, když je všechno v pořádku; je to doklad, že osa A1 proběhla, ne jen prošla.
 - Osy, které jsi prošel bez nálezu, jednou větou každá.
 
-**2. Návratová hodnota** (tohle jediné jde do kontextu orchestrátora, drž se pod ~1500 znaky):
+**2. Návratová hodnota** (tohle jediné jde do kontextu orchestrátora — a protože harness návratovku zobrazuje celou, je to zároveň jediné, co z tvého kola uvidí uživatel v chatu; strop **1 200 znaků**):
 
 ```
 PRD_CHECK: ready | needs-fixes (N nálezů, B blokujících)
 Report: docs/reviews/rez-NN-prd-check-kolo-M.md
-1. [blokující|nález] <osa> — <jednou větou, co je špatně a kde v PRD>
-2. …
+Osy s nálezem: A1 (zákazy), B (technická validita)
 ```
 
-Jeden řádek na nález, žádné rozbory a citace — ty jsou v reportu, který si přečte PRD-fix agent. Když je nálezů víc než deset, vypiš blokující a shrň zbytek jedním řádkem („dalších N nekritických, viz report").
+**Nálezy sem nevypisuj — ani jednou větou.** Orchestrátor je nečte a nepotřebuje; rozhoduje se podle verdiktu a počtu blokujících, nálezy zapracovává PRD agent, který dostane cestu k reportu a přečte si je sám. Jednořádkové výčty v návratovce jsou nejdražší text běhu — 29 návratovek za jeden a půl řezu spolklo 38k tokenů orchestrátorova kontextu. Jmenuj tedy jen **osy**, na kterých nález padl: podle nich orchestrátor pozná, jestli jde o formulační drobnost (může přeskočit opakovací kolo), nebo o technickou vadu (nemůže).
 
 Kromě vlastního reportu needituj žádné soubory. Nespouštěj nested subagenty.

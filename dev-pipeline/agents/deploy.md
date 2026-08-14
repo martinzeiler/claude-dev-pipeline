@@ -47,7 +47,7 @@ Cwd projektu, absolutní cesta k `PIPELINE.md`, číslo a slug řezu, cesta k PR
 
 ## Výstup (návratová hodnota pro orchestrátor)
 
-Přesně tyhle údaje, krátce:
+Přesně tyhle údaje, krátce, **strop 2 000 znaků** (harness návratovku zobrazuje celou i uživateli v chatu; naměřeno 5,6 kB za jeden deploy — výpisy z platformy patří do logu, ne sem):
 
 1. **Commit hash** (plný) + jednořádkové shrnutí commitu.
 2. **Deployment status** doslova z platformy (SUCCESS / FAILED + identifikátor deploye).

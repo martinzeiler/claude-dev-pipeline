@@ -49,7 +49,7 @@ Read-only dotazy na produkci (SQL county, čtení API) jsou při psaní PRD **ž
 
 ## Výstup (návratová hodnota pro orchestrátor)
 
-Krátce, žádné dumpy:
+Krátce, žádné dumpy, **strop 2 000 znaků** — je to jediné, co z tvé fáze zůstane v kontextu orchestrátora, a harness to zobrazuje celé i uživateli v chatu (naměřeno 6,7 kB za jedno PRD):
 
 1. **Číslo a slug řezu** + jednou větou cíl. Nebo `VIZE_DONE` se zdůvodněním (a založ `docs/.vize-done`).
 2. Rozsah: co ano / co ne.

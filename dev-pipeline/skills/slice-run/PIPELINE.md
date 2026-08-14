@@ -18,7 +18,7 @@ Změna procesu se dělá VÝHRADNĚ tady, ne v jednotlivých skill souborech.
 | `docs/handoff.md` | přepisovaný | Aktuální stav pro čerstvý kontext |
 | `docs/follow-ups.md` | append-only, **kontinuální napříč vizemi** | Nápady/resty mimo scope; vyřešené/převzaté se přeškrtávají; setup další vize přeškrtnuté přesune do archivu (živý soubor = jen otevřené) |
 | `docs/e2e/rez-NN.md` | per řez | E2E scénáře (akceptační kritéria v krocích) |
-| `docs/reviews/rez-NN-*.md` | per kolo, **gitignorováno** | Plné reporty `prd-check` a `code-review`. Pracovní materiál mezi reviewerem a fix agentem; orchestrátor dostává jen verdikt a cestu, obsah nikdy nečte |
+| `docs/reviews/rez-NN-*.md` | per kolo, **gitignorováno** | Plné reporty `prd-check`, `code-review` a `e2e-verifier`, delší souhrny fází a stavové podklady pro souběžný blok. Pracovní materiál mezi agenty; orchestrátor dostává jen verdikt a cestu, obsah nikdy nečte |
 | `docs/zaverecna-zprava.md` | přepisovaný, per vize | Závěrečná zpráva finální fáze (co je hotové, rozhodnutí pro uživatele) |
 | `docs/archive/<slug>/` | vzniká při startu další vize | Archiv předchozí vize: prd/, e2e/, journal.md, zaverecna-zprava.md |
 | `docs/.vize-done` | marker | Vize naplněna, smyčka končí |
@@ -90,6 +90,20 @@ Nikdy nepřepisuj cizí záznamy, jen připoj vlastní na konec. Zapisuje ten, k
 
 **Hranice fází (závazné pro všechny agenty):** každý agent vykonává VÝHRADNĚ fázi, kterou dostal v zadání — nikdy si sám nespouští fázi následující ani kontrolní, i kdyby to vypadalo efektivně (kontrola ztrácí nezávislost, když si ji spustí kontrolovaný). Záznamy v journalu typu „rozhodnutí orchestrátora" jsou jednorázové výjimky pro danou situaci, ne precedenty — agent je z vlastní iniciativy nereplikuje.
 
+## Čekání, dlouhé příkazy a návratová hodnota (závazné pro všechny agenty)
+
+**Na jiného agenta se nikdy nečeká pollingem.** Když spustíš subagenta, **ukonči tah** — harness tě probudí notifikací, jakmile doběhne. `sleep` ve smyčce, opakované `stat`/`wc -c` nad `tasks/<id>.output` ani `tail` na ten soubor čekání nejsou; jsou to tahy, z nichž každý přeprefilluje celý kontext, a před uživatelem vypadají jako zaseknutý agent. Doloženo: řetězový běžec bloku 1+2 takhle prostál **3 hodiny** poté, co jeho PRD agent dávno dopsal (21 z 33 bash volání byl `sleep`), a jeho nástupce v dalším řezu totéž — přičemž si sám napsal „radši zablokuju, než abych ukončil tah". Ukončený tah **není** ztráta kontextu ani přerušení řetězu: navážeš notifikací se vším, co jsi věděl.
+
+Výjimka je jediná — stav **mimo harness** (deploy platformy, CI, migrace, externí fronta): jedna background Bash s `until`-smyčkou (`run_in_background: true`), která skončí, jakmile podmínka platí, nebo `Monitor`. Nikdy ne opakované ruční kontroly.
+
+**Dlouhý příkaz pouštěj na pozadí, ne v popředí.** Watchdog utne agenta po 600 s ticha a plná testová suita i browser krok ten limit běžně přesáhnou — v jednom běhu to sebralo dva agenty (`pnpm test --force` ve fázi 3, browser krok ve fázi 6). Cokoli, co může běžet přes ~5 minut, spusť `run_in_background: true` a sleduj `Monitor`em; v popředí nech jen krátké příkazy. Výstup plné brány navíc rovnou piš do souboru (`| tee`) — flaky test se pozná jen porovnáním dvou běhů a bez uloženého výstupu z toho prvního se jeho jméno ztratí.
+
+**Návratová hodnota má strop: 2 000 znaků u fázových agentů (prd, implement, fix, deploy, e2e-verifier, diagnose), 1 200 u kontrolních (code-review, prd-check, verify).** Je to jediné, co z tvé práce zůstane v kontextu orchestrátora — a zároveň jediné, co z běhu vidí uživatel v chatu, protože harness návratovku zobrazuje celou. Naměřeno: implementace vrátila 10,3 kB a E2E verifikace 10,4 kB, dohromady 29 návratovek za jeden a půl řezu = 38k tokenů orchestrátorova kontextu.
+
+Do návratovky patří: verdikt nebo stav jednou větou, čísla (kolik, co je zelené), rozhodnutí, která musí udělat orchestrátor, a věci, které nikde nestojí psané. Nepatří do ní: výčet souborů po jednom, obsah testů, tabulka mutací, citace kódu, rozbor nálezu, převyprávěný diff. **Co se nevejde, napiš do souboru a vrať cestu** — orchestrátor ji předá dál tomu, kdo obsah opravdu potřebuje.
+
+**Kód čti symbolem, ne řezem řádků.** Když projekt má Serenu, definici funkce, její volající a přehled souboru ber přes `mcp__serena__find_symbol` / `find_referencing_symbols` / `get_symbols_overview` — bez ohledu na velikost souboru. `rg` přes Bash zůstává správný nástroj na textové vzory, konfiguraci, `.md`/`.astro` a všechno gitové. Co správné není, je **číst zdrojový soubor přes `sed -n '1,120p'`, `cat` nebo `head`** — to je Read oklikou, jen bez limitů a bez toho, aby o něm věděla brzda. Naměřeno na jednom běhu: 133 volání `sed` a 44 `cat` proti 0 volání `Grep`/`Glob`, takže připomínka na nadužívání textového čtení nezasáhla ani jednou.
+
 **Souběh fází je věc orchestrátora, ne agentů.** Fáze jednoho řezu jdou po sobě. Souběžně smí běžet jen tyhle tři vzory a rozhoduje o nich orchestrátor:
 
 - **Blok fází 1+2 dalšího řezu vedle fází 4 až 7 toho současného** — startuje po fázi 3, popsáno na konci fáze 3 níž. Není to volba.
@@ -144,7 +158,7 @@ Když akceptační kritérium ověřuje UI prvek, který se objeví **jen u urč
 
 ## Fáze 2 — PRD check
 
-Spusť subagenta `dev-pipeline:prd-check` nad čerstvým PRD (předej cesty k PRD, vizi, — pokud existuje — k `docs/produkt.md` a **cestu pro report** `docs/reviews/rez-NN-prd-check-kolo-M.md`; kontroluje úplnost vůči vizi a severce včetně zákazů převedených na záporná kritéria, technickou validitu proti kódu, kvalitu akceptačních kritérií a rozsah řezu). Vrátí ti verdikt a jednořádkové nálezy; plný rozbor je v reportu, který **nečteš** — jeho cestu jen předáš PRD-fix agentovi. Nálezy zapracuj do PRD; při `needs-fixes` po zapracování spusť prd-check znovu (max 2 kola). Smysl opakovacího kola: nový check s čerstvým kontextem ověřuje, že zapracování nálezy skutečně vyřešilo — není to duplicitní kontrola. Opakovací kolo smí přeskočit JEN orchestrátor, a jen když byly nálezy čistě formulační (žádný technický ani akceptační dopad); přeskok zapíše do journalu jako jednorázové rozhodnutí. Fázi 2 NIKDY nespouští PRD agent sám (viz Hranice fází). Neptej se uživatele — jediný schválený vstup je vize; odchylky od osnovy jen zapiš do journalu se zdůvodněním. (Agent `plan-check` je post-implementační nástroj — v pipeline se nepoužívá.)
+Spusť subagenta `dev-pipeline:prd-check` nad čerstvým PRD (předej cesty k PRD, vizi, — pokud existuje — k `docs/produkt.md` a **cestu pro report** `docs/reviews/rez-NN-prd-check-kolo-M.md`; kontroluje úplnost vůči vizi a severce včetně zákazů převedených na záporná kritéria, technickou validitu proti kódu, kvalitu akceptačních kritérií a rozsah řezu). Vrátí ti verdikt, počet blokujících, cestu k reportu a osy, na kterých nález padl; samotné nálezy nevrací a ty je nečteš — cestu k reportu jen předáš PRD-fix agentovi, který si je přečte sám. Nálezy zapracuj do PRD; při `needs-fixes` po zapracování spusť prd-check znovu (max 2 kola). Smysl opakovacího kola: nový check s čerstvým kontextem ověřuje, že zapracování nálezy skutečně vyřešilo — není to duplicitní kontrola. Opakovací kolo smí přeskočit JEN orchestrátor, a jen když byly nálezy čistě formulační (žádný technický ani akceptační dopad); přeskok zapíše do journalu jako jednorázové rozhodnutí. Fázi 2 NIKDY nespouští PRD agent sám (viz Hranice fází). Neptej se uživatele — jediný schválený vstup je vize; odchylky od osnovy jen zapiš do journalu se zdůvodněním. (Agent `plan-check` je post-implementační nástroj — v pipeline se nepoužívá.)
 
 ## Fáze 3 — Implementace (TDD)
 
@@ -190,7 +204,7 @@ Proč zrovna tady:
 
 ## Fáze 4 — Lehké review + opravy
 
-1. Spusť subagenta `dev-pipeline:code-review` (`rozsah: pracovní-strom`, plus cesta pro report `docs/reviews/rez-NN-code-review-kolo-M.md`) nad aktuální rozpracovanou změnou — diff si posbírá sám včetně netrackovaných souborů. Vrátí ti strojový verdikt a jednořádkové nálezy; plný report **nečteš**, jeho cestu předáš fix agentovi. Oprav všechny CONFIRMED nálezy přes agenta `dev-pipeline:fix` (dostane cestu k reportu a výčet, které nálezy jsou jeho); PLAUSIBLE posuď a rozhodnutí zapiš do journalu.
+1. Spusť subagenta `dev-pipeline:code-review` (`rozsah: pracovní-strom`, plus cesta pro report `docs/reviews/rez-NN-code-review-kolo-M.md`) nad aktuální rozpracovanou změnou — diff si posbírá sám včetně netrackovaných souborů. Vrátí ti strojový verdikt, cestu k reportu a **rozdělení nálezů do disjunktních balíčků po souborech**; samotné nálezy nevrací a ty je nečteš. Podle balíčků spusť `dev-pipeline:fix` (jeden agent na balíček, každý dostane cestu k reportu a čísla svých nálezů — nikdy diff a nikdy obsah reportu); CONFIRMED se opravují všechny, PLAUSIBLE posuď a rozhodnutí zapiš do journalu. Balíček označený `[security]` znamená samostatný commit `fix(security): …`.
 2. Znovu typecheck + testy (agent `dev-pipeline:verify`).
 
 **Cílené re-review, když oprava přeroste reviewovanou změnu.** Když fix agent nasadí **nový plošný mechanismus**, sáhne do **sdíleného layoutu nebo kanonického helperu**, nebo zasáhne soubory **mimo** ty, ke kterým se nálezy vztahovaly, spusť nad **tou opravnou várkou** druhé cílené code-review. Není to opakování kola 1 — je to první nezávislý pohled na kód, který kolem 1 neprošel. Vyplácí se to doložitelně: jedno takové re-review našlo druhou kopii téhož úniku PII živou v produkci a tři latentní díry v čerstvě nasazeném guardu. Fix agent má povinnost rozšířený zásah nahlásit; když ho nahlásí, re-review není volba.
@@ -221,7 +235,7 @@ Proč zrovna tady:
 
 ## Fáze 6 — E2E verifikace
 
-Spusť subagenta `dev-pipeline:e2e-verifier`: dostane cestu k PRD a `docs/e2e/rez-NN.md`, projde scénáře v agent-browseru proti nasazené aplikaci a vrátí verdikt per akceptační kritérium. Neprošlá kritéria → vrať se do fáze 3 (oprav, re-deploy, re-verify).
+Spusť subagenta `dev-pipeline:e2e-verifier`: dostane cestu k PRD, k `docs/e2e/rez-NN.md` a **cestu pro report** (`docs/reviews/rez-NN-e2e-kolo-M.md`), projde scénáře v agent-browseru proti nasazené aplikaci a tabulku verdiktů per kritérium zapíše do reportu. Vrátí ti jen strojový řádek, cestu, FAIL kritéria a závažné nálezy mimo AK. Neprošlá kritéria → vrať se do fáze 3 (oprav, re-deploy, re-verify) a fix agentovi předej cestu k reportu, ne převyprávěný verdikt.
 
 **Verdikt má tři hodnoty, ne dvě:** `PASS` (ověřeno živě), `PASS-částečně` (živě to nešlo, protože X — druhou půlku nese test Y) a `FAIL`. Bez prostřední hodnoty se agenti tlačí do binárního rozhodnutí a zaokrouhlují nahoru. Doloženo: řez, který vrátil 33/33, měl u pěti kritérií ověřenou jen jednu půlku — den bez běhů v nefiltrovaném pohledu za 60 dní v ostrých datech neexistuje, `runs_in_progress` je v produkci všude 0, historie je 4 měsíce, takže „položka starší než rok" nemá jak vzniknout. Ten agent to přiznal sám od sebe a jmenoval testy nesoucí druhou půlku, ale metodika mu to neukládala. **Závěr běhu musí částečné vypsat zvlášť** — je to přesně seznam větví, které E2E neochrání, a příští řez nad toutéž plochou ho potřebuje.
 

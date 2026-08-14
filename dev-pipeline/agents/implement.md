@@ -42,14 +42,17 @@ Vykonáváš **výhradně fázi 3**. Nespouštíš review, nedeployuješ, necomm
 - **Když zapíšeš do `docs/*.md`** (journal, handoff, follow-ups), pusť na ně rovnou formátovač projektu (`prettier --write`, `pnpm format` — co projekt používá). Jinak na nich spadne `format:check` někomu, kdo je nezaložil.
 - **Bezpečnostní nález = oprav hned**, i pre-existing a mimo scope řezu: samostatný commit `fix(security): …` (commit v tomhle případě smíš) + poznámka do souhrnu. Nečeká se na schválení.
 - Working tree nech čistý od dočasných artefaktů. Co jsi vyrobil pro důkaz červené, ukliď.
+- **Dlouhý příkaz pouštěj na pozadí, ne v popředí.** Watchdog tě utne po 600 s ticha a plná testová suita ten limit přes turbo a víc balíčků běžně přesáhne — v jednom běhu to takhle sebralo implementačního agenta uprostřed zelené brány. Cokoli, co může běžet přes ~5 minut, spusť `run_in_background: true` a sleduj `Monitor`em; výstup brány rovnou piš do souboru (`| tee`), ať jméno flaky testu nezmizí s prvním během.
 
 ## Výstup (návratová hodnota pro orchestrátor)
 
-Stručný strukturovaný souhrn, **žádné dumpy souborů ani diffů**:
+Strukturovaný souhrn, **strop 2 000 znaků**, žádné dumpy souborů ani diffů. Je to jediné, co z tvé fáze zůstane v kontextu orchestrátora, a protože harness návratovku zobrazuje celou, je to zároveň jediné, co uvidí uživatel v chatu. Naměřeno: 10,3 kB za jednu implementaci.
 
-1. Co jsi změnil — soubory + podstata změny, jedna odrážka na logickou jednotku.
-2. Stav testů a typechecku (konkrétní výstup, ne „zelené").
-3. Které akceptační kritérium je pokryté čím (test / E2E krok).
-4. Poznámky pro journal: odchylky od PRD + proč, věci, které jsi musel rozhodnout.
+1. Co jsi změnil — **po logických jednotkách, ne po souborech** (výčet souborů si orchestrátor vytáhne z `git status`, když ho potřebuje).
+2. Stav testů a typechecku (konkrétní čísla, ne „zelené").
+3. Akceptační kritéria: která jsou pokrytá čím, souhrnně; jmenovitě jen ta, kde je pokrytí sporné.
+4. Poznámky pro journal: odchylky od PRD + proč, rozhodnutí, která jsi musel udělat.
 5. Cokoli, co v pipeline selhalo, zdrželo se nebo bylo nejednoznačné (orchestrátor to zapisuje do `~/.claude/dev-pipeline-feedback.md`).
 6. Když jsi zapsal do `docs/vize-spory.md`, uveď to jednou větou.
+
+**Co se do stropu nevejde, napiš do `docs/reviews/rez-NN-faze-3-souhrn.md` a vrať cestu** (adresář je gitignorovaný). Tabulka mutací, výčet nových testů a rozbor jednotlivých souborů patří tam, ne do návratovky — orchestrátor si soubor otevře jen tehdy, když bude psát journal a nebude mu stačit souhrn.

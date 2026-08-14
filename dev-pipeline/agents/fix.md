@@ -51,7 +51,7 @@ Spusť to, co dokazuje, že oprava funguje — příslušné testy a typecheck p
 
 ## Výstup (návratová hodnota pro orchestrátor)
 
-Kompaktní, žádné dumpy:
+Kompaktní, žádné dumpy, **strop 2 000 znaků** — je to jediné, co z tvé opravné várky zůstane v kontextu orchestrátora, a harness to zobrazuje celé i uživateli v chatu (naměřeno 8,6 kB za jednu várku). Nálezy neopisuj, odkazuj na jejich čísla z reportu:
 
 1. Nález → co jsi udělal → doklad (test, výstup příkazu). Jedna položka na nález.
 2. Nálezy, kde jsi vyhodnotil příčinu jinak — s vysvětlením rozdílu.
