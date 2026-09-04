@@ -134,6 +134,18 @@ Dvě pravidla navíc, protože samotné záporné kritérium se dá obejít, ani
 
 Přesně takhle jednou zákaz z vize prošel PRD, prd-checkem, review i E2E verifikací a vyplaval až v závěrečné zprávě: PRD záporné kritérium mělo, jen si předtím zákaz zúžilo na jednu komponentu a duplicitu, kterou tím vyrobilo, si samo popsalo a odložilo do follow-upu.
 
+### Precedent v repu se hledá, váží a cituje (povinné)
+
+U každého netriviálního rozhodnutí najdi v repu **protějšek na jiné platformě nebo ploše** a v PRD napiš, jak je vyřešený tam a proč se tenhle řez odchyluje (nebo neodchyluje). Není to totéž co „validuj předpoklady proti kódu" (= ověř, že tvrzení platí) ani co osa optimality v prd-checku (= šla jednodušší cesta?). Otázka zní: **řešili jsme tenhle problém už jinde a jak to dopadlo?**
+
+Důvod je, že precedent nese navíc **cenu, kterou jsme za to řešení zaplatili**, a tu z čistého uvažování nevymyslíš. Druhý důvod: bez toho kroku vzniká **nesouměrnost, kterou nikdo nerozhodl** — jedna platforma dostane přísnější pravidlo než druhá jen proto, že se psalo později a nikdo obě strany nepoložil vedle sebe.
+
+- Když protějšek **neexistuje**, je to samo o sobě nález: buď je problém nový, nebo ho jinde řešíme tiše a bez pravidla.
+- **Precedent není příkaz.** Platformy se liší (jedna má veřejnou dokumentaci a suchý běh, druhá ani jedno) a starší řešení může být horší. Odchylka je legitimní, ale musí být **vyslovená s důvodem**.
+- Odchylka **bez** důvodu je nesouměrnost pro uživatele: patří do `docs/vize-spory.md`, ne do vlastní volby pipeline.
+
+Platí i mimo platformy: sdílené helpery, stráže, kontrakty, tvar chybových stavů.
+
 ### PRD popisuje celou obrazovku, ne jen svůj přírůstek
 
 Když řez přidává do **existující** UI plochy (formulář, panel, sekce nastavení), PRD musí uvést **stav té plochy po změně**: kolik sekcí a polí tam bude celkem, jak jsou seskupené, co je primární akce. Ne jen „přidáme dvě pole". Zjisti si to z kódu — dohledej komponentu a spočítej, co tam je dnes.
