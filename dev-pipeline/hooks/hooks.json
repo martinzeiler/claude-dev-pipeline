@@ -1,27 +1,46 @@
 {
-  "description": "dev-pipeline guardy: blast-radius blokace destruktivních příkazů + re-injekce handoffu a kanonických kroků po compactu i resume",
+  "description": "dev-pipeline: blast-radius guard (vždy), guard běhu (jen v orchestrátorské session podle docs/.orchestrator-run: žádné otázky, orchestrátor nečte a nespouští projekt, subagenti nečtou celé velké zdrojové soubory), Stop hook proti stání běhu, PreCompact varování o velikosti handoffu, injekce tabulky plánu a PO-COMPACTU po compactu/resume, uložení session_id při /orchestrate",
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard-blast-radius.sh",
-            "timeout": 10
-          }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard-blast-radius.sh", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion|Read|Grep|Glob|Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard-run.sh", "timeout": 10 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/prompt-submit.sh", "timeout": 10 }
         ]
       }
     ],
     "SessionStart": [
       {
-        "matcher": "compact|resume",
+        "matcher": "startup|compact|resume",
         "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start-handoff.sh",
-            "timeout": 10
-          }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start-handoff.sh", "timeout": 10 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/on-stop.sh", "timeout": 10 }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-compact.sh", "timeout": 10 }
         ]
       }
     ]

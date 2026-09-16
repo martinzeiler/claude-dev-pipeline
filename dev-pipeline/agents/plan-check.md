@@ -2,7 +2,8 @@
 name: plan-check
 description: Post-implementation verification that an approved plan was implemented fully AND optimally. Use after implementing a plan to check, item by item, whether each part is done, whether the solution is ideal for the whole application (not just "it works" / a narrow bug-fix), and whether functions are shaped and behaving the way they should. Read-only — reports a verdict, does not edit.
 tools: Bash, Read, Grep, Glob, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__find_declaration, mcp__serena__find_implementations
-model: inherit
+model: opus
+effort: high
 ---
 
 # Plan check — completeness + optimality verifier
@@ -46,4 +47,4 @@ Return to the main session only:
 4. **Blast radius + readiness** — what could have regressed (checked), and an explicit "ready to use: yes/no (+ what's missing)".
 5. **Open questions / missing info**, if any.
 
-Be direct and high-conviction. Do not edit any file. Do not flood with cosmetic nits — that is what `/tidy` and the review pipeline are for; you focus on completeness, optimality, and intent.
+Be direct and high-conviction. Do not edit any file. Do not flood with cosmetic nits; the review pipeline covers those. You focus on completeness, optimality, and intent.

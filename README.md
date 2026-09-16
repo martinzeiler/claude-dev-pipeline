@@ -1,6 +1,12 @@
 # claude-dev-pipeline
 
-Osobní vývojová pipeline pro Claude Code: **vize → řezy → autonomní implementace → review → validace**. Jedno schválení (vize), zbytek běží bez dozoru. Stav žije v souborech projektu, ne v kontextu — každý řez proto může běžet s čerstvým kontextovým oknem.
+Osobní vývojová pipeline pro Claude Code: **vize → plán řezů → autonomní běh → závěrečný audit → validace**. Jedno schválení před během (vize) a jedna lidská brána po něm (merge do main). Od verze 1.0.0 má běh tři vrstvy:
+
+1. **Orchestrátor** je nejsilnější model v session uživatele. Drží celou vizi a plán řezů, vybírá řezy, schvaluje souhrn PRD, hlídá drift, smí měnit cestu k Cílům (nikdy Cíle) a píše krátké zprávy o stavu. Nečte kód, PRD, reporty ani diffy; na všechno posílá agenty. Kontext drží pod ~300k tokenů za dvanáct hodin.
+2. **Dva Workflow bloky pluginu** (`workflows/blok-prd.js`, `workflows/blok-stavby.js`) jsou deterministický běžec řezu: pořadí kroků, stropy kol, opakování, diagnóza po druhém neúspěchu a strojové návraty jsou v kódu, ne v úsudku modelu.
+3. **Fázoví agenti** s modelem a effortem natvrdo (`agents/*.md`), každý s jednou rolí a strukturovaným návratem.
+
+Stav běhu žije v souborech projektu (`docs/handoff.md` s tabulkou plánu do 4 kB, PRD, journal, follow-ups), ne v kontextu.
 
 ## Instalace
 
@@ -10,7 +16,7 @@ Repo je zároveň plugin marketplace. Na novém stroji:
 git clone <url-tohoto-repa> ~/claude-dev-pipeline
 ```
 
-Do `~/.claude/settings.json` přidat:
+Do `~/.claude/settings.json`:
 
 ```json
 {
@@ -19,161 +25,91 @@ Do `~/.claude/settings.json` přidat:
       "source": { "source": "directory", "path": "/Users/<user>/claude-dev-pipeline" }
     }
   },
-  "enabledPlugins": {
-    "dev-pipeline@claude-dev-pipeline": true
-  }
+  "enabledPlugins": { "dev-pipeline@claude-dev-pipeline": true },
+  "autoContinueAtUsageLimit": true
 }
 ```
 
-(Alternativně interaktivně: `/plugin marketplace add ~/claude-dev-pipeline` a `/plugin install dev-pipeline@claude-dev-pipeline`.)
+(Interaktivně: `/plugin marketplace add ~/claude-dev-pipeline`, `/plugin install dev-pipeline@claude-dev-pipeline`.) Skripty musí být spustitelné: `chmod +x ~/claude-dev-pipeline/dev-pipeline/hooks/*.sh ~/claude-dev-pipeline/dev-pipeline/scripts/*.sh`. `autoContinueAtUsageLimit` nechá Workflow bloky pokračovat po usage limitu samy (Claude Code 2.1.271+).
 
-Skripty musí být spustitelné: `chmod +x ~/claude-dev-pipeline/dev-pipeline/hooks/*.sh ~/claude-dev-pipeline/dev-pipeline/scripts/*.sh`
+Volitelně plugin **claude-security** (`/plugin install claude-security@claude-plugins-official`): review kolečko ho použije jako druhou bezpečnostní metodiku.
 
-Volitelně: plugin **claude-security** (`/plugin install claude-security@claude-plugins-official`) — review kolečko ho použije jako druhou bezpečnostní metodiku. Bez něj poběží obě kola vestavěným `security-review` a zapíše se to do deníku pipeline.
+### Refresh po editaci pluginu
 
-## DŮLEŽITÉ: refresh po editaci pluginu
+Directory-source marketplace se kopíruje do cache; editace zdrojového adresáře se do sessions nepropíše sama. Po každé změně: bump `version` v `dev-pipeline/.claude-plugin/plugin.json` (při stejné verzi updater hlásí „already at latest" a cache neobnoví), pak `claude plugin update dev-pipeline@claude-dev-pipeline` a nová session. Při vývoji pluginu je jednodušší `claude --plugin-dir ~/claude-dev-pipeline/dev-pipeline`. Nový agent nebo workflow = nová session (registr se čte při startu).
 
-Directory-source marketplace se při registraci **kopíruje do cache** — editace zdrojového adresáře se do sessions NEpropíše sama. Po každé změně pluginu (i po `git pull` na jiném stroji):
+## Cyklus jedné vize
 
-```
-/plugin marketplace update claude-dev-pipeline
-```
+**Tvoje kroky jsou 1, 3 a 4. Krok 2 běží sám.**
 
-nebo neinteraktivně z terminálu: `claude plugin marketplace update claude-dev-pipeline`. Pak novou session (případně `/reload-plugins` v běžící). Při aktivním vývoji pluginu je jednodušší spouštět session s živým čtením bez cache:
+1. **`/vize`** (interaktivní, jediný schvalovací bod před během). Debatní session v grill-me stylu: široký paralelní fact-finding, research bez ptaní, seznam otevřených otázek v draftu, tvar UI a seznam UI ploch, **test smazání pro každý ochranný mechanismus** (zámek, strop, potvrzení musí sedět na hranici nevratnosti, jinak do vize nepatří), **Povolení pro zápis do živých systémů** (účet, operace, meze, platnost; běh se pak už neptá), na konci **plán řezů** (tabulka: číslo, název, body vize, definice hotového, závislosti) a čerstvé oči z několika rolí včetně role orchestrátora. Tělo vize do 40k tokenů, přílohy v `docs/vize/<slug>/`. Výstup `docs/vize/<slug>.md` commitnutý. Jediné místo, kde vzniká a mění se produktová severka `docs/produkt.md`.
+2. **Napsat jako prompt `/dev-pipeline:orchestrate docs/vize/<slug>.md`** v nové session na nejsilnějším modelu (hook si z toho promptu uloží identitu session; spuštěno jinak se setup nemá čeho chytit). Doporučeno `/autocompact 400k`. Co proběhne samo:
+   - **Setup** (`scripts/orchestrate-setup.sh`): čistý strom, archivace stavu předchozí vize do `docs/archive/<slug>/` (přeškrtnuté follow-ups do archivu, živý soubor jen otevřené), `.gitignore`, větev `vize/<slug>`, marker `docs/.orchestrator-run` se session_id, handoff s tabulkou plánu z vize; necommitnutá vize, gitignore, archiv i stavové soubory jdou do **jediného commitu** (projekt s pomalou pre-commit bránou ji platí jednou). Pak cron „zkontroluj stav běhu" každých 30 minut.
+   - **Smyčka řezů**: orchestrátor vybere řádek plánu → `Workflow dev-pipeline:blok-prd` (PRD a E2E scénáře → prd-check → zapracování → delta kontrola nad změněnými místy; žádné třetí kolo, zbylé nálezy jdou stavbě jako hypotézy) → schválení souhrnu PRD proti vizi (body vize, žádná UI plocha mimo seznam, zápis do živého jen s Povolením) → `Workflow dev-pipeline:blok-stavby` (implementace s plnou suitou jednou na konci → thermo **souběžně** s code-review → opravy po balíčcích souběžně, thermo nálezy v téže vlně, nejvýš dvě kola review → brána: **jediná plná suita**, zelená zapíše `docs/.verify-passed` → deploy jedním commitem včetně docs → E2E s jedním opakováním → bezpečnostní nálezy samostatným commitem → uzavření: PRD status, journal, follow-ups; až tři pokusy, před třetím diagnóza) → aktualizace tabulky, pevný blok zprávy uživateli, další řez. **Blok PRD dalšího nezávislého řezu běží souběžně se stavbou aktuálního** (v jednu chvíli nejvýš jedna stavba a jeden PRD); handoff nese oba tasky.
+   - **Drift**: orchestrátor mění cestu, ne cíl (pořadí, dělení, sloučení, přidání řezu, který Cíl potřebuje), každou změnu zapíše a oznámí. Nálezy review ani E2E nikdy nezakládají řez. Zastaví se jen ze šesti důvodů: změna Cíle, Ne-cíle, rozhodnutí nebo severky · rozsah, který žádný Cíl nepotřebuje · blok stavby selhal třikrát i s diagnózou · blokující bezpečnostní nález v nasazeném kódu · zápis do živého systému bez Povolení · dvojnásobek řezů proti plánu. Otázky během běhu hook odmítá.
+   - **Finální fáze**: review kolečko → E2E nad změnami kolečka → vize-validator (Fable) → mini-řezy z jeho sekce „dodělat automaticky" → odstranění lešení → sklizeň follow-ups, feedback souboru a velikosti CLAUDE.md → závěrečná zpráva do `docs/zaverecna-zprava.md` a notifikace.
+3. **Přečti závěrečnou zprávu** (per řez jeden řádek, stav Cílů, Rozhodnutí pro tebe, Spory ve vizi, Paměť a dokumentace, Pipeline) a proklikej aplikaci.
+4. **Merge `vize/<slug>` do main** děláš ty. Autonomní běh na main nikdy nesahá.
 
-**POZOR na verzi:** updater porovnává `version` v `plugin.json` — při stejné verzi hlásí „already at latest" a obsah cache NEobnoví (známý bug). Proto **každá změna pluginu = bump verze v `dev-pipeline/.claude-plugin/plugin.json`** (pak stačí `claude plugin update dev-pipeline@claude-dev-pipeline`). Nouzový workaround bez bumpu: `claude plugin uninstall dev-pipeline@claude-dev-pipeline && claude plugin install dev-pipeline@claude-dev-pipeline`.
-
-```bash
-claude --plugin-dir ~/claude-dev-pipeline/dev-pipeline
-```
-
-Příznak stale verze: session dostane při invokaci skillu starší obsah, než je na disku, nebo nezná nově přidané agenty (`dev-pipeline:*`).
-
-## Workflow — celý cyklus jedné vize
-
-**Tvoje kroky jsou jen 1, 4 a 5. Zbytek běží sám.**
-
-1. **`/vize`** (interaktivní — jediný schvalovací bod). Debatní session, délka podle rozsahu: široký paralelní fact-finding průzkum, grilování otázkami s doporučeními, průběžný seznam otevřených otázek v draftu (session končí, až je prázdný), na závěr kontrola čerstvýma očima z několika rolí (implementátor, UX, data, provoz). **Tady se nešetří** (od 0.9.0): research se pouští sám a v šířce podle počtu podotázek, ne podle rozpočtu — co se neprobere tady, to si po schválení domyslí autonomní běh a domyslí si to pokaždé jinak. Vize rozhoduje i **tvar UI** (primární akce, hierarchie, hustota, prázdný/chybový/načítací stav) — bez toho si ho implementace domýšlí a pokaždé jinak; když próza nestačí, `/dev-pipeline:prototyp`. Vstupem může být i backlog `docs/follow-ups.md` — session živé položky probere a roztřídí (převzaté do vize přeškrtne s `PŘEVZATO`, zamítnuté s důvodem). Výstup: `docs/vize/<slug>.md` commitnutý. Je to zároveň **jediné místo, kde se zakládá a mění produktová severka `docs/produkt.md`** (viz níže). Spouštěj na main, **až po merge předchozí vize** (branch nové vize vzniká z main).
-
-2. **`/dev-pipeline:orchestrate`** — v nové session; na dlouhý běh „spusť a odejdi" v tmuxu s limit-watcherem (viz Usage limity). Co proběhne samo:
-   - **Setup**: branch `vize/<slug>`; archivace předchozí vize (`prd/`, `e2e/`, `journal.md` → `docs/archive/<starý-slug>/`), kompakce follow-ups (přeškrtnuté → archiv, živý soubor = jen otevřené), smazání stale markerů; pre-flight check projektu (testy/deploy/přístup do appky). **Nic z toho neděláš ručně.**
-   - **Smyčka řezů**: PRD (lazy rozsah z aktuálního stavu) → nezávislý prd-check → TDD implementace → lehké code-review → commit + deploy (s doloženým SUCCESS) → E2E verifikace (agent-browser) → uzavření (journal, handoff, follow-upy).
-   - **Finální fáze**: plné review kolečko → **E2E nad změnami kolečka** (od 0.7.0; scénář se sestaví z jeho diffu a proběhne normální fází 6 — kolečko je poslední místo, kde se mění produkční kód, a jediné, které dosud šlo na produkci bez vlastní verifikace) → vize-validator proti živé appce → mini-řezy z jeho nálezů → **sklizeň deníku vad pipeline** → follow-ups sweep → notifikace + závěrečná zpráva.
-   - **Souběh** (ať se využije pětihodinové okno): **celý blok PRD + prd-check dalšího řezu běží na pozadí** vedle fází 4 až 7 toho současného, a startuje hned po implementaci (od 0.5.0; v 0.4.0 startoval až po review a přesouval jen psaní PRD, což byla čtvrtina toho času). Dál: implementace řezu sahajícího na víc balíčků se dělí (nejdřív sdílené typy, pak backend a frontend souběžně); fix agenti běží paralelně nad disjunktními soubory; obě bezpečnostní metodiky v kolečku běží najednou. **Dva řezy najednou nikdy** — sdílená produkce.
-   - **Co přežije compact** (od 0.5.0): `orchestrate/SKILL.md` se čte jen jednou při invokaci, takže se z běhu tiše vytrácely kroky, které jsou v něm — souběh proběhl jen do prvního compactu. Hook `session-start-handoff.sh` proto po compactu injektuje vedle handoffu i `skills/slice-run/PO-COMPACTU.md` (souběh, stropy subagentů, disciplína kontextu). Když měníš souběh, měň ho na obou místech.
-   - **Stropy**: orchestrátor se zastavuje na **kontextu, ne na počtu agentů** (od 0.6.0). Dřívější pojistka „při 170 agentech dokonči řez a stop" existovala kvůli stropu ~200 subagentů na session; ten v Claude Code už neplatí (ověřeno v 2.1.229) a vize běžně spotřebuje stovky agentů — naměřeno 367 na dvanáctiřezové vizi. Vynucené zůstávají souběžnost (20 najednou), hloubka zanoření a dolarový rozpočet. Když napíšeš „po tomto řezu uděláme compact", dokončí řez celý, připraví handoff a počká — compact nikdy neinicuje sám.
-
-3. **Přečti závěrečnou zprávu** — je v session I v souboru `docs/zaverecna-zprava.md`: co je hotové per řez, skipped řezy, sekce **Rozhodnutí pro tebe** (skutečné odchylky od vize s doporučením), sekce **Paměť a dokumentace** (co stojí za uložení). Pořadí čtení po běhu: `docs/zaverecna-zprava.md` (souhrn + rozhodnutí) → `docs/follow-ups.md` (živé resty) → `docs/journal.md` (detail per řez, jen když tě něco zajímá).
-
-4. **Tvoje kontrola**: proklikej nasazenou aplikaci / otestuj, co vize slibuje. Případné opravy zadej téže orchestrátor session (nebo nové session s odkazem na journal).
-
-5. **Merge do main — děláš ty, až po kontrole** (nebo na tvůj pokyn Claude: „mergni vizi do main" = checkout main → merge → push na GitHub → `git branch -d vize/<slug>`). Autonomní běh na main NIKDY nesahá. Po merge je cyklus uzavřený a můžeš od kroku 1 začít další vizi.
-
-**Nikdy ručně nemažeš nic v `docs/`** — archivaci i kompakci dělá setup další vize; `docs/follow-ups.md` je kontinuální backlog napříč vizemi a díky kompakci neroste donekonečna.
-
-### Fallback: Ralph driver (bez orchestrátor session)
-
-```bash
-~/claude-dev-pipeline/dev-pipeline/scripts/slice-driver.sh --watch   # sleduješ, řez odstartuješ ukončením session
-~/claude-dev-pipeline/dev-pipeline/scripts/slice-driver.sh           # headless, spusť a odejdi
-```
-
-Stejný souborový kontrakt, každý řez = nová session. Po dokončení: `claude "/dev-pipeline:orchestrate final"`. Headless režim usage limit přežije sám (detekce hlášky → 30min čekání → retry, iterace se nepočítá).
-
-### Usage limity při dlouhém běhu
-
-Claude Code nemá auto-resume po usage limitu. Pipeline to řeší třemi vrstvami:
-
-1. **Subagent umře na limit** → chybu vidí orchestrátor a řeší ji sám (TaskStop + resume; nepočítá se jako pokus řezu — viz failure policy v PIPELINE.md).
-2. **Orchestrátor session sama narazí na limit** → stojí, dokud jí někdo nenapíše. Na dlouhé běhy „spusť a odejdi" proto orchestrátor spouštěj v tmuxu a vedle nech běžet watcher, který po resetu pošle „pokračuj":
-
-```bash
-tmux new -s pipeline          # v něm: claude → /dev-pipeline:orchestrate ...
-~/claude-dev-pipeline/dev-pipeline/scripts/limit-watcher.sh   # druhý terminál
-```
-
-3. **Ralph driver (headless)** má retry vestavěný.
-
-Ve všech případech platí: stav běhu žije v souborech (handoff, journal, PRD statusy), takže přerušení kdekoli je bezpečné — nejhorší scénář je čekání, nikdy ztráta práce.
-
-## Souborový kontrakt (v repu cílového projektu)
-
-| Soubor | Účel |
-|---|---|
-| `docs/produkt.md` | **Produktová severka** — trvalá norma napříč vizemi: severka (2-3 věty), kontrolovatelné mantinely, trvalá ne-rozhodnutí. Max ~1 strana. Zakládá a mění ji **jen `/vize` session**; autonomní běh ji čte a nikdy needituje. Čtou ji čtyři místa: `/vize`, PRD, `prd-check` (osa A), `vize-validator`. Nepovinná — bez ní se nic nevynucuje. Řeší třídu chyby „každý řez byl správně, výsledná obrazovka je nepoužitelná" |
-| `docs/vize/<slug>.md` | Vize (jediný schválený vstup) |
-| `docs/vize-spory.md` | Append-only kanál pro **rozpory ve vizi samotné** nalezené za běhu. Agent zapíše a jede dál (běh se nezastaví), orchestrátor to vypíše mezi řezy — dozvíš se to, dokud s tím jde něco dělat, ne až v závěrečné zprávě |
-| `docs/prd/rez-NN-<slug>.md` | PRD řezu, vzniká lazy; frontmatter `status: in_progress\|done\|skipped` |
-| `docs/journal.md` | Append-only deník: co, odchylky, rozhodnutí, pokusy |
-| `docs/handoff.md` | Přepisovaný aktuální stav (kotva pro čerstvé kontexty; po compactu ho hook re-injektuje) |
-| `docs/follow-ups.md` | Resty a nápady mimo scope |
-| `docs/e2e/rez-NN.md` | E2E scénáře řezu (akceptační kritéria v krocích). Verdikt má tři hodnoty: `PASS`, `PASS-částečně` (živě to nešlo — druhou půlku nese jmenovaný test) a `FAIL`; částečné se v závěru vypisují zvlášť, protože je to seznam větví, které v produkci nikdo neochrání |
-| `docs/reviews/rez-NN-*.md` | Plné reporty prd-checku a code-review (gitignorováno). Orchestrátor je nečte, jen předává cestu fix agentovi |
-| `docs/zaverecna-zprava.md` | Závěrečná zpráva finální fáze (souhrn, rozhodnutí pro tebe) — přepisovaný per vize |
-| `docs/archive/<slug>/` | Archiv předchozí vize (prd/, e2e/, journal, zaverecna-zprava) — vytváří setup další vize |
-| `docs/.vize-done` | Marker: vize naplněna |
-| `docs/.orchestrator-run` | Marker: běží autonomní run (aktivuje deploy gate) |
-| `docs/.deploy-unlocked` | Marker: deploy povolen (po zeleném review+testech) |
-| `docs/.review-passed` | Marker: plné kolečko prošlo |
-| `~/.claude/dev-pipeline-feedback.md` | **Globální, mimo repo projektu i pluginu** (přežije reinstalaci). Append-only deník vad a brzd pipeline samotné: co selhalo a muselo se obejít, co trvalo nesmyslně dlouho, kde je instrukce nejednoznačná. Zapisuje orchestrátor při uzavření řezu a review-kolečko při selhání kroku. **Od 0.7.0 ho finální fáze sama sklidí**: subagent projde záznamy od začátku vize a roztřídí je na návrhy do pluginu, věci do `CLAUDE.md` projektu a jednorázové poznatky; výsledek jde do sekce **Pipeline** závěrečné zprávy. Bez toho kroku deník rostl a nikdo ho nečetl — v jednom měření měl 42 záznamů a vyřešené dva. Resty projektu tu nemají co dělat, ty patří do `docs/follow-ups.md`. |
-
-Kanonická definice fází: `dev-pipeline/skills/slice-run/PIPELINE.md` — **proces se mění jen tam**.
+Kdykoli během běhu můžeš orchestrátorovi napsat: odpoví z tabulky nebo pošle agenta, běh nepřeruší. Po compactu mu hook vrátí tabulku plánu a krátký `PO-COMPACTU.md`; vizi si přečte znovu celou.
 
 ## Agenti
 
-Pojmenovaní agenti mají pevnou metodiku **a pevný reasoning effort ve frontmatteru** — role, která přemýšlí, ho má natvrdo na `xhigh`, aby ji nešlo shodit změnou globálního nastavení; mechanická role jede níž, protože její výstup se tím nezhorší.
-
-| Agent | Effort | Role |
+| Agent | Model / effort | Role |
 |---|---|---|
-| `prd` | xhigh | Napsání PRD a E2E scénářů řezu (fáze 1) — od 0.7.0; dřív běžela jako bezejmenný general-purpose s metodikou opsanou do promptu |
-| `prd-check` | xhigh | Kontrola PRD před implementací (fáze 2) — vč. zákazů z vize a severky |
-| `implement` | xhigh | TDD implementace řezu (fáze 3) |
-| `code-review` | xhigh | Correctness review (fáze 4 a kolečko), každý nález nese `BLOKUJE`/`FOLLOW-UP` |
-| `thermo-nuclear-review` | xhigh | Strukturální audit (kolečko kolo 1) — vč. osy „barrel, který nikdo nepoužívá" |
-| `e2e-verifier` | xhigh | E2E verifikace proti běžící appce (fáze 6) |
-| `vize-validator` | xhigh | Čerstvé oči na konci vize |
-| `diagnose` | xhigh | Zaseknutý řez: reprodukční smyčka + doložená příčina, **neopravuje** |
-| `plan-check` | xhigh | Post-implementační kontrola plánu (mimo pipeline) |
-| `fix` | high | Oprava nálezů — nález bere jako **hypotézu**, ne jako zadání |
-| `deploy` | medium | Commit + deploy s doloženým stavem (fáze 5) |
-| `verify` | low | Typecheck + testy, nic needituje |
+| `prd` | Opus 5 high | PRD a E2E scénáře podle řádku plánu; zapracování nálezů s návratem změněných míst |
+| `prd-check` | Opus 5 high | Nezávislá kontrola PRD (úplnost, validita proti kódu, kritéria, rozsah, optimalita); delta kolo |
+| `implement` | Opus 5 high | TDD implementace; testy k chování, ne k řezu; past ve svých souborech opravuje |
+| `code-review` | Opus 5 high | Korektnost; nálezy CONFIRMED/PLAUSIBLE a BLOKUJE/FOLLOW-UP; návrat jako balíčky po souborech |
+| `diagnose` | Opus 5 high | Po dvou neúspěších: reprodukční smyčka a doložená příčina, neopravuje |
+| `fix` | Opus 5 medium | Oprava nálezů jako hypotéz; vrací změněná místa a rozšířený zásah |
+| `thermo-nuclear-review` | Opus 5 medium | Strukturální audit; nálezy BLOCKER/HIGH/NOTE pro omezenou opravu |
+| `e2e-verifier` | Opus 5 medium | Kritéria proti běžící aplikaci, PASS / PASS-částečně / FAIL, nálezy mimo kritéria podle závažnosti |
+| `deploy` | Sonnet 5 low, bez CLAUDE.md | Commit a nasazení podle runbooku projektu, doložený stav |
+| `verify` | Sonnet 5 low, bez CLAUDE.md | Typecheck a plná suita (jediná v řezu), skutečné výstupy; zelená zapíše `docs/.verify-passed` přes `scripts/verify-marker.sh` |
+| `vize-validator` | Fable 5.1 high | Čerstvé oči na konci: Cíle, zákazy, lešení, změny plánu, detaily |
+| `plan-check` | Opus 5 high | Mimo běh: post-implementační kontrola plánu |
 
-**Nový agent = nová session.** Registr agentů se čte při startu, na rozdíl od skill souborů; běžící session pojmenovaný typ neuvidí a spadne na general-purpose náhradu.
+Effort `xhigh` se nepoužívá nikde; kvalita má přednost před úsporou, ale měřeno na minulém běhu rozhoduje o tokenech počet tahů na agenta a velikost preambule, ne účet za přemýšlení. Tvar souborů, markerů a návratů je v `dev-pipeline/skills/orchestrate/KONTRAKT.md`.
 
-**Read-only agenti hledají Serenou, ne grepem** (od 0.6.0). `code-review`, `thermo-nuclear-review`, `prd-check`, `plan-check` a `vize-validator` mají ve whitelistu čtecí symbol tools (`find_symbol`, `find_referencing_symbols`, `get_symbols_overview`, …) a v textu pravidlo, kdy je použít. Samotné přidání nástroje nestačilo: měřeno na 367 subagentech jedné vize, `Grep` tool měli celou dobu a použili ho **nulakrát** — veškeré hledání šlo přes Bash (20 252 volání) a po něm 3 890 Readů celých souborů. Hranice „nad 500 řádků" platí na **editaci**; hledání symbolu se vyplatí bez ohledu na velikost, protože vrátí symbol místo souboru.
+## Hooky
 
-**Fan-out v code-review byl zrušen** (0.8.0). Tři paralelní lensy nad velkým diffem se za tři měření nikdy nepřiblížily slibu: 8,7–10,7 min sekvenčně → 11,5 min první verze → 21,4 min po opravě lensů, při nejrychlejším běhu 15,8 min. Širokou paralelizaci dělá workflow v kolečku (šest finderů plus verifier na každý nález), lehké review per řez zůstává sekvenční.
+Všechny hooky běhu se samy hlídají markerem `docs/.orchestrator-run` a jeho `session_id`: v projektu bez běhu a v jiné session téhož projektu nedělají nic (cizí session dostane jednu větu, že orchestrace běží jinde).
+
+- **guard-blast-radius** (PreToolUse/Bash, vždy): force-push, `git reset --hard` a `git clean -f` na main, `rm -rf` na kořeny, deploy během běhu bez `docs/.deploy-unlocked`.
+- **guard-run** (PreToolUse): v orchestrátorské session odmítne `AskUserQuestion`, čtení projektu mimo vizi, handoff, vize-spory, follow-ups a soubory pluginu, spouštění projektu (balíčkovač, testy, curl, deploy, diffy) a editaci mimo `docs/`; u subagentů čtení celého zdrojového souboru nad 350 řádků (Read bez offset/limit, `cat`, `sed -n` přes celek, `head`/`tail` nad práh), s odkazem na Serenu. Fail-open: nejednoznačné projde.
+- **on-stop** (Stop): tah orchestrátora smí skončit jen ve stavech `běží …`, `zastaveno …`, `hotovo`; jinak vrátí důvod a orchestrátor pokračuje.
+- **pre-compact** (PreCompact): varování, když handoff přesáhl 4 kB.
+- **session-start-handoff** (SessionStart startup/compact/resume): orchestrátorské session po compactu a resume vrátí prvních 4 kB handoffu a `PO-COMPACTU.md`.
+- **prompt-submit** (UserPromptSubmit): při promptu `/dev-pipeline:orchestrate` uloží session_id do `docs/.orchestrator-session` pro setup.
+
+Guard běhu navíc odmítá ruční zápis `docs/.verify-passed` (Write/Edit i přesměrování v Bash); ten smí jen `scripts/verify-marker.sh`.
+
+Testy hooků: `dev-pipeline/hooks/tests/run.sh` (88 případů nad syntetickými vstupy, bash 3.2). Guard blast-radius má vlastní `scripts/test-guard.py`.
+
+## Brána projektu (pre-commit)
+
+Z analýzy běhu sklik: 362 commitů, 55 % bez změny kódu (docs, build marker), plná suita ~5 min a rostla o minutu týdně; agenti navíc pouštěli plnou suitu opakovaně ve fix fázích. Verze 1.0.0 proto pouští plnou suitu jednou na řez (verify) a doporučuje pre-commit hook projektu ve třech patrech: staged jen `docs/**` a `*.md` → nic; typecheck a rychlé kontroly vždy; plná suita jen bez platného `docs/.verify-passed` (hash pracovního stromu jako v `scripts/tree-hash.sh`). Vzor je `.husky/pre-commit` v Surya-PPC-Tool. Bez takového hooku běh funguje, jen platí suitu dvakrát.
+
+## Zásady, které přežily měření
+
+- **Nálezy jdou do souborů, návraty jsou strojové.** Reporty do `docs/reviews/` (gitignorováno), orchestrátor je nikdy nečte; schémata návratů vynucují Workflow bloky.
+- **Kód se čte symbolem** (Serena), ne celými soubory; guard to u velkých zdrojových souborů vynutí i přes `cat` a `sed`.
+- **Testy patří k chování, ne k řezu.** Žádné soubory pojmenované po řezu; verifikační lešení se po ověření maže.
+- **Past se opravuje, ne dokumentuje.** CLAUDE.md projektu jsou pravidla, ne deník běhu; finální fáze hlásí, co v něm během běhu přibylo.
+- **Záporné kritérium se dokládá mutací, ne zelenou.** Kritérium o umístění má obě půlky. Mutace se vrací opačnou editací, nikdy `git checkout`, `restore`, `stash` ani `reset`.
+- **Bezpečnostní nález se opravuje hned**, i pre-existing, samostatným commitem.
+- **Na agenta se nečeká pollingem**; notifikace přijde sama, cron je záchranná síť. Dlouhé příkazy na pozadí.
+- **Jedna vize v čase per projekt** (sdílená produkce, sdílený limit).
+- **Cizí nástroje na šetření tokenů** (proxy komprese, přesměrování čtení na jiný model) se nepoužívají: za cizí base URL Claude Code přijde o 1M kontext a předplatné je šedá zóna, a komprese výstupů by u kódu ušetřila jednotky procent. Rozbor v `docs/analyza-behu-sklik-2026-09.md`, část 9.
 
 ## Prototypy — `/dev-pipeline:prototyp`
 
-Pro jedinou situaci: **akceptační kritérium nejde napsat, dokud se nerozhodne tvar**.
+Pro situaci, kdy akceptační kritérium nejde napsat, dokud se nerozhodne tvar: tři strukturálně různé UI varianty za `?variant=` v existující stránce (rozhoduje uživatel), nebo TUI nad čistým modulem (rozhoduje měření). Prototyp je jednorázový, vítěz se staví znovu podle konvencí projektu.
 
-- **UI větev** — 3 strukturálně různé varianty (různá rozhodnutí, ne odstíny) přímo uvnitř existující stránky, přepínání `?variant=a|b|c` + plovoucí lišta. Rozhoduješ ty podíváním. Lišta je gatovaná na `VITE_PROTOTYPE=1`, ne na `NODE_ENV` — admin i portál se nasazují jako produkční build, takže dev-only podmínka by ji vypnula přesně tam, kde ji chceš vidět.
-- **Logická větev** — malá TUI nad čistým modulem (reducer / stavový automat). Rozhoduje **měření**, ne vkus: agent prožene model hraničními případy a nahlásí, co je nereprezentovatelné, které stavy jsou nedosažitelné a která lane je v produkci trvale mrtvá. Zvládne se bez tebe.
+## Zkoušky nové verze
 
-Kdy volat: z `/vize` (výchozí pro UI), z fáze 1 u nového stavového automatu, z fáze 3 u nového UI povrchu — tam **nikdy blokujícím způsobem**, agent vybere sám s písemným zdůvodněním a varianty odloží na odhoditelnou větev. Prototyp je jednorázový: vítěz se staví znovu podle konvencí projektu, kód variant se zahazuje.
-
-Kdy neprototypovat: přidání pole do existující obrazovky (tvar je daný okolím) a cokoli, co jde rozhodnout prózou.
-
-## Hooky (globální po zapnutí pluginu)
-
-- **guard-blast-radius** (PreToolUse/Bash): blokuje force-push (vždy), `git reset --hard`/`git clean -f` na main, `rm -rf` na kořeny, a deploy během autonomního běhu bez `.deploy-unlocked`. Deterministický shell, běží i pod `--dangerously-skip-permissions`. **Rozhoduje podle prováděné akce, ne podle výskytu slova** (od 0.8.0): těla heredoců mířících do souboru (`cat`/`tee`) se z detekce vyjímají, protože dřív si orchestrátor zápisem do journalu o tom, co se nasadilo, zablokoval sám sebe. Heredoc do interpretu (`bash <<EOF`) se nechává — tam by to byl skutečný příkaz. Regresní test: `scripts/test-guard.py` (11 případů).
-- **session-start-handoff** (SessionStart/compact + resume): injektuje `docs/handoff.md` a k tomu `skills/slice-run/PO-COMPACTU.md` — kanonické kroky, které se compactem prokazatelně ztrácely.
-
-## Zásady
-
-- **Plné reporty review se nevrací orchestrátorovi** (od 0.5.0). `prd-check`, `code-review` i `e2e-verifier` (ten od 0.9.1) píšou rozbor do `docs/reviews/rez-NN-*.md` (gitignorováno); cestu k reportu dostane fix agent, orchestrátor obsah nikdy nečte. Měřeno na ostrém běhu: návratové hodnoty agentů byly přes polovinu jeho kontextu a jednotlivé reporty měly 11-15 tisíc znaků, které jen přeposílal dál.
-- **Návratovka má strop a nálezy do ní nepatří** (od 0.9.1): 2 000 znaků u fázových agentů (`prd`, `implement`, `fix`, `deploy`, `e2e-verifier`, `diagnose`), 1 200 u kontrolních. `code-review` místo výčtu nálezů vrací **rozdělení do disjunktních balíčků po souborech** — to jediné z nich orchestrátor potřebuje, aby rozdělil paralelní fix agenty; `prd-check` vrací jen osy s nálezem. Důvod je dvojí: harness návratovku zobrazuje **celou i uživateli v chatu**, takže jednořádkové nálezy jsou zároveň tím, co mu zaplavuje okno, a v kontextu orchestrátora to bylo 38k tokenů za jeden a půl řezu (implementace vracela 10,3 kB, E2E verifikace 10,4 kB). Uvnitř řezu orchestrátor píše o **postupu, ne o nálezech**.
-- **Na jiného agenta se nikdy nečeká pollingem** (pravidlo je od 0.6.0, od 0.9.1 je i v `PIPELINE.md`, kterou čtou všichni agenti). Spustil jsi subagenta → ukonči tah, harness tě probudí notifikací. Bylo to jen ve skillu orchestrátora, takže general-purpose řetězový běžec bloku 1+2 o něm nevěděl a čekal bashovou `sleep` smyčkou: v ostrém běhu tak prostál **3 hodiny** nad prací, která byla dávno hotová, a pro uživatele to vypadalo jako zaseknutá pipeline. Výjimka zůstává jen na stav mimo harness (deploy, CI): jedna background Bash s `until`, nebo `Monitor`. Totéž platí pro **dlouhé příkazy** — plná testová suita i browser krok přesáhnou watchdog 600 s, takže patří na pozadí.
-- Review: per řez jen lehké (agent `dev-pipeline:code-review`, `rozsah: pracovní-strom`); plné kolečko jednou na konci vize — thermo-nuclear → simplify → **code-review dvěma různými metodikami** (kolo 1 vlastní agent laděný na přesnost, kolo 2 vestavěný workflow `code-review` na `xhigh`: scope agent, pět correctness finderů plus cleanup finder, verifier na každou dvojici soubor+řádek, sweep, synthesize — naměřeno 40 subagentů a ~50 minut nad diffem 23 souborů) → **dvě souběžné bezpečnostní metodiky** (vestavěný `security-review` + subagent `claude-security:claude-security` se zadáním `scan changes --base main --effort high`). Dvě různé metodiky najdou různé věci, dvě stejné skoro totéž: vestavěný skill čte diff, claude-security staví threat model a každý nález prohání tříhlasým verifikačním panelem. Jeho reporty (`CLAUDE-SECURITY-*/`) patří do `.gitignore` a patche se **neaplikují automaticky** — jsou to nálezy jako každé jiné. Vestavěný **skill** `code-review` se nepoužívá — má `disable-model-invocation: true`, takže ho žádný model přes Skill tool nespustí; agent je jeho náhrada s pevně danou metodikou. To je něco jiného než `Workflow({name: "code-review"})` z kola 2: ta cesta zakázaná není a spouští právě tu metodiku, kterou by skill spustil, kdyby spustit šel.
-- **Opravné kolečko má ukončovací podmínku, ne úsudek** (od 0.8.0). Každý nález nese povinné `BLOKUJE NASAZENÍ` / `FOLLOW-UP` a druhé re-review kolo se zužuje na opravnou várku. Doloženo: kolo vrátilo 14 nálezů a rozřazení bylo 1 : 13 — bez něj z nich vzniká pátá opravná dávka, protože jednořádkové popisy vypadají všechny stejně vážně. K tomu kritérium, kdy smyčku utnout: *rozšíření ověřitelné deterministicky uzavře orchestrátor sám, rozšíření měnící rozhodovací logiku si žádá další kolo.*
-- **Záporné kritérium se dokládá mutací, ne zelenou.** Stráž nad zdrojovým textem selhala napříč dvěma řezy pětkrát, pokaždé zeleně: hlídala řetězcové literály (obešel ji klíč objektu), pak jméno metody (obešel ji `for` cyklus), pak syntaktický strom (obešla ji lokální proměnná, 12 z 12 pokusů prošlo). Postup je proto povinný: napiš stráž → zkus ji obejít jinou konstrukcí → když projde, není hotová. A stráž nad textovou inkluzí není důkaz chování.
-- **Mutaci vrací opačná editace, nikdy git.** `checkout`, `restore`, `stash`, `clean`, `reset --hard` jsou u necommitnutého souboru destruktivní: `git checkout` jednou místo mutace zahodil celý soubor a s ním 849 řádků práce, `git stash` odklidil rozpracovanou práci dvou souběžných lane. Když je potřeba porovnat proti `HEAD`, vytáhne se obsah vedle (`git show HEAD:<cesta>`).
-- **Disciplína kontextu orchestrátora** (od 0.6.0, měřeno na ostrém běhu): zadání agentovi ~1 200 znaků bez převyprávěných diffů (naměřený medián byl 5 631 znaků u `implement`); produkční kód orchestrátor needituje vůbec; journal a follow-ups se zapisují heredocem, ne Editem (jeden Edit journalu stál 5,6 kB kontextu); handoff drží pod 2 kB; polling viz odrážka výše (jedna session měla 530 volání `sleep`, 38 % všech tahů a špičku kontextu 982k). Od 0.9.1 se `PIPELINE.md` mezi řezy nečte znovu celá — porovná se `shasum` a `Read` se pustí jen při změně (37 kB = ~9k tokenů na každé zbytečné přečtení).
-- **Zákaz z vize musí dojít až do testu.** Pipeline z každého zákazu, kterého se řez dotkne, vyrobí **záporné akceptační kritérium** („X **není** v Y") — kladná půlka („X je v panelu ✓") projde i tehdy, když je X zároveň tam, kde být nemá. Hlídá to `prd-check` (osa A, hledá zákazy v celé vizi, ne jen v Ne-cílech), ověřuje `e2e-verifier` na obou půlkách a křížově kontroluje `vize-validator`. Zákaz proto ve vizi piš jako zákaz, ne jako povzdech uprostřed odstavce.
-- **Zaseknutý řez se diagnostikuje, ne opakuje.** Po 2. funkčním neúspěchu jede `dev-pipeline:diagnose`: postaví reprodukční smyčku a vrátí doloženou příčinu, ale neopravuje. Teprve s ní jde třetí pokus. Diagnostický běh se do pokusů nepočítá.
-- TDD červená → zelená: test/E2E scénář vzniká před implementací a musí nejdřív selhat ze správného důvodu.
-- Zaseknutý řez: 3 **funkční** neúspěchy → `skipped` + poctivý záznam; vyhodnotí validátor na konci. Infra smrt agenta (limit, API error) se nepočítá — řeší se resume.
-- Git: všechno na `vize/<slug>` branchi; merge do main dělá uživatel po vlastním otestování. Deploy target per projekt (sekce Deploy v CLAUDE.md projektu; staging = přepnutí configu, promotion = deploy téhož commitu).
-- Autonomní běh se nikdy neptá uživatele; odchylky žurnaluje, rozhodnutí eskaluje až validátor v závěrečném reportu.
-- **Jedna vize v čase per projekt.** Souběžné běhy na témže projektu si vzájemně přepisují nasazení (deploy z branche A smaže z produkce změny branche B), DB migrace a prompt seed — git worktree vyřeší jen checkout, ne sdílenou produkci; navíc oba běhy čerpají stejný usage limit. Víc témat najednou = jedna vize s více oblastmi (lazy slicing si je rozřeže). Souběh je v pořádku napříč různými projekty, nebo až bude staging per branch.
+1. `dev-pipeline/hooks/tests/run.sh` a `node --check dev-pipeline/workflows/*.js`.
+2. Matcher hooku na `AskUserQuestion` ověřen interaktivně 16. 9. 2026 (Claude Code 2.1.273, zkušební session: PreToolUse deny model dostal, nástroj se nespustil). V `claude -p` nástroj není, tam se ověřit nedá.
+3. Workflow s agentem pluginu ověřen 16. 9. 2026: `agent(..., { agentType: "dev-pipeline:verify", model, effort, schema })` dostal prompt agenta z pluginu, model a effort z opts, návrat přes StructuredOutput.
+4. První ostrý běh: úklidová mini-vize v existujícím projektu, včetně nové `/vize` session.
