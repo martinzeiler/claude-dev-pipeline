@@ -29,7 +29,10 @@ const runtimeDopad = a.runtime_dopad !== false
 const deployMode = a.deploy_mode === 'commit-only' ? 'commit-only' : 'config'
 const runbook = a.runbook ? S(a.runbook) : null
 const appPristup = a.app_pristup ? S(a.app_pristup) : null
-const hyp = a.hypotezy && a.hypotezy.report ? a.hypotezy : null
+const hypIn = a.hypotezy
+const hyp = hypIn && typeof hypIn === 'object' && !Array.isArray(hypIn) && hypIn.report ? { report: S(hypIn.report), ids: hypIn.ids || [] } : null
+// Volný text orchestrátora (stav stromu po předchozím řezu, rozhodnutí uživatele): string, pole vět, nebo hypotezy.text
+const hypText = !hypIn ? '' : typeof hypIn === 'string' ? hypIn : (t => Array.isArray(t) ? t.map(S).filter(Boolean).join(' | ') : (t ? S(t) : ''))(Array.isArray(hypIn) ? hypIn : hypIn.text)
 const MAX_POKUSU = 3
 const rep = (typ, kolo) => `${cwd}/docs/reviews/rez-${NN}-${typ}-kolo-${kolo}.md`
 
@@ -97,7 +100,7 @@ const CLOSE = { type: 'object', required: ['ok'], properties: { ok: { type: 'boo
 const impl = (n, predchozi, diag) => run(`${ramec}
 
 Úkol: implementuj řez ${NN} podle PRD (TDD červená až zelená, doktrína CLAUDE.md projektu, Serena na hledání symbolů). Pokus ${n} z ${MAX_POKUSU}.
-${hyp ? `Zbylé nálezy prd-checku jako hypotézy k ověření, ne fakta: ${hyp.report} (${(hyp.ids || []).join(', ') || 'všechny'}).\n` : ''}${predchozi ? `Předchozí pokus selhal ve fázi „${predchozi.faze}“: ${S(predchozi.detail).slice(0, 600)}. Pracovní strom obsahuje jeho stav; navaž na něj, nezačínej od nuly a nepoužívej git příkazy, které strom vracejí.\n` : ''}${diag ? `Diagnóza po dvou neúspěších (doložená příčina): ${S(diag.pricina).slice(0, 500)} · doporučení: ${S(diag.doporuceni).slice(0, 400)}\n` : ''}Past v kódu, na kterou narazíš ve změněných souborech, oprav; mimo ně ji vrať jako follow-up „odstranit past X“. Testy piš k chování, ne k řezu; nepřidávej testovací soubory pojmenované po řezu. Průběžně spouštěj jen dotčené testy; plnou suitu a typecheck celého projektu jednou, na konci.${runbook ? ` Když postup nasazení (${runbook}) vyžaduje zvednutí build verze nebo markeru, udělej to teď jako součást řezu; při commitu se už nic nezvedá.` : ''} Nespouštěj review, deploy ani E2E.`,
+${hyp ? `Zbylé nálezy prd-checku jako hypotézy k ověření, ne fakta: ${hyp.report} (${(hyp.ids || []).join(', ') || 'všechny'}).\n` : ''}${hypText ? `Hypotézy od orchestrátora k ověření, ne fakta (stav stromu po předchozím řezu, rozhodnutí uživatele): ${hypText.slice(0, 1500)}\n` : ''}${predchozi ? `Předchozí pokus selhal ve fázi „${predchozi.faze}“: ${S(predchozi.detail).slice(0, 600)}. Pracovní strom obsahuje jeho stav; navaž na něj, nezačínej od nuly a nepoužívej git příkazy, které strom vracejí.\n` : ''}${diag ? `Diagnóza po dvou neúspěších (doložená příčina): ${S(diag.pricina).slice(0, 500)} · doporučení: ${S(diag.doporuceni).slice(0, 400)}\n` : ''}Past v kódu, na kterou narazíš ve změněných souborech, oprav; mimo ně ji vrať jako follow-up „odstranit past X“. Testy piš k chování, ne k řezu; nepřidávej testovací soubory pojmenované po řezu. Průběžně spouštěj jen dotčené testy; plnou suitu a typecheck celého projektu jednou, na konci.${runbook ? ` Když postup nasazení (${runbook}) vyžaduje zvednutí build verze nebo markeru, udělej to teď jako součást řezu; při commitu se už nic nezvedá.` : ''} Nespouštěj review, deploy ani E2E.`,
   { label: `implement:řez ${NN}:${n}`, phase: 'Implementace', agentType: 'dev-pipeline:implement', schema: IMPL, ...M.opusH })
 
 const thermo = () => run(`${ramec}

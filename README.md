@@ -89,7 +89,7 @@ Testy hooků: `dev-pipeline/hooks/tests/run.sh` (88 případů nad syntetickými
 
 ## Brána projektu (pre-commit)
 
-Z analýzy běhu sklik: 362 commitů, 55 % bez změny kódu (docs, build marker), plná suita ~5 min a rostla o minutu týdně; agenti navíc pouštěli plnou suitu opakovaně ve fix fázích. Verze 1.0.0 proto pouští plnou suitu jednou na řez (verify) a doporučuje pre-commit hook projektu ve třech patrech: staged jen `docs/**` a `*.md` → nic; typecheck a rychlé kontroly vždy; plná suita jen bez platného `docs/.verify-passed` (hash pracovního stromu jako v `scripts/tree-hash.sh`). Vzor je `.husky/pre-commit` v Surya-PPC-Tool. Bez takového hooku běh funguje, jen platí suitu dvakrát.
+Z analýzy běhu sklik: 362 commitů, 55 % bez změny kódu (docs, build marker), plná suita ~5 min a rostla o minutu týdně; agenti navíc pouštěli plnou suitu opakovaně ve fix fázích. Verze 1.0.0 proto pouští plnou suitu jednou na řez (verify) a doporučuje pre-commit hook projektu ve třech patrech: staged jen `docs/**` a `*.md` → nic; typecheck a rychlé kontroly vždy; plná suita jen bez platného `docs/.verify-passed` (hash pracovního stromu bez `docs/` jako v `scripts/tree-hash.sh`, takže dokumenty běhu marker nezneplatní; hook i skript musí počítat stejně). Vzor je `.husky/pre-commit` v Surya-PPC-Tool. Bez takového hooku běh funguje, jen platí suitu dvakrát.
 
 ## Zásady, které přežily měření
 

@@ -39,9 +39,10 @@ Kořen pluginu: adresář o dvě úrovně výš než tento SKILL.md (`<plugin_ro
    - `kontrola.blokujicich > 0` po dvou kolech nevadí: zbylé nálezy jdou stavbě jako hypotézy (`hypotezy_pro_stavbu`).
    Souhrn schvaluješ hned, jak blok PRD skončí, i když stavba předchozího řezu ještě běží; blok stavby pro schválený řez spustíš až po uzavření běžící stavby.
 3. **Blok stavby.** `stav běhu: běží workflow blok-stavby řez NN (task <id>)` a
-   `Workflow({ name: "dev-pipeline:blok-stavby", args: { cwd, plugin_root, vize, rez: NN, prd_path, e2e_path, hypotezy: hypotezy_pro_stavbu, runtime_dopad, runbook, deploy_mode, app_pristup } })`.
+   `Workflow({ name: "dev-pipeline:blok-stavby", args: { cwd, plugin_root, vize, rez: NN, prd_path, e2e_path, hypotezy: { ...hypotezy_pro_stavbu, text: [...] }, runtime_dopad, runbook, deploy_mode, app_pristup } })`.
+   `report` a `ids` jsou z bloku PRD (`hypotezy_pro_stavbu`, může být `null`); `text` je pole vět, které víš navíc (stav stromu po předchozím řezu, rozhodnutí uživatele doslovně). Jiný kanál blok stavby nečte.
    Blok má stropy v kódu: nejvýš 2 kola review, jedna oprava brány, jedno opakování E2E, až 3 pokusy s diagnózou před třetím. Do jeho průběhu nezasahuješ.
-   **Hned po spuštění stavby** vyber další řez MM podle pravidla výběru a spusť pro něj blok PRD (bod 1) v témže tahu; když žádný takový řádek není, PRD počká na konec stavby. PRD psané souběžně vzniklo nad stromem před dokončením řezu NN: do `hypotezy` bloku stavby MM později přidej `řez NN hotový, commit <hash>: <souhrn>`, aby implementace navázala na skutečný stav.
+   **Hned po spuštění stavby** vyber další řez MM podle pravidla výběru a spusť pro něj blok PRD (bod 1) v témže tahu; když žádný takový řádek není, PRD počká na konec stavby. PRD psané souběžně vzniklo nad stromem před dokončením řezu NN: do `hypotezy.text` bloku stavby MM později přidej větu `řez NN hotový, commit <hash>: <souhrn>`, aby implementace navázala na skutečný stav.
 4. **Po bloku stavby:**
    - `vysledek: hotovo` → aktualizuj řádek plánu (stav, commit, E2E), doplň Cíle, které řez uzavřel, zapiš `spory` do handoffu jako jednu odrážku na záznam, obnov cron, když chybí, a napiš uživateli **pevný blok** (níže). Když blok vrátil `odchylky` nebo `follow_ups`, jsou už zapsané uzavřením; do zprávy dej jen počty.
    - `vysledek: selhalo` (tři pokusy i s diagnózou) → zastavení (c): do handoffu `stav běhu: zastaveno: (c) řez NN selhal ve fázi <faze>` a uživateli fáze, detail a příčina z diagnózy.
