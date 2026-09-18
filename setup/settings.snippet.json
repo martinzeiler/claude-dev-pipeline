@@ -1,0 +1,32 @@
+{
+  "_komentar": "Výřez ~/.claude/settings.json pro dev-pipeline. Slouč se svým nastavením (klíče se přidávají, nic se nemaže). Cesty musí být absolutní: nahraď /Users/<user>. Sekce _komentar smaž.",
+  "extraKnownMarketplaces": {
+    "claude-dev-pipeline": {
+      "source": { "source": "directory", "path": "/Users/<user>/claude-dev-pipeline" }
+    }
+  },
+  "enabledPlugins": {
+    "dev-pipeline@claude-dev-pipeline": true,
+    "context7@claude-plugins-official": true,
+    "claude-security@claude-plugins-official": true
+  },
+  "autoContinueAtUsageLimit": true,
+  "agentPushNotifEnabled": true,
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "/Users/<user>/.local/bin/serena-hooks activate --client=claude-code" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "/Users/<user>/.local/bin/serena-hooks remind --client=claude-code" } ] },
+      { "matcher": "mcp__serena__*", "hooks": [ { "type": "command", "command": "/Users/<user>/.local/bin/serena-hooks auto-approve --client=claude-code" } ] }
+    ],
+    "SessionEnd": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "/Users/<user>/.local/bin/serena-hooks cleanup --client=claude-code" } ] }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline.sh",
+    "refreshInterval": 30
+  }
+}
