@@ -1,7 +1,7 @@
 {
   "name": "dev-pipeline",
-  "description": "Osobní vývojová pipeline: /vize (debatní session nad vizí, na konci plán řezů, mantinely a Povolení), /orchestrate (autonomní běh vize: nejsilnější model drží vizi a plán, řezy staví dva Workflow bloky pluginu, blok PRD a blok stavby, se stropy v kódu), /review-kolecko (závěrečný audit), /prototyp (varianty UI nebo logiky). Agenti s modelem a effortem natvrdo: prd, prd-check, implement, code-review, thermo-nuclear-review, fix, verify, deploy, e2e-verifier, diagnose, vize-validator, plan-check. Hooky: blast-radius guard, guard běhu (žádné otázky, orchestrátor nečte projekt, subagenti nečtou celé velké soubory), Stop hook proti stání, PreCompact varování, injekce tabulky plánu po compactu, uložení session_id při /orchestrate.",
-  "version": "1.0.1",
+  "description": "Osobní vývojová pipeline: /vize (debatní session nad vizí, na konci plán řezů, mantinely a Povolení), /orchestrate (autonomní běh vize: nejsilnější model drží vizi a plán, řezy staví Workflow bloky pluginu, blok PRD a blok stavby, se stropy v kódu; závěrečné kolečko je třetí blok), /review-kolecko (závěrečný audit jako Workflow blok-kolecko; sken claude-security jen na vyžádání), /prototyp (varianty UI nebo logiky). Agenti s modelem a effortem natvrdo: prd, prd-check, implement, code-review, thermo-nuclear-review, fix, verify, deploy, e2e-verifier, diagnose, vize-validator, plan-check. Hooky: blast-radius guard, guard běhu (žádné otázky, orchestrátor nečte projekt, subagenti nečtou celé velké soubory), Stop hook proti stání, PreCompact varování, injekce tabulky plánu po compactu, uložení session_id při /orchestrate. Skript co-dela.sh: co agenti právě dělají (cron orchestrátora, status line).",
+  "version": "1.1.0",
   "author": {
     "name": "Martin Zeiler",
     "email": "claude2@zeiler.cz"

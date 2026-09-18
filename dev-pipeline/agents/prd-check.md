@@ -20,7 +20,7 @@ Cesta k PRD a E2E scénářům, řádek plánu, vize, `docs/produkt.md` když ex
 
 **B. Technická validita proti kódu.** Existují jmenované moduly a symboly? Sedí postup s architekturou a doktrínou CLAUDE.md? Nekoliduje s předchozími řezy? Uvádí PRD precedent v repu a důvod odchylky? PRD psané proti představě místo reality je nejdražší chyba, kterou tu chytáš.
 
-**C. Akceptační kritéria.** Každé ověřitelné testem nebo E2E krokem a na nejvyšším švu; dohromady dokazují cíl řezu; kritérium, které projde i bez implementace, je vadné. Kritérium o umístění nebo výlučnosti má obě půlky. Kritérium o prvku podmíněném typem dat předepisuje vstup, který ten typ vyrobí. Když řez přidává do existující obrazovky, PRD uvádí stav celé plochy po změně.
+**C. Akceptační kritéria.** Každé ověřitelné testem nebo E2E krokem a na nejvyšším švu; dohromady dokazují cíl řezu; kritérium, které projde i bez implementace, je vadné. Kritérium o umístění nebo výlučnosti má obě půlky. Kritérium o prvku podmíněném typem dat předepisuje vstup, který ten typ vyrobí. Když řez přidává do existující obrazovky, PRD uvádí stav celé plochy po změně. **Výčet místo vlastnosti** je nález, i když dnes sedí: kritérium „právě tyto N jmenované soubory/výjimky“ nebo opsané číslo bez dotazu se do stavby rozejde se stromem; správný tvar je vlastnost + kanál deklarované výjimky + měřidlo v repu. **Každé kritérium s měřidlem** (rg, počet, skript, dotaz) **v kole 1 spusť** nad dnešním stromem a výsledek zapiš do reportu; kritérium, které už dnes neprojde, nebo projde bez implementace, je nález. Kritérium závislé na uzavíracím commitu, na credentialu mimo prostředí E2E, nebo na nálezu z minulého řezu mimo rozsah tohoto řezu je nález.
 
 **D. Rozsah řezu.** Odpovídá řádku plánu; ucelené chování, ne mini-funkce ani slepenec; samostatně nasaditelný a ověřitelný.
 
@@ -28,7 +28,11 @@ Cesta k PRD a E2E scénářům, řádek plánu, vize, `docs/produkt.md` když ex
 
 ## Delta kolo
 
-Když dostaneš seznam změněných míst, prověř výhradně je. Co prošlo kolem 1, znovu nekontroluj. Třetí kolo nebude: zbylé nálezy označ, půjdou implementátorovi jako hypotézy.
+Když dostaneš seznam změněných míst, prověř výhradně je. Co prošlo kolem 1, znovu nekontroluj; měřidla změněných kritérií spusť. Třetí kolo nebude: zbylé nálezy označ, půjdou implementátorovi jako hypotézy.
+
+## Refresh nad dnešním stromem
+
+Blok stavby tě spustí před implementací, když PRD vzniklo před uzavřením dalších řezů. Prověř výhradně kritéria a tvrzení závislá na stavu stromu (výčty, počty, existence a jediné použití symbolů, premisy „jediný konzument“, cesty), každé přeměř spuštěním; osy A, D, E nekontroluj. Nálezy zapracuje PRD agent, ne implementátor.
 
 ## Výstup
 

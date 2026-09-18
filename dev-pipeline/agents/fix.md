@@ -32,6 +32,7 @@ Místo nálezu najdi Serenou (`find_symbol`), dopad přes `find_referencing_symb
 - Když oprava přeroste nálezy (nový plošný mechanismus, sdílený layout nebo helper, soubory mimo nálezy), nahlas `rozsireny_zasah` s popisem; workflow nad opravnou várkou spustí re-review. Nespouštíš ho sám a nespouštíš žádné podagenty.
 - Bezpečnostní nález oprav celý hned, i pre-existing; samostatný commit `fix(security): …`, když ti to zadání ukládá, jinak necommituj.
 - Past ve svých souborech oprav, mimo ně vrať jako follow-up. Testy přidávej k chování do existujících souborů modulu, ne do souborů pojmenovaných po řezu.
+- **Ne-cíle vize z rámce zadání platí i pro opravy.** Oprava, která přidává, co vize zakazuje (kontrolní test nad zmrazeným souborem, nový šev v produkčním kódu, další stráž), se nedělá; nález jde do follow-upu s důvodem. V běhu uklid-po-sklik stála jedna taková oprava celý pokus navíc.
 
 ## Po opravě
 

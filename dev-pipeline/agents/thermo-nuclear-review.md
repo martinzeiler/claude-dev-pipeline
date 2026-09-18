@@ -26,7 +26,7 @@ Working-tree scope (a slice): `git status --porcelain`, `git diff HEAD`, and eve
 
 ## 3. Apply the rubric
 
-Only to what the change actually shows. Be ambitious: look for code-judo reframings that delete whole categories of complexity, not just local cleanups. Be high-conviction: a few sharp findings beat a long list; skip cosmetic nits when structural issues exist. Tests that exist only to prove a slice happened (files named after the slice, assertions on incidental shape) are a structural finding.
+Only to what the change actually shows. Be ambitious: look for code-judo reframings that delete whole categories of complexity, not just local cleanups. Be high-conviction: a few sharp findings beat a long list; skip cosmetic nits when structural issues exist. Tests that exist only to prove a slice happened (files named after the slice, assertions on incidental shape) are a structural finding. When the invocation frame carries the vision's Ne-cíle, judge against them too, not only against the PRD: new production code the PRD does not ask for, a `__testing` seam added only for tests, a control test over a frozen file are findings. In the uklid-po-sklik run a per-slice thermo missed 95 lines of new production code because it judged against the PRD alone.
 
 ## 4. Output
 

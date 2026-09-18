@@ -24,6 +24,10 @@ Kořenový `CLAUDE.md` a CLAUDE.md dotčených adresářů: pravidla o izolaci d
 
 **A. Doktrína**: porušení výslovného pravidla, citované. **B. Bugy ve změně**: hraniční hodnoty, prázdné množiny, null, obrácená podmínka, chybějící `await`, pořadí operací, ztracená chyba v `catch`. **C. Rozbité kontrakty**: změna proti tomu, co dokumentuje JSDoc nebo předpokládají volající; volající dohledej u každé změněné signatury a sémantiky. **D. Historie**: `git log -p` a `git blame` u podezřelých míst; regrese dříve opraveného bugu je nejcennější nález. **E. Data a bezpečnost**: izolace mezi tenanty (i přes join na rodiče), autorizace nových rout, únik tokenů do logů a odpovědí, soft-delete filtry, peníze a měny, konzistence migrací. **F. Testy**: pokrývá změna, co tvrdí; neobchází existující test místo opravy; testy patří k chování, soubory pojmenované po řezu jsou nález.
 
+## Čočka (kolečko, kolo 2)
+
+Když zadání jmenuje čočku (`data-a-izolace`, `kontrakty-a-volajici`, `regrese-z-historie`, `bezpecnost`, `testy-a-doktrina`), kontroluj do hloubky jen tu osu, ale nad celým rozsahem; ostatní osy vynech a napiš to na konec reportu. Report čočky nese její jméno, sloučení a třídění dělá jiný agent, ty nálezy neredukuješ.
+
 ## Ověření nálezu
 
 Nález bez konkrétního scénáře selhání (vstup nebo stav → špatný výsledek) se zahazuje. Když tvrzení stojí na chování příkazu nebo testu, spusť ho. `CONFIRMED` = doloženo kódem nebo spuštěním, opravuje se vždy. `PLAUSIBLE` = reálné riziko bez plného důkazu, napiš, co by ho uzavřelo. Falešně pozitivní nález je dražší než přehlédnutý.
@@ -37,7 +41,7 @@ N3 `cesta/soubor.ts:123` — [CONFIRMED|PLAUSIBLE] [BLOKUJE|FOLLOW-UP] [kategori
 Selhání: <vstup nebo stav → špatný výsledek>.
 ```
 
-`BLOKUJE` = nesmí na produkci (špatná data, bezpečnost, rozbitá funkce, regrese); `FOLLOW-UP` = skutečný nález, který počká. Rozhoduj podle dopadu na uživatele a data, ne podle snadnosti opravy. Kategorie `correctness`, `doktrina`, `kontrakt`, `regrese`, `security`, `data-integrita`, `testy`; security první; pre-existing nález mimo scope označ. Na konec osy bez nálezu.
+`BLOKUJE` = nesmí na produkci (špatná data, bezpečnost, rozbitá funkce, regrese); `FOLLOW-UP` = skutečný nález, který počká. Rozhoduj podle dopadu na uživatele a data, ne podle snadnosti opravy. Nad plochou, která zapisuje do produkce nebo dat (migrace včetně DROP, deploy a datové skripty, mazání), je práh přísnější: i `PLAUSIBLE` nález tam `BLOKUJE`, protože chyba se nevrací. Kategorie `correctness`, `doktrina`, `kontrakt`, `regrese`, `security`, `data-integrita`, `testy`; security první; pre-existing nález mimo scope označ. Na konec osy bez nálezu.
 
 Návrat podle schématu z workflow: počet nálezů a blokujících, cesta k reportu, **disjunktní balíčky po souborech** (soubory, identifikátory nálezů, příznak security), identifikátory FOLLOW-UP nálezů. Balíčky jsou celý smysl návratu: podle nich běží paralelní fix agenti, hranice vede po souborech, nikdy po tématech; balíček se security nálezem dostane samostatný commit. Nálezy do návratu nepatří.
 

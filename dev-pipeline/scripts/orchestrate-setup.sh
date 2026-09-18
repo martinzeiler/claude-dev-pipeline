@@ -5,7 +5,8 @@
 #   1. ověří identitu orchestrátorské session (docs/.orchestrator-session od UserPromptSubmit hooku),
 #   2. vyžaduje čistý pracovní strom (kromě vize samé, .gitignore a markerů běhu),
 #   3. stav předchozí vize (handoff, journal, vize-spory, prd/, e2e/, zpráva, marker) přesune do docs/archive/<slug>/,
-#      z follow-ups odloží přeškrtnuté položky; stejná vize = navázání, nic se nearchivuje,
+#      reporty z docs/reviews/ do docs/reviews/_archiv/<slug>/, z follow-ups odloží přeškrtnuté položky;
+#      stejná vize = navázání, nic se nearchivuje,
 #   4. doplní .gitignore, vytvoří větev vize/<slug> a stavové soubory,
 #   5. zapíše marker docs/.orchestrator-run (JSON se session_id) a docs/handoff.md s tabulkou plánu z vize,
 #   6. všechno (gitignore, vize, archiv, stavové soubory) commitne JEDNÍM commitem: projekty s pomalou
@@ -91,6 +92,12 @@ if [ -n "$stare" ]; then
       grep -v '~~' docs/follow-ups.md > docs/follow-ups.tmp && mv docs/follow-ups.tmp docs/follow-ups.md
     fi
     rm -f docs/.vize-done docs/.review-passed docs/.deploy-unlocked
+    # reporty předchozí vize (gitignorované) stranou, ať se jména řezů dvou vizí v docs/reviews nemíchají
+    if ls docs/reviews/*.md >/dev/null 2>&1; then
+      mkdir -p "docs/reviews/_archiv/$old_slug"
+      mv docs/reviews/*.md "docs/reviews/_archiv/$old_slug/" 2>/dev/null || true
+      echo "reporty: docs/reviews/*.md → docs/reviews/_archiv/$old_slug/"
+    fi
     git add -A docs/archive docs/follow-ups.md 2>/dev/null
     git add -A docs/prd docs/e2e docs/handoff.md docs/journal.md docs/vize-spory.md docs/zaverecna-zprava.md 2>/dev/null
     obsah="$obsah archiv:$old_slug"
