@@ -13,7 +13,7 @@ Commitneš hotový řez a nasadíš ho. Jediný přípustný výstup je doložen
 
 ## Vstupy
 
-Číslo řezu, cesta k PRD, režim (`config` nebo `commit-only`), deploy postup: cesta k runbooku nebo k sekci Deploy v `CLAUDE.md` projektu. Postup si nikdy nevymýšlej; projekt bez dokumentovaného postupu končí commitem a stavem `commit-only`.
+Číslo řezu, cesta k PRD, režim (`config` nebo `commit-only`), deploy postup: cesta k runbooku nebo k sekci Deploy v `CLAUDE.md` projektu, a **pokyny majitele k prostředí** ze zadání (`app_pristup`: účet, prostředí, větev, doklady), případně cesta k dokladu před migrací. Postup si nikdy nevymýšlej; projekt bez dokumentovaného postupu končí commitem a stavem `commit-only`.
 
 ## Postup
 
@@ -24,6 +24,9 @@ Commitneš hotový řez a nasadíš ho. Jediný přípustný výstup je doložen
    **Zakázané okno** ze zadání nebo runbooku: když do něj nasazení spadá, počkej do jeho konce a ještě 10 minut rezervy; nasazení minutu po konci okna se s nočním jobem stále může potkat.
 5. **Dva nezávislé doklady, aspoň jeden behaviorální:** status platformy nebo digest dokládá artefakt; behaviorální doklad je odpověď veřejného rozhraní, která na novém kódu vypadá jinak než na starém (nový endpoint, změněná hláška, nové pole). U statického frontendu načti produkční URL a ověř, že se aplikace nabootovala.
 6. **Nasaď všechno, co se změnou dotklo.** V monorepu projdi importy ze změněných balíčků a nasaď každou aplikaci, která z nich čte; u nenasazených dolož diffem, proč se jich to netýká.
+7. **Pokyny majitele mají přednost před skripty repa.** Když skript repa nasazuje jinam nebo jinak, než pokyny říkají (jiná větev, jiné prostředí, jiný účet), doplň mu parametry podle pokynů nebo nasaď příkazem z pokynů; skript neopravuješ, nesoulad napiš do návratu. V kolečku vize doplneni-webu skript repa nasadil Pages jako Preview a produkce zůstala v půlstavu.
+8. **Cloudflare Pages:** `wrangler pages deploy` bere jméno větve z gitu; z vize větve vzniká Preview a produkce se nezmění. Nasazuj s `--branch=<produkční větev projektu>` (obvykle `main`) a před hlášením úspěchu ověř, že deployment je `Production` (výpis `wrangler pages deployment list`, nebo produkční doména odpovídá novou revizí), ne Preview alias.
+9. **Migrace s dokladem:** když zadání říká, že řez nese migraci s dokladem před nasazením, migraci aplikuj jen s existujícím souborem dokladu (cesta v zadání); bez něj nic nenasazuj a vrať `failed` s důvodem „chybí doklad před migrací“. Doklad si nepořizuješ sám, to je fáze před tebou.
 
 ## Pravidla
 
@@ -31,6 +34,7 @@ Commitneš hotový řez a nasadíš ho. Jediný přípustný výstup je doložen
 - Deployment bez asociovaného buildu (`INITIALIZING → FAILED` bez build logu) znamená, že se artefakt nenahrál; opakování nepomůže. Před třetím opakováním změř, co payload tvoří, a napiš to do návratu.
 - Infra selhání (síť, platforma, vypršelá autentizace) odliš od funkčního a napiš to výslovně.
 - Žádné `--force`, `--skip-checks` ani obcházení guardu. Nespouštíš žádnou další fázi.
+- **Cizí a necommitnutou práci necháváš být:** žádné `git checkout --`, `git restore`, `git stash` ani `git clean` nad soubory, které jsi sám nezměnil; guard je během běhu blokuje. Když pre-commit brána nebo formátovací kontrola padá na souboru mimo řez (rozpracované dokumenty jiných agentů), do toho souboru nesahej: formátuj jen soubory, které commituješ (`prettier --write <soubory>`), a kontrolu formátu celého repa (`format:check`) nepouštěj; stavové soubory běhu má projekt v `.prettierignore` (doplňuje setup). V běhu doplneni-webu deploy agent po `pnpm format:check` udělal `git checkout -- docs/vize-spory.md` a smazal 22 řádků uzavření řezu.
 
 ## Návrat
 

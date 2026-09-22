@@ -44,6 +44,10 @@ if [ -f "$settings" ]; then
   jq -e '.extraKnownMarketplaces["claude-dev-pipeline"]' "$settings" >/dev/null 2>&1 && OK "marketplace claude-dev-pipeline: $(jq -r '.extraKnownMarketplaces["claude-dev-pipeline"].source.path' "$settings")" || FAIL "marketplace claude-dev-pipeline chybí v settings.json"
   [ "$(jq -r '.enabledPlugins["dev-pipeline@claude-dev-pipeline"]' "$settings")" = "true" ] && OK "plugin dev-pipeline zapnutý" || FAIL "plugin dev-pipeline není zapnutý (claude plugin install dev-pipeline@claude-dev-pipeline)"
   [ "$(jq -r '.autoContinueAtUsageLimit' "$settings")" = "true" ] && OK "autoContinueAtUsageLimit: true" || FAIL "autoContinueAtUsageLimit není true (Workflow po usage limitu nepokračuje)"
+  acw=$(jq -r '.autoCompactWindow // empty' "$settings"); [ -n "$acw" ] && OK "autoCompactWindow: $acw" || WARN "autoCompactWindow chybí (napiš v session /autocompact 400k, uloží se natrvalo; claude --autocompact platí jen pro jedno spuštění)"
+  if [ "$(jq -r '.sandbox.enabled // empty' "$settings")" = "true" ]; then
+    jq -e '.sandbox.filesystem.allowWrite // [] | index("~/dev-pipeline-feedback.md")' "$settings" >/dev/null 2>&1 && OK "sandbox: ~/dev-pipeline-feedback.md v allowWrite" || WARN "sandbox je zapnutý a ~/dev-pipeline-feedback.md není v sandbox.filesystem.allowWrite (orchestrátor nezapíše nálezy o pipeline)"
+  fi
   [ "$(jq -r '.enabledPlugins["context7@claude-plugins-official"]' "$settings")" = "true" ] && OK "plugin context7 zapnutý" || WARN "plugin context7 není zapnutý (implement agent bez aktuální dokumentace knihoven)"
   [ "$(jq -r '.enabledPlugins["claude-security@claude-plugins-official"]' "$settings")" = "true" ] && OK "plugin claude-security zapnutý (sken jen na vyžádání)" || WARN "plugin claude-security není zapnutý (volitelný)"
   if jq -e '.statusLine' "$settings" >/dev/null 2>&1; then

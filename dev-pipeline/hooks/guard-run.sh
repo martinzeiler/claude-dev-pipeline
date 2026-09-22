@@ -3,7 +3,7 @@
 #
 # Aktivní JEN když v projektu leží docs/.orchestrator-run se session_id shodným s touto session.
 # Hlavní session (hook input bez agent_id) je orchestrátor: neptá se uživatele, nečte projekt
-# (jen vizi, handoff, vize-spory, follow-ups a soubory pluginu), nespouští projekt, needituje kód.
+# (jen vizi, produkt.md, handoff, vize-spory, follow-ups a soubory pluginu), nespouští projekt, needituje kód.
 # Subagenti (s agent_id): nečtou celé velké zdrojové soubory, ani přes Read bez offset/limit,
 # ani přes cat, sed -n, head, tail v Bash. Práh DEV_PIPELINE_READ_MAX_LINES, výchozí 350.
 # Fail-open: cokoli nejednoznačného projde. Deny = JSON permissionDecision, exit 0.
@@ -41,7 +41,7 @@ orch_read_ok() {
   local p; p=$(abspath "$1")
   case "$p" in
     "$plugin_root"/*|"$HOME"/.claude/*|/private/tmp/*|/tmp/*|/var/folders/*) return 0 ;;
-    "$proj"/docs/handoff.md|"$proj"/docs/vize*|"$proj"/docs/follow-ups.md|"$proj"/docs/.orchestrator-run|"$proj"/docs/.orchestrator-session) return 0 ;;
+    "$proj"/docs/handoff.md|"$proj"/docs/vize*|"$proj"/docs/follow-ups.md|"$proj"/docs/produkt.md|"$proj"/docs/.orchestrator-run|"$proj"/docs/.orchestrator-session) return 0 ;;
   esac
   return 1
 }
@@ -54,7 +54,7 @@ orch_write_ok() {
   return 1
 }
 
-ORCH_READ="Orchestrátor nečte projekt. Sám čteš jen vizi, handoff, vize-spory, follow-ups a soubory pluginu; na cokoli z kódu, PRD, reportů, diffů nebo logů pošli agenta (Explore, model sonnet) s přesnou otázkou, formátem důkazů a stropem délky návratu."
+ORCH_READ="Orchestrátor nečte projekt. Sám čteš jen vizi, produkt.md, handoff, vize-spory, follow-ups a soubory pluginu; na cokoli z kódu, PRD, reportů, diffů nebo logů pošli agenta dev-pipeline:pruzkum s přesnou otázkou, formátem důkazů a stropem délky návratu."
 ORCH_RUN="Orchestrátor nespouští projekt (balíčkovač, testy, typecheck, curl, deploy). Tu práci dělají fázoví agenti v bloku stavby; stav si nech ověřit agentem a převzít jen výsledek."
 ORCH_EDIT="Orchestrátor needituje kód ani konfiguraci projektu; píše jen do docs/ (handoff, vize-spory, follow-ups). Opravy dělá fix agent v bloku stavby."
 

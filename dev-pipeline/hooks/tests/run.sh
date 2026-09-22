@@ -55,6 +55,8 @@ run write-src-deny guard-run.sh "$(pre $SID '' Write file_path "$proj/src/a.ts" 
 run edit-config-deny guard-run.sh "$(pre $SID '' Edit file_path "$proj/package.json" old_string "a" new_string "b")" deny
 run write-handoff guard-run.sh "$(pre $SID '' Write file_path "$proj/docs/handoff.md" content "x")" allow
 run write-memory guard-run.sh "$(pre $SID '' Write file_path "$HOME/.claude/projects/x/memory/a.md" content "x")" allow
+run read-produkt guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/produkt.md")" allow
+run bash-cat-produkt guard-run.sh "$(pre $SID '' Bash command "cat docs/produkt.md")" allow
 # --- subagenti
 run sub-ask guard-run.sh "$(pre $SID ag1 AskUserQuestion questions "")" allow
 run sub-read-big-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts")" deny "find_symbol"
@@ -91,6 +93,23 @@ run vm-bash-script-ok guard-run.sh "$(pre $SID ag1 Bash command "bash $hooks/../
 run vm-bash-read-ok guard-run.sh "$(pre $SID ag1 Bash command "cat docs/.verify-passed")" allow
 run vm-bash-rm-ok guard-run.sh "$(pre $SID ag1 Bash command "rm -f docs/.verify-passed")" allow
 run vm-other-session-ok guard-run.sh "$(pre $OTHER ag1 Write file_path "$proj/docs/.verify-passed" content "{}")" allow
+# --- blast-radius během běhu: stash, clean, checkout/restore nad tečkou a docs/
+br() { jq -n --arg s "$1" --arg c "$proj" --arg cmd "$2" '{session_id:$s, cwd:$c, hook_event_name:"PreToolUse", tool_name:"Bash", tool_input:{command:$cmd}}'; }
+run br-stash-deny guard-blast-radius.sh "$(br $SID 'git stash')" deny
+run br-stash-push-deny guard-blast-radius.sh "$(br $SID 'git stash push -m x')" deny
+run br-stash-list-ok guard-blast-radius.sh "$(br $SID 'git stash list')" allow
+run br-clean-deny guard-blast-radius.sh "$(br $SID 'git clean -fd')" deny
+run br-checkout-docs-deny guard-blast-radius.sh "$(br $SID 'git checkout -- docs/vize-spory.md')" deny
+run br-checkout-dot-deny guard-blast-radius.sh "$(br $SID 'git checkout .')" deny
+run br-checkout-dashdot-deny guard-blast-radius.sh "$(br $SID 'git checkout -- .')" deny
+run br-restore-dot-deny guard-blast-radius.sh "$(br $SID 'git restore .')" deny
+run br-restore-docs-deny guard-blast-radius.sh "$(br $SID "cd $proj && git restore docs/handoff.md")" deny
+run br-checkout-own-ok guard-blast-radius.sh "$(br $SID 'git checkout -- src/a.ts')" allow
+run br-checkout-branch-ok guard-blast-radius.sh "$(br $SID 'git checkout main')" allow
+run br-checkout-newbranch-ok guard-blast-radius.sh "$(br $SID 'git checkout -b vize/x')" allow
+run br-restore-staged-ok guard-blast-radius.sh "$(br $SID 'git restore --staged src/a.ts')" allow
+run br-heredoc-stash-ok guard-blast-radius.sh "$(br $SID $'cat >> docs/journal.md <<\'EOF\'\ngit stash\nEOF')" allow
+rm "$proj/docs/.orchestrator-run"; run br-nomarker-stash-ok guard-blast-radius.sh "$(br $SID 'git stash')" allow; cp "$tmp/marker" "$proj/docs/.orchestrator-run"
 # --- bez markeru / starý marker: vše projde
 rm "$proj/docs/.orchestrator-run"; run nomarker guard-run.sh "$(pre $SID '' AskUserQuestion questions "")" allow
 cp "$tmp/oldmarker" "$proj/docs/.orchestrator-run"; run oldmarker guard-run.sh "$(pre $SID '' AskUserQuestion questions "")" allow

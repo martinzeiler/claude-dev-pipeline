@@ -37,7 +37,7 @@ Návrat: `vysledek` (`hotovo` | `selhalo` s `faze` a `detail`), `thermo {nalezu,
 
 ## Fallback
 
-Jen když Workflow tool v session není: projdi fáze ručně ve stejném pořadí přes agenty (`dev-pipeline:thermo-nuclear-review` → `dev-pipeline:fix` → `dev-pipeline:verify`; `dev-pipeline:code-review` rozsah větev → fix per balíček → verify; pět čoček agentem `dev-pipeline:code-review` s čočkou v zadání → triáž `general-purpose` → fix → verify; bezpečnostní čočka + `security-review`; deploy, E2E, závěr), reporty do `docs/reviews/kolecko-*.md`, commity `kolecko: <fáze>` přes `dev-pipeline:deploy` v režimu commit-only, a zapiš záznam `SELHALO` do `~/.claude/dev-pipeline-feedback.md` (co chybělo, jak se to obešlo). Tichá ruční náhrada bez záznamu je nejhorší varianta.
+Jen když Workflow tool v session není: projdi fáze ručně ve stejném pořadí přes agenty (`dev-pipeline:thermo-nuclear-review` → `dev-pipeline:fix` → `dev-pipeline:verify`; `dev-pipeline:code-review` rozsah větev → fix per balíček → verify; pět čoček agentem `dev-pipeline:code-review` s čočkou v zadání → triáž `general-purpose` → fix → verify; bezpečnostní čočka + `security-review`; deploy, E2E, závěr), reporty do `docs/reviews/kolecko-*.md`, commity `kolecko: <fáze>` přes `dev-pipeline:deploy` v režimu commit-only, a zapiš záznam `SELHALO` do `~/dev-pipeline-feedback.md` (co chybělo, jak se to obešlo). Tichá ruční náhrada bez záznamu je nejhorší varianta.
 
 ## Bezpečnostní sken claude-security (jen na vyžádání)
 

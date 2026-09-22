@@ -1,19 +1,19 @@
 export const meta = {
   name: 'blok-prd',
   description: 'dev-pipeline blok PRD jednoho řezu: PRD a E2E scénáře, nezávislá kontrola (měřidla kritérií se spouští už v kole 1), zapracování nálezů, delta kontrola jen nad změněnými místy. Žádné třetí kolo, zbylé nálezy jdou stavbě jako hypotézy. Režim zapracovani: jen zapracování nálezů orchestrátora do hotového PRD + delta kontrola.',
-  whenToUse: 'Spouští orchestrátor /dev-pipeline:orchestrate před blokem stavby každého řezu. args: {cwd, plugin_root, vize, produkt, rez, plan_row, stav_po_minulem, hypotezy, follow_ups}; režim zapracování navíc {rezim: "zapracovani", prd_path, e2e_path, nalezy: [...]}. Bez args nic nedělá.',
+  whenToUse: 'Spouští orchestrátor /dev-pipeline:orchestrate před blokem stavby každého řezu. args: {cwd, plugin_root, vize, produkt, rez, plan_row, stav_po_minulem, hypotezy, follow_ups, app_pristup, profil, kontrakt_prd, kontrakt_rez}; režim zapracování navíc {rezim: "zapracovani", prd_path, e2e_path, nalezy: [...]}. Bez args nic nedělá.',
   phases: [
     { title: 'PRD', detail: 'PRD agent píše PRD a E2E scénáře řezu' },
     { title: 'Kontrola', detail: 'prd-check kolo 1, plný report do souboru' },
     { title: 'Zapracování', detail: 'PRD agent zapracuje nálezy a vrátí změněná místa' },
-    { title: 'Delta kontrola', detail: 'prd-check jen nad změněnými místy' },
+    { title: 'Delta kontrola', detail: 'prd-check jen nad změněnými místy; jen po blokujících nálezech kola 1, u lehkého profilu nikdy' },
   ],
 }
 
 // ---------- vstup ----------
 let a = args
 if (typeof a === 'string') { try { a = JSON.parse(a) } catch { a = null } }
-if (!a || typeof a !== 'object' || !a.cwd || !a.vize || !a.rez || !a.plan_row) {
+if (!a || typeof a !== 'object' || !a.cwd || !a.vize || a.rez == null || a.rez === '' || !a.plan_row) {
   log('blok-prd: chybí args (cwd, vize, rez, plan_row) – nic se nespustilo')
   return { ok: false, duvod: 'chybí args: cwd, vize, rez, plan_row' }
 }
@@ -27,6 +27,13 @@ const stavPoMinulem = a.stav_po_minulem ? S(a.stav_po_minulem) : null
 const hypotezy = Array.isArray(a.hypotezy) ? a.hypotezy.map(S) : []
 const followUps = a.follow_ups ? S(a.follow_ups) : `${cwd}/docs/follow-ups.md`
 const spory = `${cwd}/docs/vize-spory.md`
+// Pokyny majitele k prostředí (přístup do aplikace, nasazení, doklady): PRD podle nich předepisuje doklad před migrací.
+const appPristup = a.app_pristup ? S(a.app_pristup).slice(0, 1200) : ''
+// Lehký profil (řádek plánu `profil: lehký`, nebo úsudek orchestrátora u řezu bez runtime dopadu): bez delta kontroly.
+const profil = a.profil === 'lehky' ? 'lehky' : 'plny'
+// PRD závislého řezu souběžně se stavbou jeho závislosti: PRD stavěného řezu je kontrakt, rozhraní z něj jsou předpoklady.
+const kontraktPrd = a.kontrakt_prd ? S(a.kontrakt_prd) : ''
+const kontraktRez = a.kontrakt_rez != null && a.kontrakt_rez !== '' ? String(a.kontrakt_rez).padStart(2, '0') : ''
 // Režim zapracování: orchestrátor odmítl odchylku od plánu nebo chybí pokrytí bodů vize; místo nového PRD (celý blok znovu)
 // běží jen PRD agent v režimu zapracování nad hotovým PRD a delta prd-check nad změněnými místy.
 const rezim = a.rezim === 'zapracovani' ? 'zapracovani' : 'novy'
@@ -76,6 +83,10 @@ const PRD_SCHEMA = {
     spory: { type: 'array', items: { type: 'string' }, description: 'nové záznamy ve vize-spory.md, každý jednou větou' },
     zmenena_mista: { type: 'array', items: { type: 'string' }, description: 'jen při zapracování nálezů: sekce nebo kritéria PRD/E2E, která se změnila' },
     odmitnute: { type: 'array', items: { type: 'object', required: ['id', 'duvod'], properties: { id: { type: 'string' }, duvod: { type: 'string' } } }, description: 'jen při zapracování: nálezy, které jsi po ověření proti kódu nezapracoval, s důvodem' },
+    oblasti: { type: 'array', items: { type: 'string' }, description: 'dotčené moduly nebo oblasti kódu (stejný slovník jako návrat stavby: modul, ne soubor); orchestrátor podle nich pozná překryv s uzavřenými řezy' },
+    doklad_pred: { type: 'boolean', description: 'true = PRD předepisuje doklad stavu před nasazením (migrace mění, přesouvá nebo maže existující data, nebo je nevratná; nebo pokyny majitele žádají doklad před každou migrací)' },
+    doklad_popis: { type: 'string', description: 'co se před migrací zachytí (tabulky, počty, vzorky, dotazy); prázdné bez dokladu' },
+    e2e_sekce: { type: 'array', items: { type: 'string' }, description: 'názvy vzájemně nezávislých sekcí E2E scénářů, jen když má řez víc než 12 kritérií (blok stavby je ověří dvěma verifikátory souběžně); jinak prázdné' },
   },
 }
 const CHECK_SCHEMA = {
@@ -106,12 +117,14 @@ if (rezim === 'zapracovani') {
 
 Úkol: napiš PRD a E2E scénáře řezu ${NN} podle přiděleného řádku plánu. Řez vybral orchestrátor, ty ho nevybíráš ani nerozšiřuješ; rozsah je řádek plánu a body vize v něm. Když realita kódu plán nesnese, napiš odchylku do odchylky_od_planu a PRD piš na to, co jde postavit a ověřit.
 Řádek plánu: ${JSON.stringify(row)}
-${stavPoMinulem ? `Stav po předchozím řezu (fakt, přečti): ${stavPoMinulem}\n` : ''}${hypotezy.length ? `Hypotézy od orchestrátora k ověření (ne fakta): ${hypotezy.join(' | ')}\n` : ''}${pravidlaKriterii}
-Projdi ${followUps} a otevřené položky, které se dotýkají oblastí tohoto řezu, dej do PRD do sekce „Pozor na“ (past se opravuje v řezu, když je ve změněných souborech; jinak zůstane follow-up).
-Soubory: docs/prd/rez-${NN}-<slug>.md a docs/e2e/rez-${NN}.md (frontmatter a pravidla podle kontraktu a tvé instrukce). Nic jiného needituj. Kontrolu PRD dělá jiný agent.`
+${stavPoMinulem ? `Stav po předchozím řezu (fakt, přečti): ${stavPoMinulem}\n` : ''}${hypotezy.length ? `Hypotézy od orchestrátora k ověření (ne fakta): ${hypotezy.join(' | ')}\n` : ''}${kontraktPrd ? `Řez závisí na řezu ${kontraktRez}, který se právě staví; jeho PRD je kontrakt: ${kontraktPrd}. Rozhraní, symboly a data, které z něj potřebuješ, ber jako dané a v PRD je označ „předpoklad podle PRD řezu ${kontraktRez}“; proti kódu je neověřuj, kód je ještě nemá (stavba tvé PRD před implementací přeměří nad dnešním stromem).\n` : ''}${profil === 'lehky' ? 'Profil řezu je lehký (bez runtime dopadu: měřidlo, otisk, dokumentace, skript): PRD krátké, kritéria dokládaná příkazem nebo souborem, žádné E2E v prohlížeči.\n' : ''}${pravidlaKriterii}
+Follow-ups a spory: z ${followUps} a ${spory} čti jen záznamy, které se dotýkají bodů vize, modulů a cest tohoto řezu (grep podle F čísel, jmen modulů a cest z řádku plánu), plus posledních 10 záznamů; celé soubory nečti. Dotčené otevřené follow-ups dej do PRD do sekce „Pozor na“ (past se opravuje v řezu, když je ve změněných souborech; jinak zůstane follow-up).
+Doklad před nasazením: když řez nese migraci, která mění, přesouvá nebo maže existující data, nebo je nevratná${appPristup ? ', nebo když pokyny majitele k prostředí žádají doklad před každou migrací' : ''}, napiš do PRD sekci „Doklad před nasazením“ (co přesně se před migrací zachytí: tabulky, počty, vzorky, dotazy jen pro čtení) a vrať doklad_pred: true; u aditivní migrace a u řezu bez migrace doklad nepředepisuj.
+E2E scénáře piš v sekcích, které jsou na sobě nezávislé (žádná sekce nezávisí na datech, která jiná sekce vytváří nebo maže); když má řez víc než 12 kritérií, vrať názvy sekcí v e2e_sekce, aby je blok stavby ověřil dvěma verifikátory souběžně.
+${appPristup ? `Pokyny majitele k prostředí (přístup, nasazení, doklady): ${appPristup}\n` : ''}Soubory: docs/prd/rez-${NN}-<slug>.md a docs/e2e/rez-${NN}.md (frontmatter a pravidla podle kontraktu a tvé instrukce). Nic jiného needituj. Kontrolu PRD dělá jiný agent.`
   prd = await run(prdPrompt, { label: `prd:řez ${NN}`, phase: 'PRD', agentType: 'dev-pipeline:prd', schema: PRD_SCHEMA, model: 'opus', effort: 'high' })
   if (!prd) return { ok: false, rez: NN, duvod: 'PRD agent nevrátil výsledek ani po opakování' }
-  log(`PRD: ${prd.kriteria} kritérií${prd.lesen ? ', lešení' : ''}${prd.zapis_do_ziveho ? ', zápis do živého systému' : ''}${(prd.nove_ui_plochy || []).length ? `, nové UI plochy mimo vizi: ${prd.nove_ui_plochy.join(', ')}` : ''}`)
+  log(`PRD: ${prd.kriteria} kritérií${prd.lesen ? ', lešení' : ''}${prd.zapis_do_ziveho ? ', zápis do živého systému' : ''}${prd.doklad_pred ? ', doklad před migrací' : ''}${(prd.e2e_sekce || []).length ? `, E2E sekce ${prd.e2e_sekce.length}` : ''}${(prd.nove_ui_plochy || []).length ? `, nové UI plochy mimo vizi: ${prd.nove_ui_plochy.join(', ')}` : ''}`)
 }
 
 // ---------- 2. kontrola ----------
@@ -121,7 +134,7 @@ const checkPrompt = (kolo, zmenena) => `${ramec}
 PRD: ${prd.prd_path} · E2E: ${prd.e2e_path} · řádek plánu: ${JSON.stringify(row)}
 Report zapiš do ${cwd}/docs/reviews/rez-${NN}-prd-check-kolo-${kolo}.md a vrať jen verdikt, počty, osy a identifikátory nálezů (N1, N2, …), nálezy samotné nevracej.
 ${kolo === 1
-    ? `Kontroluj úplnost vůči řádku plánu a bodům vize, technickou validitu proti skutečnému kódu (Serena), kvalitu kritérií, rozsah řezu a to, že PRD nezavádí UI plochu, mantinel ani zápis do živého systému, který vize nejmenuje. Na ose C navíc: každé kritérium s měřidlem (rg, počet, skript, dotaz) SPUSŤ teď nad dnešním stromem a výsledek zapiš do reportu; kritérium tvaru „právě tyto N jmenované soubory/výjimky“ nebo opsané číslo bez dotazu je nález „výčet místo vlastnosti“; kritérium závislé na uzavíracím commitu, na credentialu, který E2E prostředí nemá, nebo na nálezu z minulého řezu mimo rozsah tohoto je nález.`
+    ? `Kontroluj úplnost vůči řádku plánu a bodům vize, technickou validitu proti skutečnému kódu (Serena), kvalitu kritérií, rozsah řezu a to, že PRD nezavádí UI plochu, mantinel ani zápis do živého systému, který vize nejmenuje. Na ose C navíc: každé kritérium s měřidlem (rg, počet, skript, dotaz) SPUSŤ teď nad dnešním stromem a výsledek zapiš do reportu; kritérium tvaru „právě tyto N jmenované soubory/výjimky“ nebo opsané číslo bez dotazu je nález „výčet místo vlastnosti“; kritérium závislé na uzavíracím commitu, na credentialu, který E2E prostředí nemá, nebo na nálezu z minulého řezu mimo rozsah tohoto je nález. Doklad před nasazením: PRD ho předepisuje právě tehdy, když migrace mění, přesouvá nebo maže existující data, nebo je nevratná${appPristup ? ', nebo když pokyny majitele žádají doklad před každou migrací' : ''}; chybějící i zbytečný doklad je nález. Sekce E2E scénářů musí být vzájemně nezávislé (žádná nezávisí na datech jiné). Follow-ups a vize-spory čti jen grepem podle bodů vize, modulů a cest řezu, ne celé.${kontraktPrd ? ` Tvrzení označená „předpoklad podle PRD řezu ${kontraktRez}“ ověřuj proti tomu PRD (${kontraktPrd}), ne proti kódu; kód je ještě nemá.` : ''}${appPristup ? ` Pokyny majitele k prostředí: ${appPristup}` : ''}`
     : `Delta kontrola: prověř VÝHRADNĚ tato změněná místa: ${zmenena.join(' | ')}. Co prošlo kolem 1, znovu nekontroluj. Měřidla změněných kritérií spusť. Zbylé nálezy označ; třetí kolo nebude, půjdou stavbě jako hypotézy.`}`
 let k1 = null
 if (rezim === 'novy') {
@@ -144,10 +157,15 @@ if (rezim === 'zapracovani' || (k1 && k1.verdikt === 'needs-fixes')) {
 Každý nález je hypotéza: ověř proti kódu a vizi; co míří vedle, nezapracuj a uveď v odmitnute s důvodem. Rozsah řezu nerozšiřuj; nález žádající novou plochu, mantinel nebo zápis mimo vizi zapiš do vize-spory a odmítni. ${pravidlaKriterii} Vrať seznam změněných míst (sekce, kritéria) a aktualizovaný souhrn pro orchestrátora${rezim === 'zapracovani' ? ' včetně cíle, počtu kritérií a všech příznaků (lešení, zápis do živého, runtime dopad, body vize)' : ''}.`
   fix = await run(fixPrompt, { label: `prd-fix:řez ${NN}`, phase: 'Zapracování', agentType: 'dev-pipeline:prd', schema: PRD_SCHEMA, model: 'opus', effort: 'high' })
   if (fix) {
-    const zmenena = (fix.zmenena_mista || []).length ? fix.zmenena_mista : ['celé PRD (agent změněná místa neuvedl)']
-    phase('Delta kontrola')
-    k2 = await run(checkPrompt(2, zmenena), { label: `prd-check:řez ${NN}:2`, phase: 'Delta kontrola', agentType: 'dev-pipeline:prd-check', schema: CHECK_SCHEMA, model: 'opus', effort: 'high' })
-    if (k2) log(`prd-check 2 (delta): ${k2.verdikt}, ${k2.nalezu} nálezů, ${k2.blokujicich} blokujících`)
+    // Delta kontrola jen po blokujících nálezech kola 1 (nebo v režimu zapracování, kde kolo 1 nebylo); u lehkého profilu nikdy.
+    // Zbylé nálezy bez delta kontroly jdou stavbě jako hypotézy (report kola 1). V běhu doplneni-webu stála delta 7 min Opus high u všech 18 bloků.
+    const deltaNutna = rezim === 'zapracovani' || (profil !== 'lehky' && k1 && k1.blokujicich > 0)
+    if (deltaNutna) {
+      const zmenena = (fix.zmenena_mista || []).length ? fix.zmenena_mista : ['celé PRD (agent změněná místa neuvedl)']
+      phase('Delta kontrola')
+      k2 = await run(checkPrompt(2, zmenena), { label: `prd-check:řez ${NN}:2`, phase: 'Delta kontrola', agentType: 'dev-pipeline:prd-check', schema: CHECK_SCHEMA, model: 'opus', effort: 'high' })
+      if (k2) log(`prd-check 2 (delta): ${k2.verdikt}, ${k2.nalezu} nálezů, ${k2.blokujicich} blokujících`)
+    } else log(`zapracováno (${(fix.zmenena_mista || []).length} míst); delta kontrola se nekoná (${profil === 'lehky' ? 'lehký profil' : 'kolo 1 bez blokujících nálezů'}), zbylé nálezy jdou stavbě jako hypotézy`)
   } else {
     log(rezim === 'zapracovani' ? 'zapracování nálezů selhalo, PRD zůstává beze změny' : 'zapracování nálezů selhalo, PRD zůstává v podobě po kole 1')
     if (rezim === 'zapracovani') return { ok: false, rez: NN, duvod: 'PRD agent v režimu zapracování nevrátil výsledek' }
@@ -160,6 +178,11 @@ return {
   ok: true,
   rez: NN,
   rezim,
+  profil,
+  oblasti: [...new Set([...(prd.oblasti || []), ...((fix && fix.oblasti) || [])].map(S).map(x => x.trim()).filter(Boolean))],
+  doklad_pred: Boolean(fix && fix.doklad_pred != null ? fix.doklad_pred : prd.doklad_pred), doklad_popis: S((fix && fix.doklad_popis) || prd.doklad_popis),
+  e2e_sekce: ((fix && (fix.e2e_sekce || []).length) ? fix.e2e_sekce : (prd.e2e_sekce || [])).map(S).filter(Boolean),
+  kontrakt_rez: kontraktRez || null,
   prd_path: prd.prd_path,
   e2e_path: prd.e2e_path,
   cil: fin.cil || prd.cil,
@@ -174,5 +197,6 @@ return {
   spory: [...(prd.spory || []), ...((fix && fix.spory) || [])],
   odmitnute_nalezy: (fix && fix.odmitnute) || [],
   kontrola: posledni ? { kola: k2 ? 2 : 1, verdikt: posledni.verdikt, nalezu: posledni.nalezu, blokujicich: posledni.blokujicich, report: posledni.report_path } : null,
-  hypotezy_pro_stavbu: (posledni && posledni.verdikt === 'needs-fixes') ? { report: posledni.report_path, ids: posledni.nalezy_ids || [] } : null,
+  // Bez delta kontroly jdou stavbě nálezy kola 1 (zapracované, k ověření); s delta kontrolou jen to, co po ní zbylo.
+  hypotezy_pro_stavbu: (posledni && posledni.verdikt === 'needs-fixes') ? { report: posledni.report_path, ids: posledni.nalezy_ids || [], zapracovano: Boolean(fix && !k2) } : null,
 }

@@ -1,5 +1,5 @@
 {
-  "_komentar": "Výřez ~/.claude/settings.json pro dev-pipeline. Slouč se svým nastavením (klíče se přidávají, nic se nemaže). Cesty musí být absolutní: nahraď /Users/<user>. Sekce _komentar smaž.",
+  "_komentar": "Výřez ~/.claude/settings.json pro dev-pipeline. Slouč se svým nastavením (klíče se přidávají, nic se nemaže). Cesty musí být absolutní: nahraď /Users/<user>. autoCompactWindow = práh automatického compactu orchestrátorské session (totéž co /autocompact 400k). sandbox.filesystem.allowWrite platí jen se zapnutým sandboxem: ~/.claude je chráněná cesta, proto feedback soubor leží v domovském adresáři. Sekce _komentar smaž.",
   "extraKnownMarketplaces": {
     "claude-dev-pipeline": {
       "source": { "source": "directory", "path": "/Users/<user>/claude-dev-pipeline" }
@@ -11,6 +11,8 @@
     "claude-security@claude-plugins-official": true
   },
   "autoContinueAtUsageLimit": true,
+  "autoCompactWindow": 400000,
+  "sandbox": { "filesystem": { "allowWrite": ["~/dev-pipeline-feedback.md"] } },
   "agentPushNotifEnabled": true,
   "hooks": {
     "SessionStart": [

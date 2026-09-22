@@ -90,4 +90,26 @@ if [ -n "$proj" ] && [ -f "$proj/docs/.orchestrator-run" ]; then
   fi
 fi
 
+# 5) Během autonomního běhu nikdo nevrací cizí ani necommitnutou práci: git stash (kromě list/show), git clean,
+# a git checkout -- / git restore nad tečkou nebo nad docs/ jsou blokované. Důvod: deploy agent řezu 5 (vize doplneni-webu)
+# po `pnpm format:check` udělal `git checkout -- docs/vize-spory.md` a smazal 22 řádků necommitnutého uzavření.
+# Vrácení vlastního souboru mimo docs/ (`git checkout -- src/a.ts`) zůstává povolené.
+if [ -n "$proj" ] && [ -f "$proj/docs/.orchestrator-run" ]; then
+  while IFS= read -r seg; do
+    if printf '%s' "$seg" | grep -Eq '(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+stash([[:space:]]|$)' \
+       && ! printf '%s' "$seg" | grep -Eq 'stash[[:space:]]+(list|show)'; then
+      block "git stash je během autonomního běhu blokován: odložil by necommitnutou práci jiných agentů (PRD dalšího řezu, journal, vize-spory). Co nechceš commitnout, nech ve stromě; co je tvoje, commitni."
+    fi
+    if printf '%s' "$seg" | grep -Eq '(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+clean([[:space:]]|$)'; then
+      block "git clean je během autonomního běhu blokován: smazal by netrackované soubory jiných agentů (rozpracované PRD, reporty, doklady)."
+    fi
+    if printf '%s' "$seg" | grep -Eq '(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(checkout|restore)([[:space:]]|$)'; then
+      cile=$(printf '%s' "$seg" | sed -E 's/.*git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(checkout|restore)[[:space:]]*//')
+      if printf ' %s ' "$cile" | grep -Eq '[[:space:]](\.|\./|docs|docs/[^[:space:]]*|:/|\*)[[:space:]]|(^|[[:space:]])--[[:space:]]*$'; then
+        block "git checkout/restore nad tečkou, docs/ nebo celým stromem je během autonomního běhu blokován: vrátil by necommitnutou práci jiných agentů (v běhu doplneni-webu tak zmizelo uzavření řezu 5). Vracej jen konkrétní soubor, který jsi sám změnil, mimo docs/."
+      fi
+    fi
+  done < <(printf '%s\n' "$cmd" | tr '|;&' '\n')
+fi
+
 exit 0

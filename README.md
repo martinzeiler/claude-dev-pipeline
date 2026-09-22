@@ -37,14 +37,14 @@ Všechno, co běh potřebuje k navázání po compactu, po usage limitu nebo po 
 
 **Tvoje kroky jsou 1, 3 a 4. Krok 2 běží sám.**
 
-1. **`/vize`** (interaktivní, jediný schvalovací bod před během). Debatní session: paralelní fact-finding nad kódem a daty, research bez ptaní, seznam otevřených otázek v draftu, tvar UI a seznam UI ploch, **test smazání pro každý ochranný mechanismus** (zámek, strop, potvrzení musí sedět na hranici nevratnosti, jinak do vize nepatří), **Povolení pro zápis do živých systémů** (účet, operace, meze, platnost; běh se pak už neptá), na konci **plán řezů** (tabulka: číslo, název, body vize, definice hotového, závislosti) a čerstvé oči z několika rolí včetně role orchestrátora. Tělo vize do 40k tokenů, přílohy v `docs/vize/<slug>/`. Výstup je commitnutý `docs/vize/<slug>.md`. Jediné místo, kde vzniká a mění se produktová severka `docs/produkt.md`.
-2. **`/dev-pipeline:orchestrate docs/vize/<slug>.md`** napsané jako prompt v nové session (viz [Spuštění běhu](#spuštění-běhu)). Setup skript ověří čistý strom, archivuje stav předchozí vize, založí větev `vize/<slug>`, marker se session_id a handoff s tabulkou plánu, a všechno commitne jedním commitem. Pak běží smyčka řezů a po posledním řádku plánu finální fáze.
+1. **`/vize`** (interaktivní, jediný schvalovací bod před během). Debatní session: paralelní fact-finding nad kódem a daty (agent `pruzkum`, Sonnet, fakta s citacemi), research bez ptaní (agent `reserse`, Opus; Fable na vyžádání), seznam otevřených otázek v draftu, tvar UI a seznam UI ploch, **test smazání pro každý ochranný mechanismus** (zámek, strop, potvrzení musí sedět na hranici nevratnosti, jinak do vize nepatří), **Povolení pro zápis do živých systémů** (účet, operace, meze, platnost; běh se pak už neptá), na konci **plán řezů** (tabulka: číslo, název, body vize, definice hotového, závislosti) a čerstvé oči (agent `cerstve-oci`, Opus) z několika rolí včetně role orchestrátora; úsudek zůstává v hlavním vlákně na modelu session. Tělo vize do 40k tokenů, přílohy v `docs/vize/<slug>/`. Výstup je commitnutý `docs/vize/<slug>.md`. Jediné místo, kde vzniká a mění se produktová severka `docs/produkt.md`.
+2. **`/dev-pipeline:orchestrate docs/vize/<slug>.md`** napsané jako prompt v nové session (viz [Spuštění běhu](#spuštění-běhu)). Setup skript ověří čistý strom, archivuje stav předchozí vize, založí větev `vize/<slug>`, marker se session_id a handoff s tabulkou plánu, doplní `.gitignore` a `.prettierignore`, všechno commitne jedním commitem, a vypíše mapu sekcí vize a to, co chybí v nastavení Claude Code. Pak běží smyčka řezů a po posledním řádku plánu finální fáze.
 3. **Přečti závěrečnou zprávu** `docs/zaverecna-zprava.md`: per řez jeden řádek, stav Cílů, ROZHODNUTÍ PRO TEBE (jen změny Cílů a mantinelů), OTÁZKY S NAVRŽENOU ODPOVĚDÍ (běh už jel podle návrhu, ty potvrdíš nebo obrátíš), SPORY VE VIZI, PAMĚŤ A DOKUMENTACE, PIPELINE. Proklikej aplikaci.
 4. **Merge `vize/<slug>` do main** děláš ty. Autonomní běh na main nikdy nesahá.
 
 ### Jeden řez zblízka
 
-**Blok PRD** (`blok-prd.js`): PRD agent napíše `docs/prd/rez-NN-<slug>.md` a `docs/e2e/rez-NN.md` podle přiděleného řádku plánu, předpoklady vize ověří proti kódu a datům, rozsah nerozšiřuje → nezávislý `prd-check` (úplnost vůči vizi a řádku plánu, technická validita proti skutečnému kódu, kvalita kritérií včetně **spuštění všech měřidel** nad dnešním stromem, rozsah, optimalita) → při nálezech zapracování PRD agentem → delta kontrola jen nad změněnými místy. Žádné třetí kolo; zbylé nálezy jdou stavbě jako hypotézy. Režim `zapracovani` slouží orchestrátorovi, když souhrn PRD odmítne (odchylka od plánu, chybějící pokrytí bodů vize): jeden PRD agent + delta kontrola, ne nové PRD.
+**Blok PRD** (`blok-prd.js`): PRD agent napíše `docs/prd/rez-NN-<slug>.md` a `docs/e2e/rez-NN.md` podle přiděleného řádku plánu, předpoklady vize ověří proti kódu a datům, rozsah nerozšiřuje → nezávislý `prd-check` (úplnost vůči vizi a řádku plánu, technická validita proti skutečnému kódu, kvalita kritérií včetně **spuštění všech měřidel** nad dnešním stromem, rozsah, optimalita) → při nálezech zapracování PRD agentem → delta kontrola jen nad změněnými místy, a jen po blokujících nálezech kola 1 (u lehkého profilu nikdy). Žádné třetí kolo; zbylé nálezy jdou stavbě jako hypotézy. PRD řezu závislého na právě stavěném vzniká souběžně: PRD stavěného řezu je kontrakt a rozhraní z něj jsou předpoklady, které stavba před implementací přeměří. PRD také řekne, zda řez potřebuje doklad před migrací a jak jsou E2E scénáře rozdělené do nezávislých sekcí. Režim `zapracovani` slouží orchestrátorovi, když souhrn PRD odmítne (odchylka od plánu, chybějící pokrytí bodů vize): jeden PRD agent + delta kontrola, ne nové PRD.
 
 **Schválení souhrnu** dělá orchestrátor z návratu bloku, PRD samo nečte: pokrývá řádek plánu, nezavádí UI plochu mimo seznam ve vizi (lešení jen s přístupovou hranicí a řádkem plánu na jeho odstranění), zápis do živého systému jen s citovaným Povolením, odchylky od plánu přijme jako změnu cesty nebo pošle zpět.
 
@@ -52,17 +52,18 @@ Všechno, co běh potřebuje k navázání po compactu, po usage limitu nebo po 
 
 | Fáze | Co se děje | Strop |
 |---|---|---|
-| Refresh PRD | jen když od PRD zestárl strom (`prd_stale`): delta prd-check kritérií závislých na stromu, při nálezech zapracování | jen v 1. pokusu |
+| Refresh PRD | jen když od PRD zestárl strom v překrývajících se oblastech (`prd_stale`): delta prd-check kritérií závislých na stromu (Opus medium), při nálezech zapracování | jen v 1. pokusu |
 | Implementace | `implement`: TDD červená → zelená, doktrína CLAUDE.md projektu, Serena na symboly; plná suita jednou na konci; build verze jako součást řezu | 1 agent |
-| Review | `thermo-nuclear-review` ∥ `code-review` nad týmž stromem → fix agenti souběžně po **disjunktních balíčcích souborů**, thermo BLOCKER/HIGH přidané k balíčku, který soubor vlastní → při rozšířeném zásahu nebo blokujících nálezech kolo 2 jen nad opravnou várkou → nejvýš jedna další oprava | 2 kola |
+| Review | `thermo-nuclear-review` ∥ `code-review` nad týmž stromem → fix agenti souběžně po **disjunktních balíčcích souborů**, thermo BLOCKER/HIGH přidané k balíčku, který soubor vlastní → při rozšířeném zásahu nebo blokujících nálezech kolo 2 jen nad opravnou várkou → nejvýš jedna další oprava; lehký profil řezu (bez runtime dopadu) bez thermo a s jedním kolem | 2 kola |
 | Brána | `verify`: typecheck a **jediná plná suita** řezu; zelená zapíše `docs/.verify-passed` s hashem stromu bez `docs/` | 1 oprava |
-| Deploy | `deploy`: jeden commit na vize větvi (kód, docs řezu, sdílené dokumenty běhu; cizí rozpracované PRD ne), nasazení podle runbooku, čekání na terminální stav omezenou smyčkou, zakázané okno s rezervou, dva nezávislé doklady | terminální stav |
-| E2E | `e2e-verifier` v prohlížeči (`agent-browser`) nebo doložení kritérií bez prohlížeče; verdikt per kritérium PASS / PASS-částečně / FAIL, **výsledek bloku z počtů**; vadné kritérium (nesplnitelné v prostředí, kolidující, předřezový nález) se neopravuje, jde k rozhodnutí; závažné nálezy mimo kritéria samostatným commitem `fix(security)` | 1 opakování |
+| Doklad | jen když PRD předepisuje doklad před migrací (mění nebo maže existující data, nevratná): `doklad` (Sonnet) pořídí snímek dotčených dat dotazy jen pro čtení do `docs/e2e/rez-NN-doklad-pred.md`; deploy bez něj migraci neaplikuje | 1 pokus navíc |
+| Deploy | `deploy`: jeden commit na vize větvi (kód, docs řezu, sdílené dokumenty běhu; cizí rozpracované PRD ne), nasazení podle runbooku s pokyny majitele jako závazným postupem (přednost před skripty repa; u Pages ověří Production), čekání na terminální stav omezenou smyčkou, zakázané okno s rezervou, dva nezávislé doklady; cizí a necommitnutou práci nevrací (guard to během běhu blokuje) | terminální stav |
+| E2E | `e2e-verifier` v prohlížeči (`agent-browser`) nebo doložení kritérií bez prohlížeče; nejdřív ověří prostředí (nasazená revize je commit řezu; jinak jedno dorovnání deployem, nikdy nenasazuje sám); nad 12 kritérií dva verifikátoři souběžně, každý nad svými sekcemi scénářů; kolo 2 po opravě jen nad FAIL kritérii kola 1; verdikt per kritérium PASS / PASS-částečně / FAIL, **výsledek bloku z počtů**; vadné kritérium (nesplnitelné v prostředí, kolidující, předřezový nález) se neopravuje, jde k rozhodnutí; závažné nálezy mimo kritéria samostatným commitem `fix(security)` | 1 opakování |
 | Uzavření | PRD status a commit, srovnání PRD s realitou, položkové sesouhlasení thermo, kontrola dokladů předepsaných PRD, journal, follow-ups | 1 agent |
 
 Až **tři pokusy**; před třetím běží `diagnose` (reprodukční smyčka a doložená příčina, nic neopravuje). Funkční neúspěch je, když fáze doběhla a výsledek je špatně; infra smrt agenta (usage limit, API chyba) se opakuje uvnitř bloku a nepočítá se. Reporty pokusu 2 nepřepisují reporty pokusu 1 (číslo pokusu je v názvu). Každý agent bloku dostává v rámci zadání Ne-cíle vize, seznam toho, co pozdější řezy mažou, a hranice své role.
 
-**Souběh:** v jednu chvíli nejvýš jeden blok stavby (bloky sdílejí pracovní strom) a nejvýš jeden blok PRD, ten pro **následující** řez, spuštěný ve stejném tahu jako stavba. Po řezu dostaneš pevný blok šesti řádků: commit, deploy, pokusy, E2E, review, thermo, follow-ups, spory, otázky, změna plánu, stav Cílů, další řez.
+**Souběh:** v jednu chvíli nejvýš jeden blok stavby (bloky sdílejí pracovní strom) a nejvýš jeden blok PRD, ten pro **následující** řez, spuštěný ve stejném tahu jako stavba; řez závislý na právě stavěném dostane PRD souběžně s PRD stavěného řezu jako kontraktem. Po řezu dostaneš pevný blok šesti řádků: commit, deploy, pokusy, E2E, review, thermo, follow-ups, spory, otázky, změna plánu, stav Cílů, další řez.
 
 ### Finální fáze
 
@@ -91,8 +92,8 @@ Fail-open: nejednoznačný případ projde. Testy hooků: `dev-pipeline/hooks/te
 
 ### Sledování běhu
 
-- **Cron „zkontroluj stav běhu“** každých 30 minut: orchestrátor spustí `scripts/co-dela.sh --kratce` a jeho výstup vloží do odpovědi beze změny, pak jedná podle handoffu (ztracená notifikace, čekající krok). Session tak nese časovou řadu toho, co agenti dělali. `TaskOutput` používá jen na dokončený Workflow, jehož výsledek nezpracoval; na agentní task nikdy (vrátil by kód a diffy).
-- **`scripts/co-dela.sh`** čte journal a metadata agentů ze session Claude Code (`~/.claude/projects/<slug>/<session_id>/`), žádný model nevolá a nic z obsahu odpovědí nevypisuje. Bez argumentu (v cwd projektu s běžícím orchestrátorem, nebo `--session <dir>` / `--transcript <cesta.jsonl>`) vypíše běžící Workflow, živé agenty s fází, modelem, časem od posledního zápisu a posledními voláními nástrojů, a označí agenty mlčící přes 20 minut. V session ho spustíš i ručně: `! bash ~/claude-dev-pipeline/dev-pipeline/scripts/co-dela.sh`.
+- **Cron „zkontroluj stav běhu“** každých 30 minut: orchestrátor spustí `scripts/co-dela.sh --kratce`, jeho výstup vloží do odpovědi beze změny a připojí dvě věty (co se právě děje, co bude následovat), pak jedná podle handoffu (ztracená notifikace, čekající krok). Session tak nese časovou řadu toho, co agenti dělali. `TaskOutput` používá jen na dokončený Workflow, jehož výsledek nezpracoval; na agentní task nikdy (vrátil by kód a diffy).
+- **`scripts/co-dela.sh`** čte journal a metadata agentů ze session Claude Code (`~/.claude/projects/<slug>/<session_id>/`), žádný model nevolá a nic z obsahu odpovědí nevypisuje. Výstup: hlavička běhu (vize, hotové řezy z handoffu), per blok jméno řezu, pokus, doba, fáze i/N s trváním a hotové fáze, živí agenti s modelem a časem od posledního zápisu, hotové bloky za posledních 30 minut jako `✓` a selhané jako `✗` s důvodem, agenti mlčící přes 20 minut. Živý agent je poslední start daného klíče, takže agent zabitý stall watchdogem a restartovaný se neukazuje dvakrát. Bez argumentu (v cwd projektu s běžícím orchestrátorem, nebo `--session <dir>` / `--transcript <cesta.jsonl>`) navíc poslední volání nástrojů. V session ho spustíš i ručně: `! bash ~/claude-dev-pipeline/dev-pipeline/scripts/co-dela.sh`.
 - **Status line:** `setup/statusline.sh` volá `co-dela.sh --status` a přidá segment `▶ <živí agenti> · <nejdéle mlčící> · <m:ss>` (žlutě přes 15 min, červeně přes 30 min). Potřebuje `statusLine.refreshInterval` v `settings.json`, jinak se řádek během tichého Workflow nepřekreslí (ověřeno v Claude Code 2.1.274).
 - **`/workflows`** v Claude Code ukazuje strom fází a po rozbalení prompt a aktivitu agenta; živý text agentů neukazuje nikde.
 - **Zprávy orchestrátora:** pět řádků před řezem, pevný blok po řezu, krátká zpráva při zastavení. Nálezy nepřevypráví.
@@ -105,7 +106,10 @@ Fail-open: nejednoznačný případ projde. Testy hooků: `dev-pipeline/hooks/te
 | `prd`, `prd-check`, `implement`, `code-review`, `diagnose` | Opus 5 high | tvoří zadání a kód, chyby tu jsou nejdražší |
 | `thermo-nuclear-review`, `fix`, `e2e-verifier` | Opus 5 medium | ohraničená práce nad daným rozsahem |
 | `verify`, `deploy` | Sonnet 5 low, bez CLAUDE.md projektu | mechanické kroky se strojovým výsledkem |
+| `doklad` | Sonnet 5 medium | dotazy jen pro čtení podle předpisu v PRD |
 | `vize-validator` | Fable 5.1 high | čerstvé oči na konci |
+| vize session: `pruzkum` | Sonnet 5 medium | fakta z kódu a dat s citacemi, bez úsudku |
+| vize session: `reserse`, `cerstve-oci` | Opus 5 high (rešerše na Fable na vyžádání) | svět venku a čtení vize z role; úsudek zůstává v hlavním vlákně |
 | pomocné úlohy Claude Code | `ANTHROPIC_SMALL_FAST_MODEL=claude-sonnet-5` | podlaha je Sonnet, ne Haiku |
 
 Poslední běh v číslech (výstupní tokeny): bloky PRD 1,9 M, bloky stavby 6,0 M, orchestrátor 0,7 M, bezpečnostní sken cizím pluginem 1,8 M. Implementace a review tvoří přes 80 % agentních minut. Opakovaný pokus řezu stojí 2 až 3 hodiny a přes 2 M tokenů; proto tolik pravidel míří na kvalitu kritérií.
@@ -174,7 +178,10 @@ Slouč `setup/settings.snippet.json` do `~/.claude/settings.json` (nahraď `/Use
 - `agentPushNotifEnabled: true`: notifikace, když agent nebo Workflow skončí.
 - `hooks`: čtyři hooky Sereny výše.
 - `statusLine` s `refreshInterval: 30` (krok 8).
-- Model a effort session: `/model` na nejsilnější dostupný (orchestrátor), effort `high` nebo `xhigh`. Agenti pipeline to nedědí, mají své.
+- Model a effort session: `/model` na nejsilnější dostupný (orchestrátor), effort `high` nebo `xhigh`. Agenti pipeline to nedědí, mají své; platí to i pro vize session, kde subagenty spouští skill přes tři agenty pluginu.
+- `/autocompact 400k` napsané v session se uloží natrvalo (`autoCompactWindow`); `claude --autocompact 400k` platí jen pro jedno spuštění. Setup běhu vypíše, co z toho chybí.
+- `sandbox.filesystem.allowWrite` s `~/dev-pipeline-feedback.md`: soubor s nálezy o pipeline leží v domovském adresáři, protože `~/.claude` je pro sandbox chráněná cesta a odemknout nejde. Bez sandboxu klíč neškodí.
+- **Vypni pluginy, které běh nepotřebuje.** Výpis skillů a agentů všech zapnutých pluginů nese každý agent v systémovém promptu; v běhu CK-Go2 to bylo 34 kB na agenta, přes 200 agentů za běh.
 
 Doporučené nastavení jazyka: `"language": "czech"`, pokud chceš zprávy běhu česky; texty pluginu jsou české.
 
@@ -224,7 +231,7 @@ node ~/claude-dev-pipeline/dev-pipeline/scripts/wf-check.mjs ~/claude-dev-pipeli
 
 Pipeline čte projekt, nic mu nevnucuje. Co musí projekt mít, aby běh nedegradoval:
 
-- **`CLAUDE.md`** s doktrínou (izolace dat, kanonické helpery, pasti platformy) a s **příkazy pro typecheck a testy**; do 400 řádků, každý agent ho nese v preambuli. Pravidla, ne deník.
+- **`CLAUDE.md`** s doktrínou (izolace dat, kanonické helpery, pasti platformy) a s **příkazy pro typecheck a testy**; do 400 řádků a zhruba 20 kB, každý agent ho nese v preambuli. Pravidla, ne deník: historie fází, stavy a výčty hotového patří do `docs/`. Setup nad limitem varuje.
 - **Deploy runbook** (`docs/dev-runbook.md` nebo sekce Deploy v CLAUDE.md): postup nasazení, jak poznat terminální stav, zakázané okno nasazení s časovou zónou, behaviorální doklad. Bez něj běží řezy v režimu `commit-only` a nasazuješ ty.
 - **Přístup do běžící aplikace pro E2E** (URL, přihlášení, testovací účet) v CLAUDE.md nebo runbooku. Bez něj E2E dokládá kritéria bez prohlížeče.
 - **Pre-commit brána ve třech patrech** (doporučeno): staged jen `docs/**` a `*.md` → nic; typecheck a rychlé kontroly vždy; plná suita jen bez platného `docs/.verify-passed` (hash pracovního stromu bez `docs/` jako v `scripts/tree-hash.sh`; hook i skript musí počítat stejně). Vzor `.husky/pre-commit` v projektu Surya-PPC-Tool. Bez toho běh funguje, jen platí suitu dvakrát na řez.
@@ -241,7 +248,7 @@ Pipeline čte projekt, nic mu nevnucuje. Co musí projekt mít, aby běh nedegra
    claude --autocompact 400k
    ```
 
-   `--autocompact 400k` nastaví práh automatického compactu na 400k tokenů (rozsah 100k až 1M); v session jde totéž napsat jako `/autocompact 400k`. Orchestrátor compact sám neiniciuje; po compactu mu hook vrátí tabulku plánu a `PO-COMPACTU.md` a vizi si přečte znovu celou. Zvol nejsilnější model (`/model`).
+   `--autocompact 400k` nastaví práh automatického compactu na 400k tokenů (rozsah 100k až 1M); v session jde totéž napsat jako `/autocompact 400k`. Orchestrátor compact sám neiniciuje; po compactu mu hook vrátí tabulku plánu a `PO-COMPACTU.md` a vizi si přečte znovu po sekcích (bez Funkčních požadavků a Tvaru UI, ty čtou PRD agenti). Zvol nejsilnější model (`/model`).
 3. **Start:** napiš jako prompt `/dev-pipeline:orchestrate docs/vize/<slug>.md`. Musí to být prompt, ne příkaz z jiného místa: hook si z něj uloží identitu session, bez které setup neproběhne. Orchestrátor vypíše pět řádků o vizi a spustí první blok PRD.
 4. **Během běhu:** můžeš mu kdykoli napsat; odpoví z tabulky nebo pošle agenta, běh nepřeruší. Každých 30 minut uvidíš výstup `co-dela.sh --kratce`. Neposílej mu opravy ani úkoly do rozpracovaného řezu: vše, co víš navíc, mu řekni a on to předá dalším blokům jako hypotézu.
 5. **Usage limit:** Workflow pokračuje sám (`autoContinueAtUsageLimit`), session stojí do resetu a pak jedná podle řádku `stav běhu:` v handoffu. Na běh mimo dohled slouží `scripts/limit-watcher.sh` v tmuxu. **Vypršelé přihlášení** nic neobnoví: `/login` musíš udělat ty; běžící Workflow do té doby padá na API chybách a po přihlášení ho orchestrátor spustí znovu s `resumeFromRunId`.
@@ -271,17 +278,21 @@ Pipeline čte projekt, nic mu nevnucuje. Co musí projekt mít, aby běh nedegra
 | `diagnose` | Opus 5 high | Po dvou neúspěších: reprodukční smyčka a doložená příčina, neopravuje |
 | `fix` | Opus 5 medium | Oprava nálezů jako hypotéz v mezích Ne-cílů vize; vrací změněná místa a rozšířený zásah |
 | `thermo-nuclear-review` | Opus 5 medium | Strukturální audit proti rubrice, doktríně projektu a Ne-cílům; BLOCKER/HIGH/NOTE |
-| `e2e-verifier` | Opus 5 medium | Kritéria proti běžící aplikaci; PASS / PASS-částečně / FAIL, vadná kritéria s dokladem, nálezy mimo kritéria podle závažnosti; čísla přepočítává sám |
-| `deploy` | Sonnet 5 low, bez CLAUDE.md | Commit vlastního řezu a nasazení podle runbooku; omezené smyčky, okno s rezervou, doložený stav |
+| `e2e-verifier` | Opus 5 medium | Kritéria proti běžící aplikaci; nejdřív prostředí (nasazená revize), nikdy nenasazuje; PASS / PASS-částečně / FAIL, vadná kritéria s dokladem, nálezy mimo kritéria podle závažnosti; čísla přepočítává sám; kolo 2 jen FAIL, souběh po sekcích |
+| `deploy` | Sonnet 5 low, bez CLAUDE.md | Commit vlastního řezu a nasazení podle runbooku a pokynů majitele (přednost před skripty repa, Pages jen Production, migrace jen s dokladem); omezené smyčky, okno s rezervou, doložený stav; cizí práci nevrací |
+| `doklad` | Sonnet 5 medium | Jen když PRD předepisuje doklad před migrací: snímek dotčených dat dotazy jen pro čtení před nasazením |
 | `verify` | Sonnet 5 low, bez CLAUDE.md | Typecheck a plná suita, skutečné výstupy; zelená zapíše `docs/.verify-passed` |
 | `vize-validator` | Fable 5.1 high | Čerstvé oči na konci: Cíle, zákazy, lešení, změny plánu, detaily |
 | `plan-check` | Opus 5 high | Mimo běh: post-implementační kontrola plánu, read-only |
+| `pruzkum` | Sonnet 5 medium | Vize session: fakta z kódu, dat a dokumentů projektu s citacemi; neposuzuje |
+| `reserse` | Opus 5 high (Fable na vyžádání) | Vize session: cizí API a knihovny (context7, web), svět venku, právní a produktová rešerše; podklad, ne návrh mechanismů |
+| `cerstve-oci` | Opus 5 high | Vize session: čtení hotové vize z přidělené role, jen nálezy bránící stavbě bez otázky |
 
 ### Workflow bloky a skripty
 
 - `workflows/blok-prd.js`, `blok-stavby.js`, `blok-kolecko.js`: argumenty a návraty v `skills/orchestrate/KONTRAKT.md`. Syntaxi kontroluje `scripts/wf-check.mjs` (skripty mají top-level `return`, holý `node --check` je odmítne).
-- `scripts/orchestrate-setup.sh`: setup běhu (čistý strom, archiv předchozí vize do `docs/archive/<slug>/` a reportů do `docs/reviews/_archiv/<slug>/`, větev, marker, handoff, jediný commit).
-- `scripts/co-dela.sh`: co agenti dělají (plný, `--kratce`, `--status`).
+- `scripts/orchestrate-setup.sh`: setup běhu (čistý strom, archiv předchozí vize do `docs/archive/<slug>/` a reportů do `docs/reviews/_archiv/<slug>/`, `.gitignore` a `.prettierignore`, větev, marker, handoff s plánem, jediný commit, mapa sekcí vize, kontrola nastavení Claude Code).
+- `scripts/co-dela.sh`: co agenti dělají (plný, `--kratce` pro cron s hlavičkou běhu a fázemi, `--status` pro status line).
 - `scripts/verify-marker.sh`, `scripts/tree-hash.sh`: marker zelené brány a hash stromu bez `docs/`.
 - `scripts/limit-watcher.sh`: hlídač usage limitu pro běh mimo dohled (tmux).
 - `scripts/module-health.py`: měření poctivosti barelů pro thermo review.
@@ -311,6 +322,7 @@ Z analýzy běhu sklik: 362 commitů, 55 % bez změny kódu (docs, build marker)
 
 ## Změny
 
+- **1.2.0 (22. 9. 2026)** — z interní analýzy běhu doplneni-webu na CK-Go2 (21 bodů): setup najde plán řezů i za podnadpisy a vybere tabulku se sloupcem `#`, hlásí chybějící nastavení (`autoContinueAtUsageLimit`, autocompact), vypíše mapu sekcí vize a doplní `.prettierignore`; bloky přijmou řez 0; orchestrátor smí číst `produkt.md`, čte vizi po sekcích a v cronu píše dvě věty; `co-dela.sh` počítá živé agenty podle klíče (stall restart), ukazuje jméno řezu, pokus, fázi i/N a důvod selhání; deploy agent bere pokyny majitele jako závazné, u Pages ověřuje Production, migraci aplikuje jen s dokladem a cizí práci nevrací (blast-radius guard během běhu blokuje `git stash`, `git clean` a `checkout`/`restore` nad `docs/`); e2e-verifier ověří prostředí a nikdy nenasazuje; nová fáze Doklad s agentem `doklad`; E2E kolo 2 jen nad FAIL, nad 12 kritérií dva verifikátoři; lehký profil řezu; PRD závislého řezu souběžně s PRD stavěného řezu jako kontraktem; refresh PRD jen při překryvu oblastí a na Opus medium; delta kontrola PRD jen po blokujících nálezech; follow-ups a vize-spory se čtou grepem po oblastech a nové položky nesou značku oblasti; tři agenti pro vize session (`pruzkum`, `reserse`, `cerstve-oci`), popis skillu vize zúžený; feedback soubor v `~/dev-pipeline-feedback.md` (sandbox); sklizeň necommituje.
 - **1.1.0 (18. 9. 2026)** — z interní analýzy běhu uklid-po-sklik (26 bodů): blok stavby odvozuje verdikt E2E z počtů, zná stav „vada kritéria“, dělá refresh PRD nad dnešním stromem, dává všem agentům Ne-cíle vize, jména reportů nesou číslo pokusu, uzavření sesouhlasí thermo a doklady; blok PRD spouští měřidla kritérií už v kole 1 a má režim zapracování; nový Workflow `blok-kolecko` nahrazuje kolečko z 38 volání Agent v session; sken claude-security jen na vyžádání; orchestrátor drží výhled PRD jeden řez, `hypotezy.text` nerozšiřuje PRD, kolize a vadná kritéria jdou majiteli jako otázky s navrženou odpovědí, cron ukazuje `co-dela.sh --kratce`, `TaskOutput` jen na dokončený Workflow, úklid úloh na pozadí před `hotovo`; deploy čeká na okno s rezervou a omezenou smyčkou a commituje jen docs vlastního řezu; `scripts/co-dela.sh` a segment ve status line; adresář `setup/` s návodem, snippetem nastavení, status line, globálním CLAUDE.md a kontrolou instalace.
 - **1.0.1 (17. 9. 2026)** — hash markeru verify bez `docs/`, `hypotezy.text` pro blok stavby.
 - **1.0.0 (16. 9. 2026)** — orchestrátor v session, dva Workflow bloky, hooky běhu.

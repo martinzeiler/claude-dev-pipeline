@@ -7,10 +7,12 @@
 #   3. stav předchozí vize (handoff, journal, vize-spory, prd/, e2e/, zpráva, marker) přesune do docs/archive/<slug>/,
 #      reporty z docs/reviews/ do docs/reviews/_archiv/<slug>/, z follow-ups odloží přeškrtnuté položky;
 #      stejná vize = navázání, nic se nearchivuje,
-#   4. doplní .gitignore, vytvoří větev vize/<slug> a stavové soubory,
+#   4. doplní .gitignore (a .prettierignore, když projekt prettier používá), vytvoří větev vize/<slug> a stavové soubory,
 #   5. zapíše marker docs/.orchestrator-run (JSON se session_id) a docs/handoff.md s tabulkou plánu z vize,
 #   6. všechno (gitignore, vize, archiv, stavové soubory) commitne JEDNÍM commitem: projekty s pomalou
-#      pre-commit bránou platí bránu jednou, ne čtyřikrát.
+#      pre-commit bránou platí bránu jednou, ne čtyřikrát,
+#   7. vypíše mapu sekcí vize (řádky) pro orchestrátora, stav nastavení Claude Code, na kterém běh závisí
+#      (autoContinueAtUsageLimit, autocompact; do ~/.claude nezapisuje, jen hlásí), a varování o velikosti souborů.
 # Návratové kódy: 0 ok · 2 chybí předpoklad (zpráva na stderr) · 3 vize nemá sekci Plán řezů.
 set -uo pipefail
 
@@ -43,6 +45,18 @@ for e in docs/.orchestrator-run docs/.orchestrator-session docs/.deploy-unlocked
   grep -qxF -- "$e" .gitignore 2>/dev/null || { echo "$e" >> .gitignore; gi_changed=1; }
 done
 if [ "$gi_changed" = 1 ] || [ -n "$(git status --porcelain -- .gitignore)" ]; then git add .gitignore; obsah="$obsah gitignore"; fi
+# .prettierignore: stavové soubory běhu a výstupy agentů, když projekt prettier používá. Píší je agenti za běhu;
+# formátovací pre-check deploye by je přeformátoval a necommitnutou práci orchestrátora zničil (incident řezu 5, doplneni-webu).
+if ls .prettierrc* >/dev/null 2>&1 || grep -q '"prettier"' package.json 2>/dev/null; then
+  pi_changed=0
+  for e in docs/handoff.md docs/journal.md docs/vize-spory.md docs/follow-ups.md docs/zaverecna-zprava.md docs/prd/ docs/e2e/ docs/reviews/ docs/archive/; do
+    if ! grep -qxF -- "$e" .prettierignore 2>/dev/null; then
+      [ "$pi_changed" = 0 ] && printf '\n# dev-pipeline: stavové soubory běhu a výstupy agentů (píší je agenti za běhu; přeformátování by zničilo necommitnutou práci)\n' >> .prettierignore
+      echo "$e" >> .prettierignore; pi_changed=1
+    fi
+  done
+  if [ "$pi_changed" = 1 ]; then git add .prettierignore; obsah="$obsah prettierignore"; echo "prettierignore: doplněny stavové soubory běhu"; fi
+fi
 if [ -n "$(git status --porcelain -- "$vize_rel" "docs/vize/$slug" 2>/dev/null)" ]; then
   git add -- "$vize_rel"; [ -d "docs/vize/$slug" ] && git add -- "docs/vize/$slug"
   obsah="$obsah vize"
@@ -131,7 +145,14 @@ if [ "$resume" = 1 ] && [ -f docs/handoff.md ]; then
   git add docs/handoff.md 2>/dev/null
   zprava="běh: navázání vize $slug"
 else
-  plan=$(awk 'BEGIN{p=0} /^#{1,4} /{ if (p) exit; if (tolower($0) ~ /pl[aá]n [rř]ez/) {p=1; next} } p{print}' "$vize_abs")
+  # Sekce „Plán řezů“ končí až na nadpisu stejné nebo vyšší úrovně (podnadpisy uvnitř ji nekončí; v běhu doplneni-webu
+  # parser skončil na prvním podnadpisu a hlásil PLÁN NENALEZEN). Plán je tabulka se sloupcem „#“; sekce může mít i jiné tabulky.
+  sekce=$(awk 'BEGIN{p=0;lvl=0} /^#{1,4} /{ if (p) { match($0,/^#+/); if (RLENGTH<=lvl) exit } else if (tolower($0) ~ /pl[aá]n [rř]ez/) { match($0,/^#+/); lvl=RLENGTH; p=1; next } } p{print}' "$vize_abs")
+  plan=$(printf '%s\n' "$sekce" | awk '
+    function konec() { if (inb) { if (chosen == "" && first ~ /^\|[[:space:]]*#[[:space:]]*\|/) chosen = blk; else if (fallback == "" && n >= 3) fallback = blk } inb = 0; blk = ""; n = 0 }
+    /^\|/ { if (!inb) { inb = 1; first = $0 } blk = blk $0 "\n"; n++; next }
+    { konec() }
+    END { konec(); printf "%s", (chosen != "" ? chosen : fallback) }')
   radku=$(printf '%s\n' "$plan" | grep -c '^|' || true)
   if [ -z "$plan" ] || [ "$radku" -lt 3 ]; then
     plan="PLÁN NENALEZEN: vize nemá sekci „Plán řezů“ s tabulkou. Bez plánu běh nestartuje; doplň ho ve /vize session."
@@ -155,10 +176,28 @@ if ! git diff --cached --quiet; then
   echo "commit: $zprava"
 fi
 
+# 7. mapa sekcí vize: orchestrátor čte sekce po řádcích (sed -n), Funkční požadavky a Tvar UI jsou pro PRD agenty
+echo "sekce vize (řádky od-do; orchestrátor čte všechny kromě označených, ty jsou pro PRD agenty):"
+awk '/^## /{ if (h != "") vypis(st, NR - 1, h); st = NR; h = $0 } END { if (h != "") vypis(st, NR, h) }
+  function vypis(a, b, t,   l) { l = tolower(t); printf "  %d-%d  %s%s\n", a, b, t, (l ~ /funk|tvar ui|ui plochy/ ? "   (PRD agentům, orchestrátor nečte)" : "") }' "$vize_abs"
+
+# nastavení Claude Code, na kterém běh závisí: jen kontrola a výpis, skript do ~/.claude nezapisuje
+cfgdir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; sfile="$cfgdir/settings.json"; chybi=""
+if [ "$(jq -r '.autoContinueAtUsageLimit // empty' "$sfile" 2>/dev/null)" = "true" ]; then echo "nastavení: autoContinueAtUsageLimit: true"
+else echo "nastavení: autoContinueAtUsageLimit CHYBÍ (Workflow po usage limitu nepokračuje): do $sfile přidej \"autoContinueAtUsageLimit\": true"; chybi="$chybi autoContinueAtUsageLimit"; fi
+acw=$(jq -r '.autoCompactWindow // empty' "$sfile" 2>/dev/null)
+if [ -n "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" ]; then echo "nastavení: autocompact ${CLAUDE_CODE_AUTO_COMPACT_WINDOW} (env CLAUDE_CODE_AUTO_COMPACT_WINDOW)"
+elif [ -n "$acw" ]; then echo "nastavení: autocompact $acw (settings autoCompactWindow)"
+else echo "nastavení: autocompact CHYBÍ: napiš v session /autocompact 400k (uloží se do settings natrvalo; claude --autocompact platí jen pro jedno spuštění)"; chybi="$chybi autoCompactWindow"; fi
+[ -n "$chybi" ] && echo "nastaveni_chybi:$chybi"
+
 # varování
 vsize=$(wc -c < "$vize_abs" | tr -d ' ')
 [ "$vsize" -gt 122880 ] && echo "varování: vize má $vsize B, strop těla je ~120 kB (40k tokenů)"
-if [ -f CLAUDE.md ]; then cl=$(wc -l < CLAUDE.md | tr -d ' '); [ "$cl" -gt 400 ] && echo "varování: CLAUDE.md projektu má $cl řádků (doporučený strop 400), každý agent ho nese v preambuli"; fi
+if [ -f CLAUDE.md ]; then
+  cl=$(wc -l < CLAUDE.md | tr -d ' '); cb=$(wc -c < CLAUDE.md | tr -d ' ')
+  { [ "$cl" -gt 400 ] || [ "$cb" -gt 20480 ]; } && echo "varování: CLAUDE.md projektu má $cl řádků a $cb B (doporučený strop 400 řádků a ~20 kB), každý agent ho nese v preambuli; historie a stavy patří do docs/"
+fi
 hs=$(wc -c < docs/handoff.md | tr -d ' '); [ "$hs" -gt 4096 ] && echo "varování: handoff má $hs B, po compactu se injektují jen první 4 096 B"
 echo "marker: docs/.orchestrator-run (session $sid, start $now)"
 echo "hotovo: rc=$rc"

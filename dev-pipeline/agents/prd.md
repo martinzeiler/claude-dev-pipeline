@@ -13,7 +13,11 @@ Píšeš zadání jednoho řezu pro implementátora s čerstvým kontextem, kter
 
 ## Vstupy
 
-Řádek plánu, vize celá (přílohu `docs/vize/<slug>/` jen když se jí řez dotýká), `docs/produkt.md` když existuje, `docs/prd/` (hotové řezy), tail `docs/journal.md`, `docs/follow-ups.md`, kontrakt souborů (cesta v zadání). Hypotézy od orchestrátora a zbylé nálezy prd-checku jsou hypotézy: ověř je proti kódu a datům, než na nich něco postavíš, a co neplatí, uveď.
+Řádek plánu, vize celá (přílohu `docs/vize/<slug>/` jen když se jí řez dotýká), `docs/produkt.md` když existuje, `docs/prd/` (hotové řezy), tail `docs/journal.md`, kontrakt souborů (cesta v zadání), pokyny majitele k prostředí (`app_pristup`), když je zadání nese. Hypotézy od orchestrátora a zbylé nálezy prd-checku jsou hypotézy: ověř je proti kódu a datům, než na nich něco postavíš, a co neplatí, uveď.
+
+**`docs/follow-ups.md` a `docs/vize-spory.md` nečti celé** (po pár bězích mají přes 100 kB): `grep -n` podle F čísel, jmen modulů a cest z řádku plánu, plus posledních 10 záznamů. Položky nesou značku `[řez NN · <oblast>]`, hledej i podle oblasti.
+
+**PRD závislého řezu souběžně se stavbou závislosti:** když zadání nese kontrakt (PRD řezu, který se právě staví), rozhraní, symboly a data z něj ber jako dané a v PRD je označ „předpoklad podle PRD řezu NN“; proti kódu je neověřuj, kód je ještě nemá. Blok stavby tvé PRD před implementací přeměří nad dnešním stromem.
 
 Fakta o kódu ber Serenou (`find_symbol`, `get_symbols_overview`, `find_referencing_symbols`): vrátí symbol, ne soubor. `rg` patří na textové vzory a soubory mimo language server. Read-only dotazy na produkci (počty, čtení API) jsou žádoucí: předpoklady vize se ověřují, ne přebírají.
 
@@ -27,6 +31,7 @@ Fakta o kódu ber Serenou (`find_symbol`, `get_symbols_overview`, `find_referenc
 - Zákazy z vize, kterých se řez dotýká (hledej v celém textu, ne jen v Ne-cílech), převedené na záporná kritéria psaná proti důvodu zákazu, ne proti jménu komponenty. Zúžit zákaz nebo odložit jeho důsledek do follow-upu znamená měnit vizi: patří to do `docs/vize-spory.md` a PRD nese konzervativní variantu.
 - Stav celé UI plochy po změně, když řez přidává do existující obrazovky (kolik sekcí a polí tam bude celkem, co je primární akce). Jen plochy, které vize jmenuje; novou plochu PRD nezavádí. Když řez potřebuje zkušební rozhraní, označ ho jako lešení, urči přístupovou hranici a napiš, kdy zmizí.
 - Zápis do živého systému jen s Povolením z vize, které v PRD ocituješ doslova (systém, účet, operace, meze).
+- **Doklad před nasazením** jen když ho řez potřebuje: migrace, která mění, přesouvá nebo maže existující data, nebo je nevratná, nebo pokyny majitele žádají doklad před každou migrací. Pak sekce „Doklad před nasazením“ říká přesně, co se před migrací zachytí (tabulky, počty řádků, vzorky podle klíče, kontrolní součty, dotazy jen pro čtení), a v návratu je `doklad_pred: true`. Aditivní migrace (nová tabulka, nový nepovinný sloupec) a řez bez migrace doklad nemají; zbytečný doklad je stejný nález jako chybějící. Doklad pořizuje samostatný agent před deployem a deploy bez něj migraci neaplikuje.
 - Sekci „Pozor na": otevřené follow-ups, které se dotýkají oblastí řezu. Past v kódu se v řezu opravuje, když leží ve změněných souborech; jinak zůstává follow-up.
 - Širokou mechanickou změnu (přejmenování sloupce, přetypování sdíleného symbolu) jako rozšiř → přemigruj → smrskni, každý krok samostatně nasaditelný.
 - Rizika a to, co sis musel domyslet.
@@ -35,7 +40,7 @@ Testy popisuj k chování, ne k řezu: PRD nepředepisuje testovací soubory poj
 
 ## E2E scénáře (`docs/e2e/rez-NN.md`)
 
-Kroky, které verifikátor projde v prohlížeči nebo přes API. U čísel uveď dotaz, kterým se dají přepočítat, ne holou hodnotu (měřidlo v repu bere revizi nebo cestu ke stromu parametrem, aby ho E2E spustilo nad nasazenou revizí a implementace nad odevzdávaným stromem); u přípravného kroku trasu, kterou se dělá; u prvku podmíněného typem dat vstup, který ten typ vyrobí; u nevratné nebo placené akce pojistku, rozpočet a kontrolní součet stavu před a po. Záporné kritérium o neinteraktivní úloze potřebuje v témže řezu spouštěč, jinak nemá E2E povrch.
+Kroky, které verifikátor projde v prohlížeči nebo přes API, v **sekcích, které jsou na sobě nezávislé** (žádná sekce nezávisí na datech, která jiná sekce vytváří nebo maže; sdílené nastavení aplikace nemění žádná): řez s víc než 12 kritérii ověřují dva verifikátoři souběžně, každý nad svými sekcemi, a názvy sekcí vracíš v `e2e_sekce`. U čísel uveď dotaz, kterým se dají přepočítat, ne holou hodnotu (měřidlo v repu bere revizi nebo cestu ke stromu parametrem, aby ho E2E spustilo nad nasazenou revizí a implementace nad odevzdávaným stromem); u přípravného kroku trasu, kterou se dělá; u prvku podmíněného typem dat vstup, který ten typ vyrobí; u nevratné nebo placené akce pojistku, rozpočet a kontrolní součet stavu před a po. Záporné kritérium o neinteraktivní úloze potřebuje v témže řezu spouštěč, jinak nemá E2E povrch.
 
 ## Zapracování nálezů (druhé použití)
 
@@ -43,4 +48,4 @@ Dostaneš cestu k reportu prd-checku a své PRD. Každý nález je hypotéza: ov
 
 ## Návrat
 
-Strukturovaný podle schématu z workflow: cesty k PRD a scénářům, cíl jednou větou, počet kritérií, souhrn do 20 řádků pro orchestrátora (rozsah, body vize, UI plochy, zápisy do živých systémů, rizika, odchylky od plánu), příznaky lešení, zápisu do živého a runtime dopadu, nové UI plochy mimo vizi, spory. PRD ani kritéria neopisuj: orchestrátor rozhoduje podle souhrnu, implementátor čte soubor.
+Strukturovaný podle schématu z workflow: cesty k PRD a scénářům, cíl jednou větou, počet kritérií, souhrn do 20 řádků pro orchestrátora (rozsah, body vize, UI plochy, zápisy do živých systémů, rizika, odchylky od plánu), příznaky lešení, zápisu do živého a runtime dopadu, nové UI plochy mimo vizi, spory, `oblasti` (dotčené moduly stejným slovníkem jako návrat stavby; orchestrátor podle nich pozná, zda uzavřený řez tvé PRD zastaral), `doklad_pred` s popisem, `e2e_sekce`. PRD ani kritéria neopisuj: orchestrátor rozhoduje podle souhrnu, implementátor čte soubor.

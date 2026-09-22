@@ -180,7 +180,7 @@ const commit = (faze, zprava, ph) => run(`${ramec}
 
 const deploy = (k, pozn) => run(`${ramec}
 
-Úkol: nasazení kolečka (běh ${k}). Nejdřív commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, čekej omezenou smyčkou s počtem iterací (žádné nekonečné while), na každém terminálním stavu skonči (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy.` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'}`} Nikdy si nedomýšlej postup, který projekt nedokumentuje.`,
+Úkol: nasazení kolečka (běh ${k}). Nejdřív commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, čekej omezenou smyčkou s počtem iterací (žádné nekonečné while), na každém terminálním stavu skonči (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy.` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'}${appPristup ? ` Pokyny majitele k prostředí a nasazení jsou závazné a mají přednost před skripty repa (skript, který nasazuje jinam nebo jinak, než pokyny říkají, nepoužij nebo doplň o správné parametry): ${appPristup.slice(0, 1200)}.` : ''}`} Necháváš na pokoji vše, co jsi sám nezměnil: žádné git checkout --, git restore, git stash ani git clean nad cizími nebo necommitnutými soubory (guard je během běhu blokuje); formátovací kontrolu pouštěj jen nad soubory, které commituješ. Nikdy si nedomýšlej postup, který projekt nedokumentuje.`,
   { label: `deploy:kolečko:${k}`, phase: 'Deploy a E2E', agentType: 'dev-pipeline:deploy', schema: DEPLOY, ...M.sonL })
 
 const sestavE2E = () => run(`${ramec}
@@ -188,10 +188,10 @@ const sestavE2E = () => run(`${ramec}
 Úkol: sestav E2E scénáře kolečka do ${e2ePath}. Zdroje: commity kolečka (\`git log ${base}..HEAD --oneline\`, commity se zprávou „kolecko:“ a „fix(security):“ od začátku kolečka) s jejich \`--stat\`, reporty ${cisty(st.reports).slice(-8).join(', ') || 'kolečka'} (jen sekce opravených nálezů) a tail docs/journal.md. Pravidla kritérií podle ${a.plugin_root ? `${a.plugin_root}/agents/prd.md` : 'agenta prd pluginu dev-pipeline'} (sekce Akceptační kritéria a E2E scénáře): každé kritérium na viditelném chování, záporné kritérium jmenuje šev, u čísel dotaz k přepočtu místo holé hodnoty, žádné výčty jmen souborů ani opsaná čísla, žádné kritérium závislé na commitu. Pokryj: každou opravu kolečka s dopadem na uživatele nebo data (regrese) a smoke průchod ploch, kterých se vize dotkla (z journalu), nejvýš 20 kritérií. Když kolečko nezměnilo kód, napiš jen smoke průchod do 5 kritérií. Nic jiného needituj.`,
   { label: 'e2e-scénáře:kolečko', phase: 'Deploy a E2E', agentType: 'general-purpose', schema: SESTAV, ...M.opusM })
 
-const e2e = k => runtimeDopad
+const e2e = (k, failKola1) => runtimeDopad
   ? run(`${ramec}
 
-Úkol: E2E verifikace kolečka, kolo ${k}: projdi scénáře z ${e2ePath} proti běžící aplikaci${appPristup ? ` (přístup: ${appPristup})` : ' (přístup podle CLAUDE.md projektu)'}, verdikt per kritérium PASS / PASS-částečně / FAIL s důkazy do reportu ${rep('e2e', k)}. Čísla přepočítej sám dotazem ze scénáře, nikdy je nepřebírej z journalu ani z reportů. Kritérium, které nejde poctivě vyhodnotit (nesplnitelné v prostředí E2E, koliduje s jiným kritériem nebo Ne-cílem vize, nález je předřezový a mimo rozsah), dej do vadna_kriteria s dokladem druhu; do fail ho nepočítej. Vrať jen počty, FAIL, částečná a vadná kritéria, závažné nálezy mimo kritéria (bezpečnost, data) zvlášť od kosmetických. Testovací data s prefixem [E2E], po sobě ukliď.`,
+Úkol: E2E verifikace kolečka, kolo ${k}: projdi scénáře z ${e2ePath} proti běžící aplikaci${appPristup ? ` (přístup: ${appPristup})` : ' (přístup podle CLAUDE.md projektu)'}${failKola1 ? `. Kolo 2 po opravě: přeměř VÝHRADNĚ kritéria, která v kole 1 selhala: ${failKola1.join(' | ')}; u ostatních jen ověř, že se jejich plocha načte bez chyby (smoke), verdikty z kola 1 nepřeměřuj; celkem = počet přeměřených kritérií, smoke selhání vrať ve fail_kriteria s předponou „smoke:“` : ''}, verdikt per kritérium PASS / PASS-částečně / FAIL s důkazy do reportu ${rep('e2e', k)}. Nasazení není tvoje fáze: nic nenasazuješ a handoff nečteš; když nasazená revize není commit kolečka nebo přihlášení nefunguje, vrať to ve fail_kriteria s předponou „prostředí:“ a kritéria neměř. Čísla přepočítej sám dotazem ze scénáře, nikdy je nepřebírej z journalu ani z reportů. Kritérium, které nejde poctivě vyhodnotit (nesplnitelné v prostředí E2E, koliduje s jiným kritériem nebo Ne-cílem vize, nález je předřezový a mimo rozsah), dej do vadna_kriteria s dokladem druhu; do fail ho nepočítej. Vrať jen počty, FAIL, částečná a vadná kritéria, závažné nálezy mimo kritéria (bezpečnost, data) zvlášť od kosmetických. Testovací data s prefixem [E2E], po sobě ukliď.`,
     { label: `e2e:kolečko:${k}`, phase: 'Deploy a E2E', agentType: 'dev-pipeline:e2e-verifier', schema: E2E, ...M.opusM })
   : run(`${ramec}
 
@@ -342,10 +342,16 @@ if (verdikt(e) === 'fail') {
   const d2 = await deploy(2, 'oprava po E2E'); if (!d2 || d2.stav === 'failed') return selhani('deploy', d2 ? d2.duvod : 'deploy bez výsledku')
   if (d2.commit && d2.duvod !== 'beze změn') st.commity.push(d2.commit)
   d = d2; st.deploy = { stav: d.stav, commit: d.commit }
-  e = await e2e(2)
-  if (!e) return selhani('e2e', 'verifikátor nevrátil výsledek v kole 2')
-  st.reports.push(e.report_path); zapisE2E(e)
-  log(`E2E 2: ${verdikt(e)} (${e.pass}/${e.celkem}, fail ${e.fail})`)
+  const e1 = e
+  const e2 = await e2e(2, e1.fail_kriteria || [])
+  if (!e2) return selhani('e2e', 'verifikátor nevrátil výsledek v kole 2')
+  // Kolo 2 měřilo jen FAIL kritéria kola 1: výsledné počty se skládají z obou kol.
+  const vadna = cisty([...(e1.vadna_kriteria || []), ...(e2.vadna_kriteria || [])])
+  const castecne = (Number(e1.castecne) || 0) + (Number(e2.castecne) || 0)
+  e = { ...e2, celkem: Number(e1.celkem) || 0, castecne, vadna_kriteria: vadna, castecna_kriteria: [...(e1.castecna_kriteria || []), ...(e2.castecna_kriteria || [])],
+    pass: Math.max(0, (Number(e1.celkem) || 0) - (Number(e2.fail) || 0) - castecne - vadna.length) }
+  st.reports.push(e2.report_path); zapisE2E(e)
+  log(`E2E 2 (jen FAIL kola 1): ${verdikt(e)} (${e.pass}/${e.celkem}, fail ${e.fail})`)
   if (verdikt(e) === 'fail') return selhani('e2e', `FAIL kritéria po opravě: ${(e.fail_kriteria || []).join(' | ')}`)
 }
 if ((e.vadna_kriteria || []).length) {
