@@ -102,15 +102,17 @@ Fail-open: nejednoznačný případ projde. Testy hooků: `dev-pipeline/hooks/te
 
 | Kde | Model / effort | Proč |
 |---|---|---|
-| orchestrátor (tvoje session) | nejsilnější dostupný; poslední běh Fable 5.1, alternativa Opus 5 s 1M kontextem | úsudek nad celou vizí, málo tokenů, hodně rozhodnutí |
-| `prd`, `prd-check`, `implement`, `code-review`, `diagnose` | Opus 5 high | tvoří zadání a kód, chyby tu jsou nejdražší |
-| `thermo-nuclear-review`, `fix`, `e2e-verifier` | Opus 5 medium | ohraničená práce nad daným rozsahem |
-| `verify`, `deploy` | Sonnet 5 low, bez CLAUDE.md projektu | mechanické kroky se strojovým výsledkem |
-| `doklad` | Sonnet 5 medium | dotazy jen pro čtení podle předpisu v PRD |
-| `vize-validator` | Fable 5.1 high | čerstvé oči na konci |
-| vize session: `pruzkum` | Sonnet 5 medium | fakta z kódu a dat s citacemi, bez úsudku |
-| vize session: `reserse`, `cerstve-oci` | Opus 5 high (rešerše na Fable na vyžádání) | svět venku a čtení vize z role; úsudek zůstává v hlavním vlákně |
+| orchestrátor (tvoje session) | nejsilnější dostupný s 1M kontextem: Opus 5.5 (`opus[1m]`) nebo Fable 5.1 | úsudek nad celou vizí, málo tokenů, hodně rozhodnutí |
+| `prd`, `prd-check`, `implement`, `code-review`, `diagnose` | Opus high | tvoří zadání a kód, chyby tu jsou nejdražší |
+| `thermo-nuclear-review`, `fix`, `e2e-verifier` | Opus medium | ohraničená práce nad daným rozsahem |
+| `verify`, `deploy` | Sonnet low, bez CLAUDE.md projektu | mechanické kroky se strojovým výsledkem |
+| `doklad` | Sonnet medium | dotazy jen pro čtení podle předpisu v PRD |
+| `vize-validator` | Fable high | čerstvé oči na konci |
+| vize session: `pruzkum` | Sonnet medium | fakta z kódu a dat s citacemi, bez úsudku |
+| vize session: `reserse`, `cerstve-oci` | Opus high (rešerše na Fable na vyžádání) | svět venku a čtení vize z role; úsudek zůstává v hlavním vlákně |
 | pomocné úlohy Claude Code | `ANTHROPIC_SMALL_FAST_MODEL=claude-sonnet-5` | podlaha je Sonnet, ne Haiku |
+
+Agenti mají model zapsaný zkratkou (`opus`, `sonnet`, `fable`) a Claude Code ji překládá na nejnovější model dané řady; od Claude Code 2.1.280 je `opus` Opus 5.5. Kterou verzi běh skutečně použil, ukazují transkripty (`message.model`) a `co-dela.sh`.
 
 Poslední běh v číslech (výstupní tokeny): bloky PRD 1,9 M, bloky stavby 6,0 M, orchestrátor 0,7 M, bezpečnostní sken cizím pluginem 1,8 M. Implementace a review tvoří přes 80 % agentních minut. Opakovaný pokus řezu stojí 2 až 3 hodiny a přes 2 M tokenů; proto tolik pravidel míří na kvalitu kritérií.
 
@@ -271,22 +273,22 @@ Pipeline čte projekt, nic mu nevnucuje. Co musí projekt mít, aby běh nedegra
 
 | Agent | Model / effort | Role |
 |---|---|---|
-| `prd` | Opus 5 high | PRD a E2E scénáře podle řádku plánu; kritéria jako vlastnost + měřidlo, ne výčet; zapracování nálezů s návratem změněných míst |
-| `prd-check` | Opus 5 high | Nezávislá kontrola PRD (úplnost, validita proti kódu, kritéria s během měřidel, rozsah, optimalita); delta kolo; refresh nad dnešním stromem |
-| `implement` | Opus 5 high | TDD implementace; testy k chování, ne k řezu; past ve svých souborech opravuje; hypotézy nerozšiřují PRD |
-| `code-review` | Opus 5 high | Korektnost; CONFIRMED/PLAUSIBLE a BLOKUJE/FOLLOW-UP; přísnější práh nad plochou zapisující do produkce; režim čočky pro kolečko; návrat jako balíčky po souborech |
-| `diagnose` | Opus 5 high | Po dvou neúspěších: reprodukční smyčka a doložená příčina, neopravuje |
-| `fix` | Opus 5 medium | Oprava nálezů jako hypotéz v mezích Ne-cílů vize; vrací změněná místa a rozšířený zásah |
-| `thermo-nuclear-review` | Opus 5 medium | Strukturální audit proti rubrice, doktríně projektu a Ne-cílům; BLOCKER/HIGH/NOTE |
-| `e2e-verifier` | Opus 5 medium | Kritéria proti běžící aplikaci; nejdřív prostředí (nasazená revize), nikdy nenasazuje; PASS / PASS-částečně / FAIL, vadná kritéria s dokladem, nálezy mimo kritéria podle závažnosti; čísla přepočítává sám; kolo 2 jen FAIL, souběh po sekcích |
-| `deploy` | Sonnet 5 low, bez CLAUDE.md | Commit vlastního řezu a nasazení podle runbooku a pokynů majitele (přednost před skripty repa, Pages jen Production, migrace jen s dokladem); omezené smyčky, okno s rezervou, doložený stav; cizí práci nevrací |
-| `doklad` | Sonnet 5 medium | Jen když PRD předepisuje doklad před migrací: snímek dotčených dat dotazy jen pro čtení před nasazením |
-| `verify` | Sonnet 5 low, bez CLAUDE.md | Typecheck a plná suita, skutečné výstupy; zelená zapíše `docs/.verify-passed` |
-| `vize-validator` | Fable 5.1 high | Čerstvé oči na konci: Cíle, zákazy, lešení, změny plánu, detaily |
-| `plan-check` | Opus 5 high | Mimo běh: post-implementační kontrola plánu, read-only |
-| `pruzkum` | Sonnet 5 medium | Vize session: fakta z kódu, dat a dokumentů projektu s citacemi; neposuzuje |
-| `reserse` | Opus 5 high (Fable na vyžádání) | Vize session: cizí API a knihovny (context7, web), svět venku, právní a produktová rešerše; podklad, ne návrh mechanismů |
-| `cerstve-oci` | Opus 5 high | Vize session: čtení hotové vize z přidělené role, jen nálezy bránící stavbě bez otázky |
+| `prd` | Opus high | PRD a E2E scénáře podle řádku plánu; kritéria jako vlastnost + měřidlo, ne výčet; zapracování nálezů s návratem změněných míst |
+| `prd-check` | Opus high | Nezávislá kontrola PRD (úplnost, validita proti kódu, kritéria s během měřidel, rozsah, optimalita); delta kolo; refresh nad dnešním stromem |
+| `implement` | Opus high | TDD implementace; testy k chování, ne k řezu; past ve svých souborech opravuje; hypotézy nerozšiřují PRD |
+| `code-review` | Opus high | Korektnost; CONFIRMED/PLAUSIBLE a BLOKUJE/FOLLOW-UP; přísnější práh nad plochou zapisující do produkce; režim čočky pro kolečko; návrat jako balíčky po souborech |
+| `diagnose` | Opus high | Po dvou neúspěších: reprodukční smyčka a doložená příčina, neopravuje |
+| `fix` | Opus medium | Oprava nálezů jako hypotéz v mezích Ne-cílů vize; vrací změněná místa a rozšířený zásah |
+| `thermo-nuclear-review` | Opus medium | Strukturální audit proti rubrice, doktríně projektu a Ne-cílům; BLOCKER/HIGH/NOTE |
+| `e2e-verifier` | Opus medium | Kritéria proti běžící aplikaci; nejdřív prostředí (nasazená revize), nikdy nenasazuje; PASS / PASS-částečně / FAIL, vadná kritéria s dokladem, nálezy mimo kritéria podle závažnosti; čísla přepočítává sám; kolo 2 jen FAIL, souběh po sekcích |
+| `deploy` | Sonnet low, bez CLAUDE.md | Commit vlastního řezu a nasazení podle runbooku a pokynů majitele (přednost před skripty repa, Pages jen Production, migrace jen s dokladem); omezené smyčky, okno s rezervou, doložený stav; cizí práci nevrací |
+| `doklad` | Sonnet medium | Jen když PRD předepisuje doklad před migrací: snímek dotčených dat dotazy jen pro čtení před nasazením |
+| `verify` | Sonnet low, bez CLAUDE.md | Typecheck a plná suita, skutečné výstupy; zelená zapíše `docs/.verify-passed` |
+| `vize-validator` | Fable high | Čerstvé oči na konci: Cíle, zákazy, lešení, změny plánu, detaily |
+| `plan-check` | Opus high | Mimo běh: post-implementační kontrola plánu, read-only |
+| `pruzkum` | Sonnet medium | Vize session: fakta z kódu, dat a dokumentů projektu s citacemi; neposuzuje |
+| `reserse` | Opus high (Fable na vyžádání) | Vize session: cizí API a knihovny (context7, web), svět venku, právní a produktová rešerše; podklad, ne návrh mechanismů |
+| `cerstve-oci` | Opus high | Vize session: čtení hotové vize z přidělené role; vrací i nejisté nálezy, u každého jestli blokuje |
 
 ### Workflow bloky a skripty
 
@@ -322,6 +324,7 @@ Z analýzy běhu sklik: 362 commitů, 55 % bez změny kódu (docs, build marker)
 
 ## Změny
 
+- **1.3.0 (23. 9. 2026)** — přechod na Opus 5.5 podle příručky Anthropicu (sekce Opus 5.5 a audit promptů): agenti s `model: opus` běží na Opus 5.5 bez změny kódu (zkratka, ověřeno z transkriptu), effort subagentů zůstává; code-review a bezpečnostní review v kolečku nezahazují nejisté nálezy, hlásí je jako PLAUSIBLE a třídí se až za reviewerem; thermo hlásí všechny strukturální nálezy a třídí je značkami, rubrika bez výzvy k přehnané důkladnosti; `cerstve-oci` vrací i nejisté nálezy s označením, co blokuje, a kolo čerstvých očí končí, když nic neblokuje; skill vize bez pobídky k pěti až osmi průzkumným agentům; tabulky modelů v KONTRAKT a README bez čísel verzí; orchestrátor se nepopisuje jako nejsilnější model.
 - **1.2.0 (22. 9. 2026)** — z interní analýzy běhu doplneni-webu na CK-Go2 (21 bodů): setup najde plán řezů i za podnadpisy a vybere tabulku se sloupcem `#`, hlásí chybějící nastavení (`autoContinueAtUsageLimit`, autocompact), vypíše mapu sekcí vize a doplní `.prettierignore`; bloky přijmou řez 0; orchestrátor smí číst `produkt.md`, čte vizi po sekcích a v cronu píše dvě věty; `co-dela.sh` počítá živé agenty podle klíče (stall restart), ukazuje jméno řezu, pokus, fázi i/N a důvod selhání; deploy agent bere pokyny majitele jako závazné, u Pages ověřuje Production, migraci aplikuje jen s dokladem a cizí práci nevrací (blast-radius guard během běhu blokuje `git stash`, `git clean` a `checkout`/`restore` nad `docs/`); e2e-verifier ověří prostředí a nikdy nenasazuje; nová fáze Doklad s agentem `doklad`; E2E kolo 2 jen nad FAIL, nad 12 kritérií dva verifikátoři; lehký profil řezu; PRD závislého řezu souběžně s PRD stavěného řezu jako kontraktem; refresh PRD jen při překryvu oblastí a na Opus medium; delta kontrola PRD jen po blokujících nálezech; follow-ups a vize-spory se čtou grepem po oblastech a nové položky nesou značku oblasti; tři agenti pro vize session (`pruzkum`, `reserse`, `cerstve-oci`), popis skillu vize zúžený; feedback soubor v `~/dev-pipeline-feedback.md` (sandbox); sklizeň necommituje.
 - **1.1.0 (18. 9. 2026)** — z interní analýzy běhu uklid-po-sklik (26 bodů): blok stavby odvozuje verdikt E2E z počtů, zná stav „vada kritéria“, dělá refresh PRD nad dnešním stromem, dává všem agentům Ne-cíle vize, jména reportů nesou číslo pokusu, uzavření sesouhlasí thermo a doklady; blok PRD spouští měřidla kritérií už v kole 1 a má režim zapracování; nový Workflow `blok-kolecko` nahrazuje kolečko z 38 volání Agent v session; sken claude-security jen na vyžádání; orchestrátor drží výhled PRD jeden řez, `hypotezy.text` nerozšiřuje PRD, kolize a vadná kritéria jdou majiteli jako otázky s navrženou odpovědí, cron ukazuje `co-dela.sh --kratce`, `TaskOutput` jen na dokončený Workflow, úklid úloh na pozadí před `hotovo`; deploy čeká na okno s rezervou a omezenou smyčkou a commituje jen docs vlastního řezu; `scripts/co-dela.sh` a segment ve status line; adresář `setup/` s návodem, snippetem nastavení, status line, globálním CLAUDE.md a kontrolou instalace.
 - **1.0.1 (17. 9. 2026)** — hash markeru verify bez `docs/`, `hypotezy.text` pro blok stavby.

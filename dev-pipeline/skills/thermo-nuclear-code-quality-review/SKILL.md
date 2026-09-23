@@ -17,7 +17,6 @@ Start from this baseline:
 > Rethink how to structure / implement the changes to meaningfully improve code quality without impacting behavior.
 > Work to improve abstractions, modularity, reduce Spaghetti code, improve succinctness and legibility.
 > Be ambitious, if there is a clear path to improving the implementation that involves restructuring some of the codebase, go for it.
-> Be extremely thorough and rigorous. Measure twice, cut once.
 
 ## Repo Doctrine Precedence
 
@@ -167,8 +166,7 @@ Prioritize findings in this order:
 6. Modularity and abstraction issues
 7. Legibility and maintainability concerns
 
-Do not flood the review with low-value nits if there are larger structural issues.
-Prefer a smaller number of high-conviction comments over a long list of cosmetic notes.
+List lower-value nits after the structural findings, marked as such, rather than dropping them.
 
 ## Approval Bar
 

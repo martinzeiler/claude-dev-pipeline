@@ -81,21 +81,23 @@ Vady a brzdy **pipeline samotné** (krok, který selhal; instrukce, která byla 
 
 | Agent | Model / effort | Role | Píše | Vrací (strojově, schéma vynucuje workflow) |
 |---|---|---|---|---|
-| `prd` | Opus 5 high | PRD a E2E řezu podle řádku plánu; zapracování nálezů | `docs/prd/`, `docs/e2e/`, vize-spory | cesty, cíl, počet kritérií, souhrn ≤ 20 řádků, lešení, zápis do živého, runtime dopad, nové UI plochy, body vize, odchylky od plánu; při zapracování změněná místa a odmítnuté nálezy |
-| `prd-check` | Opus 5 high | Nezávislá kontrola PRD (úplnost, validita proti kódu, kritéria, rozsah, optimalita); delta kolo jen nad změněnými místy | report | verdikt, počty, osy, identifikátory nálezů, cesta k reportu |
-| `implement` | Opus 5 high | TDD implementace podle PRD; opravuje pasti ve svých souborech | kód, testy | stav, souhrn ≤ 10 řádků, oblasti, typecheck, testy, odchylky od PRD, opravené pasti, follow-ups, spory |
-| `thermo-nuclear-review` | Opus 5 medium | Strukturální audit změn řezu | report | počty (blokery, nálezy), cesta |
-| `code-review` | Opus 5 high | Korektnost změn; nálezy CONFIRMED/PLAUSIBLE, každý BLOKUJE NASAZENÍ nebo FOLLOW-UP | report | počty, disjunktní balíčky po souborech s identifikátory nálezů, cesta |
-| `fix` | Opus 5 medium | Oprava nálezů jako hypotéz (thermo, review, brána, E2E, bezpečnost) | kód, testy | opraveno, odmítnuto s důvodem, změněná místa, rozšířený zásah, typecheck, testy, follow-ups, commit u bezpečnostních oprav |
-| `verify` | Sonnet 5 low, bez CLAUDE.md | Typecheck a testy, skutečné výstupy | výstup do reports | typecheck, počty, selhávající testy, cesta k výstupu |
-| `deploy` | Sonnet 5 low, bez CLAUDE.md | Commit a nasazení podle deploy konfigurace nebo runbooku projektu, doložený stav; pokyny majitele (`app_pristup`) mají přednost před skripty repa; u Pages ověřuje Production; migraci aplikuje jen s dokladem; cizí a necommitnutou práci nevrací | commit, marker deploy | stav, commit, health, url |
-| `doklad` | Sonnet 5 medium | Jen když PRD předepisuje doklad před migrací: snímek dotčených dat dotazy jen pro čtení před nasazením | `docs/e2e/rez-NN-doklad-pred.md` | ok, cesta, souhrn, důvod |
-| `e2e-verifier` | Opus 5 medium | Kritéria proti běžící aplikaci, PASS / PASS-částečně / FAIL, nálezy mimo kritéria zvlášť; nejdřív ověří prostředí (nasazená revize = commit řezu), nikdy nenasazuje, přístup jen ze zadání; kolo 2 jen nad FAIL kritérii; při souběhu jen přidělené sekce | report | výsledek, počty, FAIL a částečná kritéria, závažné mimo kritéria, kosmetické, `prostredi`, cesta |
-| `diagnose` | Opus 5 high | Po 2. neúspěchu: reprodukční smyčka a doložená příčina, nic neopravuje | dočasné artefakty | příčina, doporučení, cesta k reprodukci |
-| `vize-validator` | Fable 5.1 high | Finální srovnání vize s realitou | report | dodělat automaticky, rozhodnutí pro uživatele, verdikt |
-| `plan-check` | Opus 5 high | Mimo běh: post-implementační kontrola plánu | nic | verdikt |
+| `prd` | Opus high | PRD a E2E řezu podle řádku plánu; zapracování nálezů | `docs/prd/`, `docs/e2e/`, vize-spory | cesty, cíl, počet kritérií, souhrn ≤ 20 řádků, lešení, zápis do živého, runtime dopad, nové UI plochy, body vize, odchylky od plánu; při zapracování změněná místa a odmítnuté nálezy |
+| `prd-check` | Opus high | Nezávislá kontrola PRD (úplnost, validita proti kódu, kritéria, rozsah, optimalita); delta kolo jen nad změněnými místy | report | verdikt, počty, osy, identifikátory nálezů, cesta k reportu |
+| `implement` | Opus high | TDD implementace podle PRD; opravuje pasti ve svých souborech | kód, testy | stav, souhrn ≤ 10 řádků, oblasti, typecheck, testy, odchylky od PRD, opravené pasti, follow-ups, spory |
+| `thermo-nuclear-review` | Opus medium | Strukturální audit změn řezu | report | počty (blokery, nálezy), cesta |
+| `code-review` | Opus high | Korektnost změn; nálezy CONFIRMED/PLAUSIBLE, každý BLOKUJE NASAZENÍ nebo FOLLOW-UP | report | počty, disjunktní balíčky po souborech s identifikátory nálezů, cesta |
+| `fix` | Opus medium | Oprava nálezů jako hypotéz (thermo, review, brána, E2E, bezpečnost) | kód, testy | opraveno, odmítnuto s důvodem, změněná místa, rozšířený zásah, typecheck, testy, follow-ups, commit u bezpečnostních oprav |
+| `verify` | Sonnet low, bez CLAUDE.md | Typecheck a testy, skutečné výstupy | výstup do reports | typecheck, počty, selhávající testy, cesta k výstupu |
+| `deploy` | Sonnet low, bez CLAUDE.md | Commit a nasazení podle deploy konfigurace nebo runbooku projektu, doložený stav; pokyny majitele (`app_pristup`) mají přednost před skripty repa; u Pages ověřuje Production; migraci aplikuje jen s dokladem; cizí a necommitnutou práci nevrací | commit, marker deploy | stav, commit, health, url |
+| `doklad` | Sonnet medium | Jen když PRD předepisuje doklad před migrací: snímek dotčených dat dotazy jen pro čtení před nasazením | `docs/e2e/rez-NN-doklad-pred.md` | ok, cesta, souhrn, důvod |
+| `e2e-verifier` | Opus medium | Kritéria proti běžící aplikaci, PASS / PASS-částečně / FAIL, nálezy mimo kritéria zvlášť; nejdřív ověří prostředí (nasazená revize = commit řezu), nikdy nenasazuje, přístup jen ze zadání; kolo 2 jen nad FAIL kritérii; při souběhu jen přidělené sekce | report | výsledek, počty, FAIL a částečná kritéria, závažné mimo kritéria, kosmetické, `prostredi`, cesta |
+| `diagnose` | Opus high | Po 2. neúspěchu: reprodukční smyčka a doložená příčina, nic neopravuje | dočasné artefakty | příčina, doporučení, cesta k reprodukci |
+| `vize-validator` | Fable high | Finální srovnání vize s realitou | report | dodělat automaticky, rozhodnutí pro uživatele, verdikt |
+| `plan-check` | Opus high | Mimo běh: post-implementační kontrola plánu | nic | verdikt |
 
-Agenti vize session (mimo běh, spouští je skill `vize`): `pruzkum` (Sonnet 5 medium; fakta z kódu, dat a dokumentů s citacemi, bez úsudku), `reserse` (Opus 5 high; cizí API, svět venku, právní a produktová rešerše; Fable na vyžádání parametrem volání `model`), `cerstve-oci` (Opus 5 high; čtení hotové vize z přidělené role). Bezejmenný `general-purpose` nebo `Explore` dědí model i effort session, proto je skill vize nepoužívá.
+Agenti vize session (mimo běh, spouští je skill `vize`): `pruzkum` (Sonnet medium; fakta z kódu, dat a dokumentů s citacemi, bez úsudku), `reserse` (Opus high; cizí API, svět venku, právní a produktová rešerše; Fable na vyžádání parametrem volání `model`), `cerstve-oci` (Opus high; čtení hotové vize z přidělené role). Bezejmenný `general-purpose` nebo `Explore` dědí model i effort session, proto je skill vize nepoužívá.
+
+Model je v souborech agentů i ve Workflow zapsaný zkratkou (`opus`, `sonnet`, `fable`) a Claude Code ji překládá na nejnovější model dané řady; kterou verzi běh skutečně použil, ukazují transkripty (`message.model`) a `co-dela.sh`.
 
 Deploy a verify nedostávají CLAUDE.md projektu; projektová specifika (příkazy, deploy, přístupy) dostávají odkazem na `docs/dev-runbook.md` nebo sekci CLAUDE.md, kterou jim workflow předá.
 

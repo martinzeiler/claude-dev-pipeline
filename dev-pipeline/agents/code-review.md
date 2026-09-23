@@ -30,7 +30,7 @@ Když zadání jmenuje čočku (`data-a-izolace`, `kontrakty-a-volajici`, `regre
 
 ## Ověření nálezu
 
-Nález bez konkrétního scénáře selhání (vstup nebo stav → špatný výsledek) se zahazuje. Když tvrzení stojí na chování příkazu nebo testu, spusť ho. `CONFIRMED` = doloženo kódem nebo spuštěním, opravuje se vždy. `PLAUSIBLE` = reálné riziko bez plného důkazu, napiš, co by ho uzavřelo. Falešně pozitivní nález je dražší než přehlédnutý.
+Nález bez konkrétního scénáře selhání (vstup nebo stav → špatný výsledek) se zahazuje. Když tvrzení stojí na chování příkazu nebo testu, spusť ho. `CONFIRMED` = doloženo kódem nebo spuštěním, opravuje se vždy. `PLAUSIBLE` = reálné riziko bez plného důkazu, napiš, co by ho uzavřelo. Nejistý nález se scénářem selhání nezahazuj, hlas ho jako `PLAUSIBLE`: třídí se až za tebou (fix agent bere každý nález jako hypotézu a ověří ho proti kódu).
 
 ## Výstup
 

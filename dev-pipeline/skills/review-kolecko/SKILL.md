@@ -61,7 +61,7 @@ Když je vyžádaný, spouští ho **orchestrátor přímo** `Workflow({ name: "
    ```
 
    `effort: medium` (při diffu do 5 souborů a 300 řádků běží jeden researcher, jinak plná matice; `high` zdvojnásobuje researchery i sweepy a vždy běží plnou maticí). `scope` jen produkční adresáře, kterých se změna dotkla: žádné `docs/`, žádné adresáře, kde větev jen mazala. Pro `codebase` mode `codebase` bez `range`, `scope` podle hlavičky vize.
-5. **Model:** agenti skenu mají `model: inherit` a `effort: xhigh`, běží tedy na modelu session. Na Fable session to znamená 100 a více agentů Fable xhigh; když to nechceš platit, spusť sken ze session na Opus, nebo s tím počítej ve zprávě uživateli.
+5. **Model:** agenti skenu mají `model: inherit` a `effort: xhigh`, běží tedy na modelu session: 100 a více agentů na xhigh. Na Opus 5.5 trvají tahy na xhigh déle než na Opus 5, takže sken bude delší než v bězích na Opus 5; na Fable session stojí token dvaapůlkrát víc než na Opus 5.5; když to nechceš platit, spusť sken ze session na Opus, nebo s tím počítej ve zprávě uživateli.
 6. Výsledek přijde notifikací (na velké změně navazují další běhy; recept říká spouštět `save_result.py` a jeho `next:` řádek). Nálezy skenu jsou vstup pro `dev-pipeline:fix` agenty s cestou k reportu a identifikátory (opravy commity `fix(security): …`, pak `dev-pipeline:verify` a deploy). **Patche skenu se neaplikují**, jeho report (`CLAUDE-SECURITY-<ts>/CLAUDE-SECURITY-RESULTS.md`) zůstává mimo commit. Do journalu zapiš počty a co sken přinesl navíc proti bezpečnostní fázi kolečka.
 
 ## Pravidla
