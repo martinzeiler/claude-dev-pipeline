@@ -78,12 +78,31 @@ if printf '%s' "$cmd" | grep -Eq '(^|[[:space:]])rm[[:space:]]+(-[a-zA-Z]*r[a-zA
 fi
 
 # 4) Deploy gate během autonomního běhu: deploy jen po zeleném review+testech (marker .deploy-unlocked).
-# ZNÁMÉ OMEZENÍ: gate zná jen railway + wrangler pages. Projekt s jinou deploy platformou
-# (fly, vercel, kubectl, ...) gate NEchrání — přidej její příkaz do regexu níže.
+# ZNÁMÉ OMEZENÍ: gate zná jen railway up a wrangler (pages) deploy. Projekt s jinou deploy platformou
+# (fly, vercel, kubectl, ...) gate NEchrání — přidej její příkaz do DEPLOY_RE níže.
 # POZOR na UX past: marker musí vzniknout SAMOSTATNÝM příkazem před deployem — hook čte
 # marker před spuštěním, takže `touch .deploy-unlocked && railway up` v jednom příkazu neprojde.
+# Gate hledá SPOUŠTĚNÝ příkaz (první slovo segmentu za cd …&&, přiřazeními proměnných, npx, pnpm exec, bunx), ne text:
+# do 1.4.0 blokoval commit message o nasazení, grep runbooku i `wrangler pages deployment list`, který deploy.md předepisuje
+# k ověření (třída F, 3 záznamy ve feedbacku). Text v uvozovkách se vyřazuje; řetězec pro interpret (bash -c, eval) ne,
+# protože tam text příkaz opravdu je (jako u heredocu do shellu výše).
+DEPLOY_RE='^([^[:space:]]*/)?(railway(@[^[:space:]]*)?[[:space:]]+up|wrangler(@[^[:space:]]*)?[[:space:]]+(pages[[:space:]]+)?deploy)([[:space:]]|$)'
+# Spouštěné příkazy, jeden segment na řádek: bez textu v uvozovkách (i přes konce řádků), závorek, prefixů
+# (sudo, env, time, do, then…), přiřazení proměnných (FOO=1 příkaz) a spouštěčů balíčků (npx, bunx, pnpm --filter x exec…).
+spoustene() {
+  printf '%s' "$1" | tr '\n' '\001' | sed -E "s/\"[^\"]*\"|'[^']*'/''/g" | tr '\001|;&' '\n\n\n\n' | sed -E \
+    -e 's/^[[:space:](){!]+//' \
+    -e 's/^((sudo|env|time|nice|nohup|command|exec|do|then|else|if|while|until)[[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)+//' \
+    -e 's/^(npx|bunx|pnpm|npm|yarn)([[:space:]]+(-C|--dir|--filter|-F|--prefix)[[:space:]]+[^[:space:]]+|[[:space:]]+-[^[:space:]]*)*([[:space:]]+(exec|dlx|x))?([[:space:]]+--)?[[:space:]]+//'
+}
+je_deploy() {
+  if printf '%s' "$1" | grep -Eq '(^|[;&|({[:space:]])((ba|z)?sh[[:space:]]+-[A-Za-z]*c|eval)[[:space:]]'; then
+    printf '%s' "$1" | grep -Eq "(railway[[:space:]]+up|wrangler[[:space:]]+(pages[[:space:]]+)?deploy)([[:space:]\"']|$)" && return 0
+  fi
+  spoustene "$1" | grep -Eq "$DEPLOY_RE"
+}
 if [ -n "$proj" ] && [ -f "$proj/docs/.orchestrator-run" ]; then
-  if printf '%s' "$cmd" | grep -Eq '(railway[[:space:]]+up|wrangler[[:space:]]+pages[[:space:]]+deploy)'; then
+  if je_deploy "$cmd"; then
     if [ ! -f "$proj/docs/.deploy-unlocked" ]; then
       block "deploy během autonomního běhu vyžaduje marker docs/.deploy-unlocked (vytváří ho deploy agent v bloku stavby samostatným příkazem po zelené bráně; viz KONTRAKT.md ve skillu orchestrate). Pokud žádný autonomní běh neběží, je docs/.orchestrator-run pozůstatek spadlé session — smaž ho a zkus to znovu."
     fi
@@ -108,6 +127,21 @@ if [ -n "$proj" ] && [ -f "$proj/docs/.orchestrator-run" ]; then
       if printf ' %s ' "$cile" | grep -Eq '[[:space:]](\.|\./|docs|docs/[^[:space:]]*|:/|\*)[[:space:]]|(^|[[:space:]])--[[:space:]]*$'; then
         block "git checkout/restore nad tečkou, docs/ nebo celým stromem je během autonomního běhu blokován: vrátil by necommitnutou práci jiných agentů (v běhu doplneni-webu tak zmizelo uzavření řezu 5). Vracej jen konkrétní soubor, který jsi sám změnil, mimo docs/."
       fi
+    fi
+  done < <(printf '%s\n' "$cmd" | tr '|;&' '\n')
+fi
+
+# 6) rm s nechráněnou proměnnou, za jejímž lomítkem hned stojí glob, další proměnná nebo nic (`rm $S/*.ts`, `rm $S/$f.x`,
+# `rm "$D"/`): s prázdnou proměnnou maže od kořene disku. Na takový příkaz se Claude Code ptá uživatele i v bypassPermissions
+# a žádný mód, pravidlo ani hook dotaz nepřebije. V běhu bez-dluhu na něm stál celý běh 40 minut (2.1.280 čekal
+# bez limitu; od 2.1.281 dotaz po 2 min sám zamítne). Guard příkaz zastaví dřív, než dotaz vznikne, a řekne přepis.
+# Platí vždy, nejen během běhu: chráněný tvar "${S:?}" nebo literální cesta projde bez dotazu kdekoli.
+NECHRANENA='\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)"?/"?([*?[]|\$|[[:space:]]|$)'
+if printf '%s' "$cmd" | grep -Eq "$NECHRANENA"; then   # běžný příkaz skončí u jednoho grepu
+  while IFS= read -r seg; do
+    printf '%s' "$seg" | grep -Eq '(^|[[:space:](])rm[[:space:]]' || continue
+    if printf '%s' "$seg" | grep -Eq "$NECHRANENA"; then
+      block "rm s nechráněnou proměnnou před lomítkem by s prázdnou proměnnou mazal od kořene disku a Claude Code by se na něj ptal uživatele (běh by stál): přepiš na rm -f \"\${S:?}\"/soubor nebo literální cestu; scratchpad uklízet nemusíš."
     fi
   done < <(printf '%s\n' "$cmd" | tr '|;&' '\n')
 fi

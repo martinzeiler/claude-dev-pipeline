@@ -6,7 +6,8 @@
 #   co-dela.sh                 orchestrátor v cronu: session z docs/.orchestrator-run v aktuálním cwd, plný výpis
 #   co-dela.sh --kratce        tvar pro cron „zkontroluj stav běhu“: hlavička běhu (vize, hotové řezy), per blok řez, pokus,
 #                              fáze i/N s trváním a hotové fáze, živí agenti bez šumu argumentů, hotové a selhané bloky za 30 min
-#   co-dela.sh --status        segment pro status line; JSON status line na stdin (transcript_path), bez nového řádku
+#   co-dela.sh --status        segment pro status line; JSON status line na stdin (transcript_path), bez nového řádku;
+#                              za časem „· fronta N“, jen když ve frontě těžkých příkazů něco čeká
 #   co-dela.sh --session <dir>       ruční použití: adresář session ~/.claude/projects/<slug>/<session_id>
 #   co-dela.sh --transcript <p.jsonl> ruční použití: transkript session (adresář = cesta bez .jsonl)
 #
@@ -15,6 +16,15 @@
 #     stavový soubor <session>/workflows/<wf>.json vzniká až při doběhnutí (status completed|failed|killed),
 #     takže Workflow bez stavového souboru běží; živý agent = POSLEDNÍ started daného key bez result/failed
 #     (stall watchdog restartuje agenta se stejným key a novým agentId; starý started bez result není živý agent).
+#     Obnova přes resumeFromRunId píše do téhož journalu a stavový soubor přerušeného běhu přepíše až při doběhnutí:
+#     journal o víc než 5 s novější než stavový soubor = obnovený běh, který běží.
+#   Labely agentů podle spec 1.4.0 § 1.1 (části, kontrakt, integrace, oprava, nástupce po předávce :nN) se vypisují
+#     čitelně (implement řez 05 · část K2 · pokus 1 · nástupce 2); předávky = labely nástupců, u doběhlých bloků
+#     pole predavky výsledku nebo log „předávka“.
+#   Kontext agentů z docs/.kontext.jsonl v cwd (hook hlídač kontextu): u živého agenta poslední záznam jeho agent_id,
+#     v souhrnu nejvyšší kontext podle typu agenta a compacty, jen za agenty této session.
+#   Fronta těžkých příkazů: scripts/tezky.py stav (co drží, co čeká); status line čte stavový soubor fronty napřímo
+#     (bez podprocesu a zámku) a počítá jen čekající se živým PID.
 #   Kontext běhu (název řezu, hotové řezy) z docs/handoff.md v cwd; fáze bloku ze skriptu workflows/scripts/<blok>-<wf>.js.
 #   Samostatný agent: <session>/subagents/agent-<id>.jsonl (+ .meta.json); hotový končí záznamem assistant
 #     se stop_reason end_turn; bez konce a s tichem přes 3 h se počítá za opuštěný (TaskStop, pád), ne za živý.
@@ -30,7 +40,7 @@ while [ $# -gt 0 ]; do
     --status) mode=status ;;
     --session) shift; sess="${1:-}" ;;
     --transcript) shift; sess="${1%.jsonl}" ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR > 1 && /^set /{exit} NR > 1' "$0"; exit 0 ;;
     *) echo "co-dela: neznámý argument $1" >&2; exit 0 ;;
   esac
   shift
@@ -67,17 +77,34 @@ if [ ! -d "$sess" ]; then
   exit 0
 fi
 
-CO_DELA_SESSION="$sess" CO_DELA_MODE="$mode" python3 - <<'PY' 2>/dev/null || true
+# adresář skriptů pluginu (tezky.py vedle) bez podprocesu: status line to volá každých 30 s
+case "$0" in */*) skripty="${0%/*}" ;; *) skripty=. ;; esac
+
+CO_DELA_SESSION="$sess" CO_DELA_MODE="$mode" CO_DELA_SKRIPTY="$skripty" python3 - <<'PY' 2>/dev/null || true
 import glob, json, os, re, sys, time
 from datetime import datetime, timezone
 
 sess = os.environ["CO_DELA_SESSION"]
 mode = os.environ["CO_DELA_MODE"]
+skripty = os.environ.get("CO_DELA_SKRIPTY") or "."
 now = time.time()
 TERMINAL = {"completed", "failed", "killed", "cancelled"}
 TICHO_VAROVANI = 20 * 60      # ⚠ pro agenty mlčící déle
 OPUSTENY = 3 * 3600           # samostatný agent bez konce a s takovým tichem se nepočítá za živého
 HOTOVO_OKNO = 30 * 60         # dokončené Workflow, které --kratce ještě připomene (jeden cron tah)
+# Journal o víc sekund novější než stavový soubor = Workflow obnovený pod stejným ID a běží. V běhu bez-dluhu ležel
+# stavový soubor přerušeného kolečka (10:12) do konce obnoveného běhu (11:50) a co-dela 3× hlásil „nic neběží“;
+# u doběhlých Workflow končí journal i stavový soubor do 1 s (78 Workflow ze dvou běhů Surya).
+OBNOVA = 5
+def _tezky_tmp():
+    # Stejný adresář jako tezky.py: cron nemá TMPDIR, na macOS je uživatelský temp z getconf, jinak by fronta vypadala prázdná.
+    t = os.environ.get("TMPDIR")
+    if not t and sys.platform == "darwin":
+        import subprocess
+        try: t = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+        except OSError: t = ""
+    return t or "/tmp"
+TEZKY_STAV = os.path.join(_tezky_tmp(), "dev-pipeline-tezky", "stav.json")
 
 def tail_lines(path, nbytes):
     """Poslední řádky souboru bez čtení celku; první řádek zahodí, když je uříznutý."""
@@ -203,6 +230,54 @@ def rez_int(x):
     m = re.match(r"0*(\d+)", str(x or ""))
     return int(m.group(1)) if m else None
 
+def cislo(x):
+    return x if isinstance(x, (int, float)) and not isinstance(x, bool) else 0
+
+def tisice(n):
+    return f"{round(cislo(n) / 1000)}k"
+
+# ---------- labely (spec 1.4.0 § 1.1) ----------
+# typ:řez NN[:část K|:kontrakt|:integrace|:oprava][:číslo][:písmeno]; nástupce po předávce má na konci :n2 až :n4.
+# Holé číslo znamená podle typu pokus, kolo review, běh nebo balíček oprav; za „oprava“ je to vždy pokus.
+CISLO_JAKO = {"implement": "pokus", "review": "kolo", "prd-check": "kolo", "verify": "běh", "deploy": "běh", "e2e": "běh",
+              "kriteria": "běh", "fix-e2e": "běh", "fix": "balíček"}
+NASTUPCE = re.compile(r":n\d+$")
+POKUS = re.compile(r"implement:řez\s*[0-9a-z]+:(?:[^:]+:)?(\d+)(?::n\d+)?$")
+
+def citelny(label):
+    """implement:řez 05:část K2:1:n2 → implement řez 05 · část K2 · pokus 1 · nástupce 2 (neznámé kusy beze změny)."""
+    kusy = str(label or "").split(":")
+    typ, hlava, dal = kusy[0], kusy[0], []
+    for i, k in enumerate(kusy[1:], 1):
+        if i == len(kusy) - 1 and re.fullmatch(r"n\d+", k):
+            dal.append(f"nástupce {k[1:]}")
+        elif i == 1 and re.fullmatch(r"řez\s*\S+|kolečko", k):
+            hlava += " " + k
+        elif re.fullmatch(r"K\d+", k):
+            dal.append(f"část {k}")
+        elif re.fullmatch(r"\d+", k):
+            co = "pokus" if kusy[i - 1] == "oprava" else CISLO_JAKO.get(typ)
+            dal.append(f"{co} {k}" if co else k)
+        elif typ == "fix" and re.fullmatch(r"\d+\.\d+", k):
+            dal.append("kolo {} · balíček {}".format(*k.split(".")))
+        elif typ == "e2e" and re.fullmatch(r"[a-z]", k):
+            dal.append(f"skupina {k}")
+        else:
+            dal.append(k)
+    return " · ".join([hlava] + dal)
+
+def kratky(label):
+    """Label do status line (28 znaků): dlouhé labely částí a nástupců bez slov „řez“ a „část“, krátké beze změny."""
+    return label if len(label) <= 28 else re.sub(r"(řez|část)\s*", "", label)
+
+def predavky_bloku(st):
+    """Předávky doběhlého bloku: pole predavky výsledku, jinak řádky logu „předávka n/3“ a „n. předávka, strop…“."""
+    res = st.get("result") if isinstance(st.get("result"), dict) else {}
+    if cislo(res.get("predavky")):
+        return int(res["predavky"])
+    logs = st.get("logs") if isinstance(st.get("logs"), list) else []
+    return sum(1 for l in logs if isinstance(l, str) and re.search(r": (předávka \d+/\d+|\d+\. předávka)", l))
+
 # ---------- kontext běhu z handoffu (jen když běží v cwd projektu; jinak degraduje) ----------
 def handoff_info():
     txt = read_text(os.path.join(os.getcwd(), "docs", "handoff.md"))
@@ -242,19 +317,88 @@ def blok_jmeno(name, rez):
     r = f" řezu {rez}" if rez else ""
     return {"blok-stavby": f"stavba{r}", "blok-prd": f"PRD{r}", "blok-kolecko": "kolečko"}.get(name, f"{name}{r}")
 
-ctx = handoff_info()
+# ---------- kontext agentů (docs/.kontext.jsonl, zapisuje hook hlídač kontextu) ----------
+def kontext_agentu():
+    """(poslední záznam podle aid, nejvyšší kontext podle typu, compactů) za agenty této session; soubor bývá sdílený
+    s dřívějšími běhy v projektu, proto jen aid, které mají transkript v adresáři session."""
+    ids = {os.path.basename(p)[len("agent-"):-len(".jsonl")]
+           for p in glob.glob(os.path.join(sess, "subagents", "agent-*.jsonl"))
+           + glob.glob(os.path.join(sess, "subagents", "workflows", "wf_*", "agent-*.jsonl"))}
+    posledni, podle_typu, compactu = {}, {}, {}
+    for e in jsonl(tail_lines(os.path.join(os.getcwd(), "docs", ".kontext.jsonl"), 2 * 1024 * 1024)):
+        aid = e.get("aid") if isinstance(e, dict) else None
+        if aid not in ids:
+            continue
+        posledni[aid] = e
+        typ = str(e.get("typ") or "?")
+        podle_typu[typ] = max(podle_typu.get(typ, 0), cislo(e.get("max")), cislo(e.get("kontext")))
+        compactu[aid] = max(compactu.get(aid, 0), cislo(e.get("compactu")))
+    return posledni, podle_typu, sum(compactu.values())
+
+# ---------- fronta těžkých příkazů (scripts/tezky.py) ----------
+def pid_zije(pid):
+    """Stejné pravidlo jako tezky.py: ProcessLookupError = mrtvý, PermissionError = živý."""
+    try:
+        pid = int(pid)
+        if pid <= 0:
+            return False
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except (ProcessLookupError, TypeError, ValueError, OSError):
+        return False
+    return True
+
+def zive(xs):
+    return [x for x in (xs if isinstance(xs, list) else []) if isinstance(x, dict) and pid_zije(x.get("pid"))]
+
+def fronta_tezkych():
+    """tezky.py stav ({drzi, fronta}) bez záznamů mrtvých PID; None, když fronta na stroji nikdy neběžela nebo plugin
+    skript nemá."""
+    skript = os.path.join(skripty, "tezky.py")
+    if not (os.path.exists(TEZKY_STAV) and os.path.exists(skript)):
+        return None
+    import subprocess   # až tady: import stojí status line pár ms při každém obnovení
+    try:
+        st = json.loads(subprocess.run([sys.executable, skript, "stav"], capture_output=True, text=True, timeout=5).stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return {k: zive(st.get(k)) for k in ("drzi", "fronta")} if isinstance(st, dict) else None
+
+def ceka_ve_fronte():
+    """Pro status line stavový soubor fronty napřímo, bez podprocesu a zámku: obnovuje se každých 30 s a nesmí čekat
+    na tezky.py. Čekající s mrtvým PID (shell zabitý timeoutem) se nepočítají, stejně jako je vyřadí tezky.py."""
+    st = load_json(TEZKY_STAV)
+    return len(zive(st.get("fronta"))) if isinstance(st, dict) else 0
+
+def prikazy(xs):
+    """Nejvýš tři příkazy fronty jako „popis (váha)“."""
+    return ", ".join(f"{one_line(x.get('popis') or '?', 40)} ({x.get('vaha', '?')})" for x in xs[:3]) \
+        + (f" a {len(xs) - 3} dalších" if len(xs) > 3 else "")
+
+def od_ts(x):
+    if cislo(x):
+        return float(x) / 1000 if x > 1e11 else float(x)   # sekundy i milisekundy epochy
+    try:
+        return datetime.fromisoformat(str(x).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 # ---------- Workflow ----------
 running, finished = [], []
 for d in sorted(glob.glob(os.path.join(sess, "subagents", "workflows", "wf_*"))):
     wf = os.path.basename(d)
     state_path = os.path.join(sess, "workflows", wf + ".json")
-    state = load_json(state_path) if os.path.exists(state_path) else None
-    if state and state.get("status", "completed") in TERMINAL:
-        finished.append((mtime(state_path) or 0, wf, state))
-        continue
     journal = os.path.join(d, "journal.jsonl")
-    if not os.path.exists(journal):
+    state_mt, journal_mt = mtime(state_path), mtime(journal)
+    state = load_json(state_path) if state_mt is not None else None
+    ukonceny = bool(state) and state.get("status", "completed") in TERMINAL
+    # obnovený pod stejným ID: stavový soubor je z přerušeného běhu, journal píše běh obnovený
+    obnoveny = ukonceny and journal_mt is not None and journal_mt - state_mt > OBNOVA
+    if ukonceny and not obnoveny:
+        finished.append((state_mt or 0, wf, state))
+        continue
+    if journal_mt is None:
         continue
     started_all, by_key, done, failed_ids, poradi = {}, {}, set(), set(), []
     for e in jsonl(tail_lines(journal, 4 * 1024 * 1024)):
@@ -277,10 +421,18 @@ for d in sorted(glob.glob(os.path.join(sess, "subagents", "workflows", "wf_*")))
         if aid in done:
             continue
         tp = os.path.join(d, f"agent-{aid}.jsonl")
-        meta = load_json(os.path.join(d, f"agent-{aid}.meta.json")) or {}
-        last = mtime(tp) or mtime(journal) or now
+        meta_path = os.path.join(d, f"agent-{aid}.meta.json")
+        tp_mt = mtime(tp)
+        zapis = tp_mt or mtime(meta_path)
+        if obnoveny and zapis is not None and zapis <= state_mt:
+            continue   # agent přerušeného běhu bez result: skončil s ním, obnovený běh ho nepustil znovu
+        meta = load_json(meta_path) or {}
+        last = tp_mt or journal_mt or now
+        raw = e.get("label") or ""
         live.append({
-            "label": e.get("label") or meta.get("description") or aid,
+            "aid": aid,
+            "label": citelny(raw) if raw else (meta.get("description") or aid),
+            "stav_label": kratky(raw) if raw else (meta.get("description") or aid),
             "phase": e.get("phase") or meta.get("workflowPhase") or "",
             "model": meta.get("model") or "",
             "ticho": now - last,
@@ -298,16 +450,25 @@ for d in sorted(glob.glob(os.path.join(sess, "subagents", "workflows", "wf_*")))
             done_phases.append(ph)
     if faze:
         done_phases.sort(key=lambda p: faze.index(p) if p in faze else 99)
+    start = birth(journal) or now
+    obnova = None
+    if obnoveny:
+        # začátek obnovy = první agent, který vznikl po stavovém souboru přerušeného běhu (journal časy nenese)
+        po = [t for t in (birth(os.path.join(d, f"agent-{e.get('agentId')}.jsonl")) for e in poradi) if t and t > state_mt]
+        start = min(po) if po else state_mt
+        obnova = {"od": start, "po": {"failed": "selhání", "killed": "zastavení", "cancelled": "zrušení",
+                                       "completed": "doběhnutí"}.get(state.get("status"), state.get("status") or "?")}
     starty = [birth(os.path.join(d, f"agent-{e.get('agentId')}.jsonl")) for e in poradi if (e.get("phase") or "") == cur]
-    faze_start = min([t for t in starty if t] or [birth(journal) or now])
+    faze_start = max(min([t for t in starty if t] or [start]), start)   # obnovený běh: fáze nejdřív od obnovy
     kola = len({l for l in labels if re.match(r"review:řez\s*[0-9a-z]+:2", l)})
     hotove = [f"{p} 2 kola" if p == "Review" and kola else p for p in done_phases]
-    pokusy = [int(m.group(1)) for m in (re.match(r"implement:řez\s*[0-9a-z]+:(\d+)", l) for l in labels) if m]
+    pokusy = [int(m.group(1)) for m in (POKUS.match(l) for l in labels) if m]
     restarty = len(poradi) - len(by_key)
     running.append({
-        "wf": wf, "name": name, "rez": rez, "start": birth(journal) or now, "hotovo": len(done), "live": live,
+        "wf": wf, "name": name, "rez": rez, "start": start, "hotovo": len(done), "live": live,
         "faze": faze, "cur": cur, "faze_start": faze_start, "hotove_faze": hotove, "pokus": max(pokusy) if pokusy else None,
-        "restarty": restarty, "selhani": len(failed_ids),
+        "restarty": restarty, "selhani": len(failed_ids), "obnova": obnova,
+        "predavky": sum(1 for e in by_key.values() if NASTUPCE.search(e.get("label") or "")),
     })
 
 # ---------- samostatní agenti ----------
@@ -320,8 +481,9 @@ for tp in glob.glob(os.path.join(sess, "subagents", "agent-*.jsonl")):
         opustene += 1
         continue
     meta = load_json(tp[: -len(".jsonl")] + ".meta.json") or {}
+    popis = one_line(meta.get("description") or meta.get("agentType") or os.path.basename(tp), 60)
     standalone.append({
-        "label": one_line(meta.get("description") or meta.get("agentType") or os.path.basename(tp), 60),
+        "aid": os.path.basename(tp)[len("agent-"):-len(".jsonl")], "label": popis, "stav_label": popis,
         "phase": meta.get("agentType") or "", "model": meta.get("model") or "",
         "ticho": now - last, "transcript": tp,
     })
@@ -335,12 +497,17 @@ if mode == "status":
     worst = max(live_all, key=lambda a: a["ticho"])
     col = "\033[31m" if worst["ticho"] > 1800 else ("\033[33m" if worst["ticho"] > 900 else "")
     end = "\033[0m" if col else ""
-    sys.stdout.write(f"{col}▶ {len(live_all)} · {one_line(worst['label'], 28)} · {ago(worst['ticho'])}{end}")
+    ceka = ceka_ve_fronte()
+    fronta = f" · fronta {ceka}" if ceka else ""
+    sys.stdout.write(f"{col}▶ {len(live_all)} · {one_line(worst['stav_label'], 28)} · {ago(worst['ticho'])}{fronta}{end}")
     sys.exit(0)
 
 # ---------- plný a krátký výpis ----------
 out = []
 kratce = mode == "kratce"
+ctx = handoff_info()
+kontext_posl, kontext_typ, compactu = kontext_agentu()
+predavek = sum(w["predavky"] for w in running) + sum(predavky_bloku(st) for _, _, st in finished)
 
 def vysledek_bloku(st):
     """Jedna věta o dokončeném Workflow: ✓ s výsledkem, nebo ✗ s důvodem (ne ok=False)."""
@@ -367,6 +534,9 @@ def agent_line(a, indent):
     if not a["transcript"]:
         return [hlava + " · startuje"]
     hlava += f" · píše před {ago(a['ticho'])}"
+    k = kontext_posl.get(a["aid"])
+    if k:
+        hlava += f" · kontext {tisice(k.get('kontext'))}" + (f", compactů {k['compactu']}" if cislo(k.get("compactu")) else "")
     if kratce:
         return [hlava]
     hlava += f" · {a['phase']}" if a["phase"] else ""
@@ -381,6 +551,8 @@ for w in running:
     hl = f"▶ {blok_jmeno(w['name'], w['rez'])}" + (f" „{one_line(nazev, 40)}“" if nazev else "")
     if w["pokus"] and w["pokus"] > 1:
         hl += f" · pokus {w['pokus']}"
+    if w["obnova"]:
+        hl += f" · obnovený v {local_hm(w['obnova']['od'])} po {w['obnova']['po']}"
     hl += f" · běží {doba(now - w['start'])}"
     if w["cur"]:
         idx = f"{w['faze'].index(w['cur']) + 1}/{len(w['faze'])} " if w["faze"] and w["cur"] in w["faze"] else ""
@@ -389,6 +561,8 @@ for w in running:
         hl += f" · hotové: {', '.join(w['hotove_faze'])}"
     if w["restarty"]:
         hl += f" · restartů po stallu {w['restarty']}"
+    if w["predavky"]:
+        hl += f" · předávek {w['predavky']}"
     out.append(hl)
     for a in sorted(w["live"], key=lambda a: -a["ticho"]):
         out.extend(agent_line(a, "    "))
@@ -404,7 +578,8 @@ nedavne = [(end, wf, st) for end, wf, st in sorted(finished, reverse=True) if no
 for end, wf, st in nedavne:
     out.append(f"{vysledek_bloku(st)} · před {ago(now - end)}")
 
-if not live_all:
+# „nic neběží“ jen bez běžícího Workflow; běžící blok mezi agenty má u sebe „žádný živý agent“
+if not live_all and not running:
     veta = "nic neběží"
     if finished and not nedavne:
         end, wf, st = max(finished)
@@ -415,11 +590,28 @@ if not live_all:
 else:
     mlci = [a for a in live_all if a["ticho"] > TICHO_VAROVANI]
     if mlci:
-        out.append("⚠ mlčí přes 20 min: " + ", ".join(f"{one_line(a['label'], 30)} ({ago(a['ticho'])})" for a in sorted(mlci, key=lambda a: -a["ticho"])))
-    elif not kratce:
+        out.append("⚠ mlčí přes 20 min: " + ", ".join(f"{one_line(a['label'], 48)} ({ago(a['ticho'])})" for a in sorted(mlci, key=lambda a: -a["ticho"])))
+    elif live_all and not kratce:
         out.append("žádný agent nemlčí déle než 20 min")
     if opustene and not kratce:
         out.append(f"(opuštěných transkriptů agentů bez konce a s tichem přes 3 h: {opustene}, nepočítají se)")
+
+souhrn = []
+if kontext_typ:
+    souhrn.append("nejvýš " + ", ".join(f"{t} {tisice(v)}" for t, v in sorted(kontext_typ.items(), key=lambda x: -x[1])[:6]))
+    souhrn.append(f"compactů {compactu}")
+if kontext_typ or predavek:
+    souhrn.append(f"předávek {predavek}")
+if souhrn:
+    out.append("kontext agentů: " + " · ".join(souhrn))
+
+fr = fronta_tezkych()
+if fr and (fr["drzi"] or fr["fronta"]):
+    radek = "fronta těžkých příkazů: " + (f"drží {prikazy(fr['drzi'])}" if fr["drzi"] else "nic nedrží")
+    if fr["fronta"]:
+        cekani = [now - t for t in (od_ts(x.get("od")) for x in fr["fronta"]) if t]
+        radek += f" · čeká {len(fr['fronta'])}" + (f", nejdéle {ago(max(cekani))}" if cekani else "")
+    out.append(radek)
 
 if kratce and len(out) > 12:
     out = out[:11] + [f"… a {len(out) - 11} dalších řádků (plný výpis: co-dela.sh bez --kratce)"]

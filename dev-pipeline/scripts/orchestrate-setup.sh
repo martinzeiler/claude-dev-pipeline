@@ -12,7 +12,7 @@
 #   6. všechno (gitignore, vize, archiv, stavové soubory) commitne JEDNÍM commitem: projekty s pomalou
 #      pre-commit bránou platí bránu jednou, ne čtyřikrát,
 #   7. vypíše mapu sekcí vize (řádky) pro orchestrátora, stav nastavení Claude Code, na kterém běh závisí
-#      (autoContinueAtUsageLimit, autocompact; do ~/.claude nezapisuje, jen hlásí), a varování o velikosti souborů.
+#      (autoContinueAtUsageLimit; autocompact jen jako doporučení; do ~/.claude nezapisuje, jen hlásí), a varování o velikosti souborů.
 # Návratové kódy: 0 ok · 2 chybí předpoklad (zpráva na stderr) · 3 vize nemá sekci Plán řezů.
 set -uo pipefail
 
@@ -34,14 +34,15 @@ sess_file="docs/.orchestrator-session"
 sid=$(jq -r '.session_id // empty' "$sess_file" 2>/dev/null)
 [ -n "$sid" ] || die "$sess_file neobsahuje session_id"
 
-# 2. čistý strom (vize, .gitignore a markery běhu smí být rozpracované), pak gitignore a vize do indexu
-dirty=$(git status --porcelain --untracked-files=all | grep -v -E ' docs/(\.orchestrator-session|\.orchestrator-run|\.vize-done|\.review-passed|\.deploy-unlocked|\.verify-passed|reviews/)' \
+# 2. čistý strom (vize, .gitignore, markery a stavové soubory běhu smí být rozpracované), pak gitignore a vize do indexu
+dirty=$(git status --porcelain --untracked-files=all | grep -v -E ' docs/(\.orchestrator-session|\.orchestrator-run|\.vize-done|\.review-passed|\.deploy-unlocked|\.verify-passed|\.kontext\.jsonl|\.run-args\.json|\.stavba-[^/]*\.json|reviews/)' \
   | grep -v -E '^.. \.gitignore$' | grep -v -F -- " $vize_rel" | grep -v -F -- " docs/vize/$slug/" || true)
 [ -z "$dirty" ] || die "pracovní strom není čistý, běh startuje z čistého stavu:
 $dirty"
 obsah=""
 gi_changed=0
-for e in docs/.orchestrator-run docs/.orchestrator-session docs/.deploy-unlocked docs/.vize-done docs/.review-passed docs/.verify-passed docs/reviews/ "CLAUDE-SECURITY-*/"; do
+# docs/.kontext.jsonl píše hlídač kontextu, docs/.run-args.json a docs/.stavba-*.json orchestrátor (args bloků pro obnovu po compactu).
+for e in docs/.orchestrator-run docs/.orchestrator-session docs/.deploy-unlocked docs/.vize-done docs/.review-passed docs/.verify-passed docs/reviews/ docs/.kontext.jsonl docs/.run-args.json "docs/.stavba-*.json" "CLAUDE-SECURITY-*/"; do
   grep -qxF -- "$e" .gitignore 2>/dev/null || { echo "$e" >> .gitignore; gi_changed=1; }
 done
 if [ "$gi_changed" = 1 ] || [ -n "$(git status --porcelain -- .gitignore)" ]; then git add .gitignore; obsah="$obsah gitignore"; fi
@@ -112,6 +113,12 @@ if [ -n "$stare" ]; then
       mv docs/reviews/*.md "docs/reviews/_archiv/$old_slug/" 2>/dev/null || true
       echo "reporty: docs/reviews/*.md → docs/reviews/_archiv/$old_slug/"
     fi
+    # měření kontextu a args bloků předchozí vize (gitignorované) tamtéž: souhrn kontextu v co-dela i args po compactu
+    # patří jen k běžící vizi
+    for f in docs/.kontext.jsonl docs/.run-args.json docs/.stavba-*.json; do
+      [ -f "$f" ] || continue
+      mkdir -p "docs/reviews/_archiv/$old_slug"; mv "$f" "docs/reviews/_archiv/$old_slug/${f#docs/.}"
+    done
     git add -A docs/archive docs/follow-ups.md 2>/dev/null
     git add -A docs/prd docs/e2e docs/handoff.md docs/journal.md docs/vize-spory.md docs/zaverecna-zprava.md 2>/dev/null
     obsah="$obsah archiv:$old_slug"
@@ -185,10 +192,21 @@ awk '/^## /{ if (h != "") vypis(st, NR - 1, h); st = NR; h = $0 } END { if (h !=
 cfgdir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; sfile="$cfgdir/settings.json"; chybi=""
 if [ "$(jq -r '.autoContinueAtUsageLimit // empty' "$sfile" 2>/dev/null)" = "true" ]; then echo "nastavení: autoContinueAtUsageLimit: true"
 else echo "nastavení: autoContinueAtUsageLimit CHYBÍ (Workflow po usage limitu nepokračuje): do $sfile přidej \"autoContinueAtUsageLimit\": true"; chybi="$chybi autoContinueAtUsageLimit"; fi
-acw=$(jq -r '.autoCompactWindow // empty' "$sfile" 2>/dev/null)
-if [ -n "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" ]; then echo "nastavení: autocompact ${CLAUDE_CODE_AUTO_COMPACT_WINDOW} (env CLAUDE_CODE_AUTO_COMPACT_WINDOW)"
-elif [ -n "$acw" ]; then echo "nastavení: autocompact $acw (settings autoCompactWindow)"
-else echo "nastavení: autocompact CHYBÍ: napiš v session /autocompact 400k (uloží se do settings natrvalo; claude --autocompact platí jen pro jedno spuštění)"; chybi="$chybi autoCompactWindow"; fi
+# Autocompact je jen doporučení, ne chybějící nastavení (výchozí chování Claude Code odpovídá ~400k; v CK-Go2 ani v bez-dluhu
+# nastavené nebylo a setup zbytečně hlásil CHYBÍ). Orchestrátor má běžet s --autocompact 330k: compact kolem 300 k, nad
+# ~300 k pracuje hůř (analýza bez-dluhu 6.7). Zdroj: přepínač procesu claude, který setup spustil (CLAUDE_PID), env, settings.
+ac=""; acz=""
+if [ -n "${CLAUDE_PID:-}" ]; then
+  ac=$(ps -o args= -p "$CLAUDE_PID" 2>/dev/null | sed -nE 's/.*--autocompact[= ]+([0-9]+[kK]?).*/\1/p')
+  [ -n "$ac" ] && acz="claude --autocompact"
+fi
+if [ -z "$ac" ] && [ -n "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" ]; then ac=$CLAUDE_CODE_AUTO_COMPACT_WINDOW; acz="env CLAUDE_CODE_AUTO_COMPACT_WINDOW"; fi
+if [ -z "$ac" ]; then ac=$(jq -r '.autoCompactWindow // empty' "$sfile" 2>/dev/null); [ -n "$ac" ] && acz="settings autoCompactWindow"; fi
+acn=${ac%[kK]}; case "$acn" in ''|*[!0-9]*) acn="" ;; esac
+[ -n "$acn" ] && [ "$acn" != "$ac" ] && acn=$((acn * 1000))
+if [ -z "$acn" ]; then echo "nastavení: autocompact nezjištěn (claude --autocompact se nedá přečíst); doporučeno 330k"
+elif [ "$acn" -gt 330000 ]; then echo "nastavení: autocompact $ac ($acz); doporučeno 330k (compact kolem 300 k)"
+else echo "nastavení: autocompact $ac ($acz)"; fi
 [ -n "$chybi" ] && echo "nastaveni_chybi:$chybi"
 
 # varování

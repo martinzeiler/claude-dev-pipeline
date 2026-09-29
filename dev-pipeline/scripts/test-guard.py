@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test guard-blast-radius.sh: datový heredoc projde, skutečná akce blokuje."""
+"""Test guard-blast-radius.sh: datový heredoc a text v příkazu (commit message, grep) projdou, skutečná akce blokuje."""
 import json, os, subprocess, sys, tempfile, shutil
 
 HOOK = "/Users/martinzeiler/claude-dev-pipeline/dev-pipeline/hooks/guard-blast-radius.sh"
@@ -25,12 +25,19 @@ CASES = [
     ("herestring neni heredoc",
      "grep -q neco <<< \"jen text\"", False),
     ("bezny prikaz", "git status --short", False),
+    # třída F: gate čte spouštěný příkaz, ne text (commit message, grep runbooku, výpis nasazení z deploy.md)
+    ("commit message o nasazeni", f'git commit -m "rez 07: nasazeno pres {RAILWAY}"', False),
+    ("grep runbooku", f'grep "{RAILWAY}" docs/dev-runbook.md', False),
+    ("wrangler pages deployment list", "npx wrangler pages " + "deployment list --project-name web", False),
 
     ("holy railway up", f"{RAILWAY} --service API", True),
     ("railway up za &&", f"cd apps/api && {RAILWAY}", True),
     ("deploy skryty v heredocu do shellu",
      f"bash <<'{D}'\n{RAILWAY} --service API\n{D}\n", True),
     ("wrangler pages deploy", f"npx {WRANGLER} dist --project-name x", True),
+    ("wrangler deploy (Workers)", "npx wrangler " + "deploy", True),
+    ("deploy s promennou prostredi a pnpm exec", f"CLOUDFLARE_ACCOUNT_ID=x pnpm --filter web exec {WRANGLER} dist", True),
+    ("deploy v retezci pro shell", f"bash -c '{RAILWAY} --service API'", True),
     ("force push", "git push --force origin main", True),
 ]
 

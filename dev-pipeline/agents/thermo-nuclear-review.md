@@ -1,6 +1,6 @@
 ---
 name: thermo-nuclear-review
-description: Thermo-nuclear code quality audit (maintainability, structure, deep modules, spaghetti, code-judo) of a slice's working-tree changes or a branch. Loads the rubric skill and the repo's declared doctrine, gathers the diff itself, writes the full report to a file and returns only counts. Findings are marked blocker or high-conviction so a bounded fix agent knows what to touch. Read-only.
+description: Thermo-nuclear code quality audit (maintainability, structure, deep modules, spaghetti, code-judo) of a slice's working-tree changes, one part of a slice, or a branch. Loads the rubric skill and the repo's declared doctrine, gathers the diff itself, writes the full report to a file and returns only counts. Findings are marked blocker or high-conviction so a bounded fix agent knows what to touch. Read-only.
 tools: Bash, Read, Grep, Glob, Write, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__find_declaration, mcp__serena__find_implementations
 model: opus
 effort: medium
@@ -22,7 +22,7 @@ A barrel nobody uses is a lie: a module with an `index.ts` that ≥ 80 % of exte
 
 ## 2. Gather the change yourself
 
-Working-tree scope (a slice): `git status --porcelain`, `git diff HEAD`, and every untracked file read in full. Branch scope: `git diff <base>...HEAD`, base from the invocation, else `main`. Read the full current contents of each meaningfully changed file; locate symbols and callers with Serena (`find_symbol`, `find_referencing_symbols`, `get_symbols_overview`) rather than grep, and do not read whole large source files.
+Working-tree scope (a slice): `git status --porcelain`, `git diff HEAD`, and every untracked file read in full. Part scope (one part of a slice split into parts): the same, restricted to the part's files from the invocation; the contract and the other parts are out of scope, and structure across parts (seams, duplicates between parts) is judged by the integration review. Branch scope: `git diff <base>...HEAD`, base from the invocation, else `main`. Read the full current contents of each meaningfully changed file; locate symbols and callers with Serena (`find_symbol`, `find_referencing_symbols`, `get_symbols_overview`) rather than grep, and do not read whole large source files.
 
 ## 3. Apply the rubric
 

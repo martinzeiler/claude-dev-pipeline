@@ -12,16 +12,25 @@ settings="$HOME/.claude/settings.json"
 claude_json="$HOME/.claude.json"
 
 echo "== nástroje"
-for t in claude git node jq python3 uv; do
+for t in claude git node uv; do
   if have "$t"; then OK "$t: $($t --version 2>&1 | head -1)"; else FAIL "$t chybí"; fi
 done
+# jq a python3 potřebují hooky pluginu: bez jq guardy, hlídač kontextu i fronta všechno propustí (fail-open),
+# bez python3 fronta těžkých příkazů (scripts/tezky.py) nic neobalí. python3 z macOS bez Command Line Tools jen vyzve k instalaci.
+if have jq && jq -n '"{" | fromjson? // 1' >/dev/null 2>&1; then OK "jq: $(jq --version 2>&1 | head -1)"
+else FAIL "jq chybí nebo nefunguje (brew install jq): hooky pluginu ho potřebují, bez něj guardy i hlídač kontextu všechno propustí"; fi
+if have python3 && python3 -c 'import fcntl, json' >/dev/null 2>&1; then OK "python3: $(python3 --version 2>&1 | head -1)"
+else FAIL "python3 chybí nebo nefunguje (xcode-select --install): bez něj fronta těžkých příkazů (scripts/tezky.py) nic neobalí"; fi
 have rg && OK "rg: $(rg --version 2>&1 | head -1)" || WARN "rg není systémová binárka; agentům v Bash nástroji Claude Code podstrkuje vlastní ripgrep funkcí rg, takže běh to nepotřebuje (brew install ripgrep jen pro tvůj terminál)"
 have gh && OK "gh: $(gh --version | head -1)" || WARN "gh chybí (jen pro práci s GitHubem, pipeline ho nepotřebuje)"
 have tmux && OK "tmux" || WARN "tmux chybí (jen pro scripts/limit-watcher.sh na běh mimo dohled)"
 if have claude; then
   v=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-  [ -n "$v" ] && [ "$(printf '%s\n2.1.271\n' "$v" | sort -V | head -1)" = "2.1.271" ] && OK "Claude Code $v ≥ 2.1.271 (autoContinueAtUsageLimit, statusLine.refreshInterval)" || WARN "Claude Code $v: ověřeno s 2.1.271+"
-  claude --help 2>/dev/null | grep -q -- '--autocompact' && OK "claude --autocompact k dispozici" || WARN "claude --autocompact není v --help; použij /autocompact 400k v session"
+  # Pod 2.1.281 čeká dotaz Claude Code na mazání kritické cesty (rm $S/*) i v bypassPermissions bez časového limitu:
+  # v běhu bez-dluhu (2.1.280) na něm stál celý běh 40 minut. Od 2.1.281 ho po 2 min sám zamítne.
+  if [ -n "$v" ] && [ "$(printf '%s\n2.1.281\n' "$v" | sort -V | head -1)" = "2.1.281" ]; then OK "Claude Code $v ≥ 2.1.281 (autoContinueAtUsageLimit, statusLine.refreshInterval, dotaz na mazání s limitem 2 min)"
+  else WARN "Claude Code ${v:-?} < 2.1.281: dotaz na mazání (rm s nechráněnou proměnnou) čeká v bypassPermissions bez časového limitu a zastaví běh; aktualizuj (claude update)"; fi
+  claude --help 2>/dev/null | grep -q -- '--autocompact' && OK "claude --autocompact k dispozici (orchestrátor spouštěj s --autocompact 330k)" || WARN "claude --autocompact není v --help; použij /autocompact 330k v session"
 fi
 
 echo "== Serena"
@@ -44,7 +53,11 @@ if [ -f "$settings" ]; then
   jq -e '.extraKnownMarketplaces["claude-dev-pipeline"]' "$settings" >/dev/null 2>&1 && OK "marketplace claude-dev-pipeline: $(jq -r '.extraKnownMarketplaces["claude-dev-pipeline"].source.path' "$settings")" || FAIL "marketplace claude-dev-pipeline chybí v settings.json"
   [ "$(jq -r '.enabledPlugins["dev-pipeline@claude-dev-pipeline"]' "$settings")" = "true" ] && OK "plugin dev-pipeline zapnutý" || FAIL "plugin dev-pipeline není zapnutý (claude plugin install dev-pipeline@claude-dev-pipeline)"
   [ "$(jq -r '.autoContinueAtUsageLimit' "$settings")" = "true" ] && OK "autoContinueAtUsageLimit: true" || FAIL "autoContinueAtUsageLimit není true (Workflow po usage limitu nepokračuje)"
-  acw=$(jq -r '.autoCompactWindow // empty' "$settings"); [ -n "$acw" ] && OK "autoCompactWindow: $acw" || WARN "autoCompactWindow chybí (napiš v session /autocompact 400k, uloží se natrvalo; claude --autocompact platí jen pro jedno spuštění)"
+  # Doporučeno 330k: compact orchestrátora kolem 300 k, nad ~300 k pracuje hůř (analýza bez-dluhu 6.7).
+  acw=$(jq -r '.autoCompactWindow // empty' "$settings")
+  if [ -z "$acw" ]; then WARN "autoCompactWindow chybí (doporučeno 330k: orchestrátor spouštěj s claude --autocompact 330k, nebo natrvalo /autocompact 330k v session)"
+  elif [ "$acw" -gt 330000 ] 2>/dev/null; then WARN "autoCompactWindow: $acw, doporučeno 330000 (/autocompact 330k; compact kolem 300 k)"
+  else OK "autoCompactWindow: $acw"; fi
   if [ "$(jq -r '.sandbox.enabled // empty' "$settings")" = "true" ]; then
     jq -e '.sandbox.filesystem.allowWrite // [] | index("~/dev-pipeline-feedback.md")' "$settings" >/dev/null 2>&1 && OK "sandbox: ~/dev-pipeline-feedback.md v allowWrite" || WARN "sandbox je zapnutý a ~/dev-pipeline-feedback.md není v sandbox.filesystem.allowWrite (orchestrátor nezapíše nálezy o pipeline)"
   fi

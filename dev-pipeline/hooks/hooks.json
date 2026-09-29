@@ -1,17 +1,32 @@
 {
-  "description": "dev-pipeline: blast-radius guard (vždy), guard běhu (jen v orchestrátorské session podle docs/.orchestrator-run: žádné otázky, orchestrátor nečte a nespouští projekt, subagenti nečtou celé velké zdrojové soubory), Stop hook proti stání běhu, PreCompact varování o velikosti handoffu, injekce tabulky plánu a PO-COMPACTU po compactu/resume, uložení session_id při /orchestrate",
+  "description": "dev-pipeline: blast-radius guard (vždy: force-push, rm -rf kořene, rm s nechráněnou proměnnou; během běhu gate nasazení a vracení cizí práce), guard běhu (jen v orchestrátorské session podle docs/.orchestrator-run: žádné otázky, orchestrátor nečte a nespouští projekt, subagenti nečtou celé velké zdrojové soubory), hlídač kontextu subagentů běhu (záznam do docs/.kontext.jsonl, nad prahem výzva k předávce nástupci), fronta těžkých příkazů subagentů běhu (suita, typecheck, instalace, build a commit čekají na místo v rozpočtu stroje; E2E verifikátor je nespouští), Stop hook proti stání běhu, PreCompact varování o velikosti handoffu, injekce tabulky plánu a PO-COMPACTU po compactu/resume, uložení session_id při /orchestrate",
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard-blast-radius.sh", "timeout": 10 }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard-blast-radius.sh", "timeout": 30 },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/fronta-tezkych.sh", "timeout": 30 }
         ]
       },
       {
         "matcher": "AskUserQuestion|Read|Grep|Glob|Bash|Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard-run.sh", "timeout": 10 }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard-run.sh", "timeout": 30 }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/hlidac-kontextu.sh", "timeout": 30 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/hlidac-kontextu.sh", "timeout": 30 }
         ]
       }
     ],

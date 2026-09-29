@@ -8,7 +8,7 @@
     {
       "name": "dev-pipeline",
       "source": "./dev-pipeline",
-      "description": "Vize → řezy → autonomní implementace: grill-me vize session, orchestrátor se subagenty s čerstvými kontexty, TDD pipeline per řez, plné review kolečko a validátor vize na konci. Fallback Ralph driver + blast-radius hook guardy."
+      "description": "Vize → řezy → autonomní implementace: debatní vize session, orchestrátor a Workflow bloky (PRD, stavba po částech, závěrečné kolečko) se subagenty s čerstvými kontexty, TDD, review, brána, nasazení a E2E per řez, validátor vize na konci. Hooky: guardy běhu, hlídač kontextu se štafetou, fronta těžkých příkazů."
     }
   ]
 }

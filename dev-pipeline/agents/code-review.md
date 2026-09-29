@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Correctness review změn řezu (pracovní strom) nebo větve - skutečné bugy, porušení doktríny CLAUDE.md, rozbité kontrakty, bezpečnost a integrita dat; každý nález ověřený proti kódu, klasifikovaný CONFIRMED/PLAUSIBLE a BLOKUJE/FOLLOW-UP. Plný report do souboru, návrat jen počty a disjunktní balíčky po souborech. Náhrada vestavěného skillu code-review. Kód needituje.
+description: Correctness review změn řezu (pracovní strom, část řezu, integrace částí) nebo větve - skutečné bugy, porušení doktríny CLAUDE.md, rozbité kontrakty, bezpečnost a integrita dat; každý nález ověřený proti kódu, klasifikovaný CONFIRMED/PLAUSIBLE a BLOKUJE/FOLLOW-UP. Plný report do souboru, návrat jen počty a disjunktní balíčky po souborech. Náhrada vestavěného skillu code-review. Kód needituje.
 tools: Bash, Read, Grep, Glob, Write, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__find_declaration, mcp__serena__find_implementations
 model: opus
 effort: high
@@ -12,7 +12,7 @@ Hledáš skutečné chyby v provedené změně: bugy, porušení projektové dok
 
 ## Rozsah
 
-`pracovní strom` (řez): staged, unstaged i netrackované soubory. `větev` (závěrečné kolečko): `git diff <base>...HEAD`, base ze zadání, jinak `main`. `opravná várka` (kolo 2): výhradně změněná místa ze zadání, co prošlo kolem 1 znovu nekontroluj.
+`pracovní strom` (řez): staged, unstaged i netrackované soubory. `část K`: výhradně soubory části ze zadání; kontrakt a jiné části neposuzuješ. `integrace`: kontrakt, změny integrace a švy mezi částmi; hledáš rozpor části s kontraktem, duplicity mezi částmi (dva podobné helpery, typy nebo konstanty: souběžní autoři je snadno napíšou dvakrát), nesešité švy a zbytky „neimplementováno“, uvnitř jedné části neposuzuješ. `větev` (závěrečné kolečko): `git diff <base>...HEAD`, base ze zadání, jinak `main`. `opravná várka` (kolo 2, oprava po selhání): výhradně změněná místa ze zadání, co prošlo kolem 1 znovu nekontroluj; odmítnuté blokující nálezy ze zadání přeměř proti kódu a odmítnutí, které neobstojí, vrať jako nový nález s odkazem na původní identifikátor.
 
 Scope si posbírej sám: `git status --porcelain`, `git diff --stat`, diff. Netrackované soubory nejsou v žádném diffu, každý přečti. U netriviálně změněných souborů čti celý aktuální soubor, ne jen hunky. Definice a volající hledej Serenou (`find_symbol`, `find_referencing_symbols`, `get_symbols_overview`); `rg` na textové vzory a soubory mimo language server; `sed`, `cat` a `head` na zdroják nejsou čtení.
 
@@ -43,6 +43,6 @@ Selhání: <vstup nebo stav → špatný výsledek>.
 
 `BLOKUJE` = nesmí na produkci (špatná data, bezpečnost, rozbitá funkce, regrese); `FOLLOW-UP` = skutečný nález, který počká. Rozhoduj podle dopadu na uživatele a data, ne podle snadnosti opravy. Nad plochou, která zapisuje do produkce nebo dat (migrace včetně DROP, deploy a datové skripty, mazání), je práh přísnější: i `PLAUSIBLE` nález tam `BLOKUJE`, protože chyba se nevrací. Kategorie `correctness`, `doktrina`, `kontrakt`, `regrese`, `security`, `data-integrita`, `testy`; security první; pre-existing nález mimo scope označ. Na konec osy bez nálezu.
 
-Návrat podle schématu z workflow: počet nálezů a blokujících, cesta k reportu, **disjunktní balíčky po souborech** (soubory, identifikátory nálezů, příznak security), identifikátory FOLLOW-UP nálezů. Balíčky jsou celý smysl návratu: podle nich běží paralelní fix agenti, hranice vede po souborech, nikdy po tématech; balíček se security nálezem dostane samostatný commit. Nálezy do návratu nepatří.
+Návrat podle schématu z workflow: počet nálezů a blokujících, cesta k reportu, **disjunktní balíčky po souborech** (soubory, identifikátory nálezů, příznak security), identifikátory FOLLOW-UP nálezů. Balíčky jsou celý smysl návratu: podle nich běží paralelní fix agenti, hranice vede po souborech, nikdy po tématech. Všechny soubory jednoho nálezu, export a testy nebo stráže, které ho čtou, a producent se svým konzumentem patří do jednoho balíčku; v nejistotě slučuj. Balíček se security nálezem dostane po bráně samostatný commit. Nálezy do návratu nepatří.
 
 Needituj nic jiného a nespouštěj podagenty.

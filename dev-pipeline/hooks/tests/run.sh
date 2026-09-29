@@ -2,7 +2,7 @@
 # Testy hooků dev-pipeline nad syntetickými vstupy. Spusť: dev-pipeline/hooks/tests/run.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); hooks="$here/.."
-mkdir -p "$HOME/.cache/dev-pipeline-tests"; tmp=$(mktemp -d "$HOME/.cache/dev-pipeline-tests/run.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$HOME/.cache/dev-pipeline-tests"; tmp=$(mktemp -d "$HOME/.cache/dev-pipeline-tests/run.XXXXXX"); trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$tmp"' EXIT
 proj="$tmp/proj"; mkdir -p "$proj/docs/vize" "$proj/docs/prd" "$proj/src"
 SID="sess-orch"; OTHER="sess-other"
 jq -n --arg s "$SID" '{session_id:$s, started:"2026-09-16T12:00:00Z", vize:"docs/vize/test.md", slug:"test"}' > "$proj/docs/.orchestrator-run"
@@ -57,6 +57,18 @@ run write-handoff guard-run.sh "$(pre $SID '' Write file_path "$proj/docs/handof
 run write-memory guard-run.sh "$(pre $SID '' Write file_path "$HOME/.claude/projects/x/memory/a.md" content "x")" allow
 run read-produkt guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/produkt.md")" allow
 run bash-cat-produkt guard-run.sh "$(pre $SID '' Bash command "cat docs/produkt.md")" allow
+# --- orchestrátor a deník vad ~/dev-pipeline-feedback.md (dočasný HOME, ať soubory existují a skutečný domov zůstane netknutý)
+fbh="$tmp/home"; mkdir -p "$fbh"; echo "# Zpětná vazba" > "$fbh/dev-pipeline-feedback.md"; echo x > "$fbh/jiny.md"
+HOME="$fbh" run fb-read guard-run.sh "$(pre $SID '' Read file_path "$fbh/dev-pipeline-feedback.md")" allow
+HOME="$fbh" run fb-write guard-run.sh "$(pre $SID '' Write file_path "$fbh/dev-pipeline-feedback.md" content "x")" allow
+HOME="$fbh" run fb-bash-append guard-run.sh "$(pre $SID '' Bash command $'cat >> ~/dev-pipeline-feedback.md <<\'EOF\'\n## 2026-09-29 | test | krok\nEOF')" allow
+HOME="$fbh" run fb-bash-append-slova guard-run.sh "$(pre $SID '' Bash command $'cat >> ~/dev-pipeline-feedback.md <<\'EOF\'\n## 2026-09-29 | Surya | wrangler preflight\npnpm test padl, curl vrátil 500\nEOF')" allow
+run orch-heredoc-interpret-deny guard-run.sh "$(pre $SID '' Bash command $'bash <<\'EOF\'\npnpm test\nEOF')" deny
+HOME="$fbh" run fb-other-home-deny guard-run.sh "$(pre $SID '' Write file_path "$fbh/jiny.md" content "x")" deny "needituje"
+# --- orchestrátor čte args bloků z disku (po compactu)
+echo '{}' > "$proj/docs/.run-args.json"; echo '{}' > "$proj/docs/.stavba-05.json"
+run read-run-args guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/.run-args.json")" allow
+run bash-cat-stavba-args guard-run.sh "$(pre $SID '' Bash command "cat docs/.stavba-05.json")" allow
 # --- subagenti
 run sub-ask guard-run.sh "$(pre $SID ag1 AskUserQuestion questions "")" allow
 run sub-read-big-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts")" deny "find_symbol"
@@ -109,6 +121,26 @@ run br-checkout-branch-ok guard-blast-radius.sh "$(br $SID 'git checkout main')"
 run br-checkout-newbranch-ok guard-blast-radius.sh "$(br $SID 'git checkout -b vize/x')" allow
 run br-restore-staged-ok guard-blast-radius.sh "$(br $SID 'git restore --staged src/a.ts')" allow
 run br-heredoc-stash-ok guard-blast-radius.sh "$(br $SID $'cat >> docs/journal.md <<\'EOF\'\ngit stash\nEOF')" allow
+# --- guard nasazení čte spouštěný příkaz, ne text (třída F); docs/.deploy-unlocked chybí
+run br-deploy-commitmsg-ok guard-blast-radius.sh "$(br $SID 'git commit -m "rez 07: nasazeno přes railway up"')" allow
+run br-deploy-grep-ok guard-blast-radius.sh "$(br $SID 'grep "railway up" docs/dev-runbook.md')" allow
+run br-deploy-list-ok guard-blast-radius.sh "$(br $SID 'npx wrangler pages deployment list --project-name web')" allow
+run br-railway-up-deny guard-blast-radius.sh "$(br $SID "cd $proj/apps/api && railway up --service API")" deny
+run br-wrangler-deploy-deny guard-blast-radius.sh "$(br $SID 'npx wrangler pages deploy dist')" deny
+run br-env-deploy-deny guard-blast-radius.sh "$(br $SID 'CLOUDFLARE_ACCOUNT_ID=x pnpm --filter web exec wrangler deploy')" deny
+run br-bash-c-deploy-deny guard-blast-radius.sh "$(br $SID "bash -c 'railway up'")" deny
+# --- rm s nechráněnou proměnnou před lomítkem (pravidlo 6): 2 blokace, 6 průchodů
+run br-rm-glob-deny guard-blast-radius.sh "$(br $SID 'rm $S/*.orig.ts')" deny
+run br-rm-var-deny guard-blast-radius.sh "$(br $SID 'for f in a b; do rm -f $S/$f.bak.ts; done')" deny
+run br-rm-chraneny-ok guard-blast-radius.sh "$(br $SID 'rm -f "${S:?}"/a.bak.ts "${S:?}"/b.bak.ts')" allow
+run br-rm-literal-ok guard-blast-radius.sh "$(br $SID 'rm -f /tmp/dp-test/a.log')" allow
+run br-rm-node-modules-ok guard-blast-radius.sh "$(br $SID 'rm -rf node_modules')" allow
+run br-rm-bez-lomitka-ok guard-blast-radius.sh "$(br $SID 'rm $f')" allow
+run br-rm-soubor-ok guard-blast-radius.sh "$(br $SID 'rm -f $S/done.flag')" allow
+run br-rm-podadresar-ok guard-blast-radius.sh "$(br $SID 'rm -rf "$TMPDIR/dp-test"')" allow
+out=$(br $SID 'rm -rf "$D"/' | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/guard-blast-radius.sh" 2>&1 >/dev/null); rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -qF 'přepiš na rm -f "${S:?}"/soubor nebo literální cestu; scratchpad uklízet nemusíš' && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL br-rm-hlaska: rc=$rc $out"; }
+rm "$proj/docs/.orchestrator-run"; run br-nomarker-rm-deny guard-blast-radius.sh "$(br $SID 'rm $S/*.ts')" deny; cp "$tmp/marker" "$proj/docs/.orchestrator-run"
 rm "$proj/docs/.orchestrator-run"; run br-nomarker-stash-ok guard-blast-radius.sh "$(br $SID 'git stash')" allow; cp "$tmp/marker" "$proj/docs/.orchestrator-run"
 # --- bez markeru / starý marker: vše projde
 rm "$proj/docs/.orchestrator-run"; run nomarker guard-run.sh "$(pre $SID '' AskUserQuestion questions "")" allow
@@ -151,4 +183,115 @@ head -c 6000 /dev/zero | tr '\0' 'a' > "$proj/docs/handoff.md"
 out=$(pc $SID | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/pre-compact.sh"); printf '%s' "$out" | grep -q systemMessage && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-warn: $out"; }
 printf 'x\n' > "$proj/docs/handoff.md"; out=$(pc $SID | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/pre-compact.sh"); [ -z "$out" ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-quiet: $out"; }
 out=$(pc $OTHER | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/pre-compact.sh"); [ -z "$out" ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-other: $out"; }
+ok() { pass=$((pass+1)); }; ko() { fail=$((fail+1)); echo "FAIL $*"; }
+# --- hlídač kontextu: syntetický transkript subagenta pod DEV_PIPELINE_TRANSCRIPTS, stav hooku v dočasném TMPDIR
+AID=agtest1; tdir="$tmp/transcripts/-proj/$SID/subagents/workflows/wf_1"; mkdir -p "$tdir" "$tmp/tmpdir"; T="$tdir/agent-$AID.jsonl"
+PRED="$proj/docs/reviews/predavka-$AID.md"
+jq -cn '{type:"user", message:{role:"user", content:"Řez 5: PRD docs/prd/rez-05-x.md, scénáře docs/e2e/rez-05.md. Úkol: implementuj řez 05"}}' > "$T"
+kx() { jq -cn --argjson k "$1" '{type:"assistant", message:{usage:{input_tokens:10, cache_read_input_tokens:($k - 1110), cache_creation_input_tokens:1000, output_tokens:100}}}' >> "$T"; }
+hk() { # sid agent_id událost nástroj [klíč hodnota]... → vstup hlídače
+  local s=$1 a=$2 e=$3 t=$4 obj='{}'; shift 4
+  while [ $# -ge 2 ]; do obj=$(jq -cn --argjson o "$obj" --arg k "$1" --arg v "$2" '$o + {($k):$v}'); shift 2; done
+  jq -n --arg s "$s" --arg a "$a" --arg e "$e" --arg t "$t" --argjson i "$obj" --arg c "$proj" \
+    '{session_id:$s, cwd:$c, hook_event_name:$e, tool_name:$t, tool_input:$i} + (if $a=="" then {} else {agent_id:$a, agent_type:"dev-pipeline:implement"} end)'
+}
+hl() { DEV_PIPELINE_TRANSCRIPTS="$tmp/transcripts" TMPDIR="$tmp/tmpdir" run "$@"; }
+kx 50000;  hl hl-pod-prahem-post hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" allow
+           hl hl-pod-prahem-pre hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test")" allow
+[ ! -e "$proj/docs/.kontext.jsonl" ] && ok || ko "hl-pod-100k-bez-zaznamu"
+kx 120000; hl hl-100k hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Read file_path "$proj/src/a.ts")" allow
+kx 150000; hl hl-narust hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Read file_path "$proj/src/a.ts")" allow
+kx 160000; hl hl-narust-malo hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Read file_path "$proj/src/a.ts")" allow
+kx 260000; hl hl-mekky-ctx hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" ctx "PŘEDÁVKA: tuhle práci dokončí nástupce"
+           hl hl-mekky-cesta hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Edit file_path "$proj/src/a.ts")" ctx "do $PRED: 1. zadání"
+           hl hl-mekky-pre hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test")" allow
+kx 300000; hl hl-tvrdy-bash-deny hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test")" deny "PŘEDÁVKA je povinná"
+           hl hl-tvrdy-structured hlidac-kontextu.sh "$(hk $SID $AID PreToolUse StructuredOutput stav castecne)" allow
+           hl hl-tvrdy-write-predavka hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Write file_path "$PRED" content "x")" allow
+           hl hl-tvrdy-write-jinam-deny hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Write file_path "$proj/src/a.ts" content "x")" deny
+           hl hl-tvrdy-bash-predavka hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "mkdir -p docs/reviews && cat > docs/reviews/predavka-$AID.md <<'EOF'")" allow
+           hl hl-jina-session hlidac-kontextu.sh "$(hk $OTHER $AID PreToolUse Bash command "pnpm test")" allow
+           hl hl-orchestrator hlidac-kontextu.sh "$(hk $SID '' PreToolUse Bash command "pnpm test")" allow
+# přímý subagent orchestrátora (transkript mimo subagents/workflows/): měří se, předávku nedostane
+AID2=agprimy; T2="$tmp/transcripts/-proj/$SID/subagents/agent-$AID2.jsonl"; cp "$T" "$T2"
+           hl hl-primy-subagent-post hlidac-kontextu.sh "$(hk $SID $AID2 PostToolUse Bash command "rg x")" allow
+           hl hl-primy-subagent-pre hlidac-kontextu.sh "$(hk $SID $AID2 PreToolUse Bash command "rg x")" allow
+grep -q "\"aid\":\"$AID2\"" "$proj/docs/.kontext.jsonl" && ok || ko "hl-primy-subagent-zaznam"
+printf '{"type":"assistant","message":{"usage":{"input_tok' >> "$T"   # rozepsaný poslední řádek
+           hl hl-rozepsany-radek hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test")" deny
+echo >> "$T"
+kx 100000; hl hl-compact hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" allow
+k=$(jq -sc 'map(select(.aid == "agtest1")) | [map(.udalost), (last | .compactu, .max), (first | .rez, .typ, .aid)]' "$proj/docs/.kontext.jsonl" 2>/dev/null)
+[ "$k" = '[["mereni","mereni","mekky","tvrdy","compact"],1,100000,"05","implement","agtest1"]' ] && ok || ko "hl-kontext-jsonl: $k"
+# --- fronta těžkých příkazů: váhy, obal přes updatedInput, E2E verifikátor
+fr() { # sid agent_id agent_type příkaz → vstup PreToolUse Bash
+  jq -n --arg s "$1" --arg a "$2" --arg ty "$3" --arg c "$4" --arg p "$proj" \
+    '{session_id:$s, cwd:$p, hook_event_name:"PreToolUse", tool_name:"Bash", tool_input:{command:$c, description:"test", timeout:120000}} + (if $a=="" then {} else {agent_id:$a, agent_type:$ty} end)'
+}
+frun() { printf '%s' "$1" | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/fronta-tezkych.sh" 2>/dev/null; }
+vaha() { # příkaz očekávaná_váha (0 = projde beze změny)
+  local got; got=$(frun "$(fr $SID ag1 dev-pipeline:implement "$1")" | jq -r '.hookSpecificOutput.updatedInput.command // ""' 2>/dev/null | sed -nE '1s/.* vezmi --vaha ([0-9]+) .*/\1/p')
+  [ "${got:-0}" = "$2" ] && ok || ko "vaha '$1': čekáno $2, dostal ${got:-0}"
+}
+vaha 'pnpm test' 4
+vaha 'cd apps/api && pnpm --filter @x/api test > /tmp/log 2>&1; echo EXIT=$?' 4
+vaha 'pnpm -r test' 4
+vaha 'pnpm turbo test' 4
+vaha 'npx vitest run' 4
+vaha 'git commit -m "rez 05: x"' 4
+vaha 'pnpm turbo typecheck' 3
+vaha 'pnpm verify:arch' 3
+vaha 'turbo run lint' 3
+vaha 'pnpm install --frozen-lockfile' 2
+vaha '(cd apps/web && npx vite build)' 2
+vaha 'VITEST_MAX_THREADS=2 pnpm vitest run apps/api/src/routes' 2
+vaha 'pnpm --filter @x/api typecheck' 1
+vaha 'npx tsc --noEmit -p apps/api' 1
+vaha 'pnpm vitest run apps/api/src/a.test.ts' 1
+vaha 'git status --short && git diff --stat' 0
+vaha 'rg -n "pnpm test" docs/prd/rez-05.md' 0
+vaha $'cat > docs/reviews/rez-05-x.md <<\'EOF\'\npnpm test\nEOF' 0
+vaha 'pnpm typecheck && pnpm test' 4
+vaha 'pnpm turbo dev' 0
+vaha 'npx vitest --watch' 0
+vaha 'pnpm test -- --watch' 0
+vaha 'npx tsc -w -p apps/api' 0
+out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'pnpm test')")
+printf '%s' "$out" | jq -e --arg q "'" '.hookSpecificOutput | .permissionDecision == "allow" and .updatedInput.timeout == 600000 and .updatedInput.description == "test"
+  and (.updatedInput.command | startswith("python3 " + $q) and contains("/scripts/tezky.py" + $q + " vezmi --vaha 4 --pid $$ --popis " + $q + "pnpm test" + $q + " --max-cekani 180 && {\npnpm test\n}; __dp_rc=$?; python3 ") and endswith(" vrat --pid $$; (exit $__dp_rc)"))' >/dev/null && ok || ko "fr-obal: $out"
+out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'true || pnpm test; echo BEZI; (exit 3)')"); obal=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.updatedInput.command')
+for sh in bash zsh; do
+  command -v $sh >/dev/null 2>&1 || continue
+  o=$(TMPDIR="$tmp/tk" $sh -c "$obal" 2>&1); rc=$?
+  [ $rc -eq 3 ] && [ "$o" = BEZI ] && [ "$(TMPDIR="$tmp/tk" python3 "$hooks/../scripts/tezky.py" stav)" = '{"drzi": [], "fronta": []}' ] && ok || ko "fr-obal-bezi-$sh: rc=$rc $o"
+done
+[ -z "$(frun "$(fr $SID ag1 dev-pipeline:implement "$obal")")" ] && ok || ko "fr-obaleny-znovu"
+[ -z "$(frun "$(fr $SID ag1 dev-pipeline:implement 'git log --oneline -n 5')")" ] && ok || ko "fr-lehky-beze-zmeny"
+[ -z "$(frun "$(fr $SID '' '' 'pnpm test')")" ] && ok || ko "fr-orchestrator"
+[ -z "$(frun "$(fr $OTHER ag1 dev-pipeline:implement 'pnpm test')")" ] && ok || ko "fr-jina-session"
+run fr-e2e-test-deny fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'pnpm test')" deny "E2E ověřuje běžící aplikaci"
+run fr-e2e-worktree-deny fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'git worktree add ../wt HEAD')" deny
+run fr-e2e-typecheck-deny fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'pnpm --filter @x/api typecheck')" deny
+run fr-e2e-show-ok fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'git show HEAD~3:apps/api/src/a.ts | grep -n budget')" allow
+# --- tezky.py: rozpočet, přísné FIFO, mrtvý PID, vypršení (stav v dočasném TMPDIR, krok 0,2 s)
+ROZ=6; MAXC=300
+tk() { TMPDIR="$tmp/tk" DEV_PIPELINE_TEZKY_KROK=0.2 DEV_PIPELINE_TEZKY_ROZPOCET=$ROZ DEV_PIPELINE_TEZKY_MAX_CEKANI=$MAXC python3 "$hooks/../scripts/tezky.py" "$@"; }
+sleep 60 & p1=$!; sleep 60 & p2=$!; sleep 0 & pd=$!; wait $pd
+ROZ=4; tk vezmi --vaha 3 --pid $p1 --popis prvni
+( tk vezmi --vaha 3 --pid $p2 --popis druhy; echo "rc=$?" > "$tmp/tk2" ) & bg=$!
+sleep 1
+[ ! -s "$tmp/tk2" ] && [ "$(tk stav | jq -c '[.drzi[].pid, .fronta[].pid]')" = "[$p1,$p2]" ] && ok || ko "tk-druhe-ceka: $(cat "$tmp/tk2" 2>/dev/null) $(tk stav)"
+tk vrat --pid $p1; wait $bg
+[ "$(cat "$tmp/tk2")" = "rc=0" ] && [ "$(tk stav | jq -c '[.drzi[].pid, (.fronta | length)]')" = "[$p2,0]" ] && ok || ko "tk-druhe-po-vrat: $(cat "$tmp/tk2") $(tk stav)"
+tk vrat --pid $p2
+ROZ=6; tk vezmi --vaha 6 --pid $pd --popis mrtvy
+MAXC=2; tk vezmi --vaha 6 --pid $p1 --popis zivy; rc=$?
+[ $rc -eq 0 ] && [ "$(tk stav | jq -c '[.drzi[].pid]')" = "[$p1]" ] && ok || ko "tk-mrtvy-pid: rc=$rc $(tk stav)"
+MAXC=0.5; o=$(tk vezmi --vaha 3 --pid $p2 --popis treti 2>&1); rc=$?
+[ $rc -eq 75 ] && printf '%s' "$o" | grep -qF 'pořád běží zivy (váha 6); příkaz se nespustil, zopakuj ho' && [ "$(tk stav | jq '.fronta | length')" = 0 ] && ok || ko "tk-vyprseni: rc=$rc $o"
+tk vrat --pid $p1
+ROZ=4; MAXC=2; tk vezmi --vaha 9 --pid $p1 --popis velky; rc=$?
+[ $rc -eq 0 ] && [ "$(tk stav | jq -c '[.drzi[].vaha]')" = "[4]" ] && ok || ko "tk-nad-rozpoctem: rc=$rc $(tk stav)"
+tk vrat --pid $p1
+{ kill $p1 $p2; wait $p1 $p2; } 2>/dev/null
 echo "pass=$pass fail=$fail"; [ $fail -eq 0 ]

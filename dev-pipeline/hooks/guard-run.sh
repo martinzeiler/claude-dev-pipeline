@@ -3,7 +3,8 @@
 #
 # Aktivní JEN když v projektu leží docs/.orchestrator-run se session_id shodným s touto session.
 # Hlavní session (hook input bez agent_id) je orchestrátor: neptá se uživatele, nečte projekt
-# (jen vizi, produkt.md, handoff, vize-spory, follow-ups a soubory pluginu), nespouští projekt, needituje kód.
+# (jen vizi, produkt.md, handoff, vize-spory, follow-ups, args bloků v docs/.run-args.json a docs/.stavba-*.json,
+# deník vad ~/dev-pipeline-feedback.md a soubory pluginu), nespouští projekt, needituje kód.
 # Subagenti (s agent_id): nečtou celé velké zdrojové soubory, ani přes Read bez offset/limit,
 # ani přes cat, sed -n, head, tail v Bash. Práh DEV_PIPELINE_READ_MAX_LINES, výchozí 350.
 # Fail-open: cokoli nejednoznačného projde. Deny = JSON permissionDecision, exit 0.
@@ -36,12 +37,17 @@ abspath() {
   esac
 }
 
+# Deník vad pipeline (KONTRAKT): zapisuje ho orchestrátor při uzavření řezu. Leží mimo ~/.claude, protože tu cestu
+# sandbox Claude Code chrání. Do 1.4.0 ho guard orchestrátorovi blokoval (vada E z běhu bez-dluhu).
+FEEDBACK="$HOME/dev-pipeline-feedback.md"
 # Cesty, které orchestrátor smí číst.
 orch_read_ok() {
   local p; p=$(abspath "$1")
   case "$p" in
-    "$plugin_root"/*|"$HOME"/.claude/*|/private/tmp/*|/tmp/*|/var/folders/*) return 0 ;;
+    "$plugin_root"/*|"$HOME"/.claude/*|"$FEEDBACK"|/private/tmp/*|/tmp/*|/var/folders/*) return 0 ;;
     "$proj"/docs/handoff.md|"$proj"/docs/vize*|"$proj"/docs/follow-ups.md|"$proj"/docs/produkt.md|"$proj"/docs/.orchestrator-run|"$proj"/docs/.orchestrator-session) return 0 ;;
+    # args bloků na disku: po compactu je orchestrátor čte odtud (PO-COMPACTU), jinak by je znovu zjišťoval
+    "$proj"/docs/.run-args.json|"$proj"/docs/.stavba-*.json) return 0 ;;
   esac
   return 1
 }
@@ -49,12 +55,12 @@ orch_read_ok() {
 orch_write_ok() {
   local p; p=$(abspath "$1")
   case "$p" in
-    "$proj"/docs/*|"$HOME"/.claude/*|/private/tmp/*|/tmp/*|/var/folders/*) return 0 ;;
+    "$proj"/docs/*|"$HOME"/.claude/*|"$FEEDBACK"|/private/tmp/*|/tmp/*|/var/folders/*) return 0 ;;
   esac
   return 1
 }
 
-ORCH_READ="Orchestrátor nečte projekt. Sám čteš jen vizi, produkt.md, handoff, vize-spory, follow-ups a soubory pluginu; na cokoli z kódu, PRD, reportů, diffů nebo logů pošli agenta dev-pipeline:pruzkum s přesnou otázkou, formátem důkazů a stropem délky návratu."
+ORCH_READ="Orchestrátor nečte projekt. Sám čteš jen vizi, produkt.md, handoff, vize-spory, follow-ups, docs/.run-args.json, docs/.stavba-*.json, ~/dev-pipeline-feedback.md a soubory pluginu; na cokoli z kódu, PRD, reportů, diffů nebo logů pošli agenta dev-pipeline:pruzkum s přesnou otázkou, formátem důkazů a stropem délky návratu."
 ORCH_RUN="Orchestrátor nespouští projekt (balíčkovač, testy, typecheck, curl, deploy). Tu práci dělají fázoví agenti v bloku stavby; stav si nech ověřit agentem a převzít jen výsledek."
 ORCH_EDIT="Orchestrátor needituje kód ani konfiguraci projektu; píše jen do docs/ (handoff, vize-spory, follow-ups). Opravy dělá fix agent v bloku stavby."
 
@@ -67,6 +73,33 @@ file_args() {
 }
 
 # ---------- orchestrátor ----------
+# Tělo datového heredocu (cat/tee nebo přesměrování do souboru) není příkaz, je to text; stejná funkce jako v guard-blast-radius.
+# Bez ní orchestrátor neprošel se zápisem do ~/dev-pipeline-feedback.md, jehož záhlaví nebo řádek začínal wrangler, pnpm nebo curl.
+strip_data_heredocs() {
+  local line delim="" out="" probe trimmed d
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ -n "$delim" ]; then
+      trimmed=$(printf '%s' "$line" | sed 's/^[[:space:]]*//')
+      [ "$trimmed" = "$delim" ] && delim=""
+      continue
+    fi
+    probe=$(printf '%s' "$line" | sed 's/<<</@@HS@@/g')   # herestring není heredoc
+    case "$probe" in
+      *"<<"*)
+        # jen datový heredoc: cat/tee nebo přesměrování do souboru na témže řádku
+        if printf '%s' "$probe" | grep -Eq '(^|[|;&[:space:]])(cat|tee)([[:space:]]|$)|>>?[[:space:]]*[^[:space:]|&]'; then
+          d=$(printf '%s' "$probe" | sed -n "s/.*<<-\{0,1\}[[:space:]]*[\"']\{0,1\}\([A-Za-z_][A-Za-z0-9_]*\)[\"']\{0,1\}.*/\1/p")
+          [ -n "$d" ] && delim="$d"
+        fi
+        ;;
+    esac
+    out="$out$line
+"
+  done <<HEREDOC_STRIPPER_EOF
+$1
+HEREDOC_STRIPPER_EOF
+  printf '%s' "$out"
+}
 orch_bash() {
   local cmd="$1" seg w a p
   while IFS= read -r seg; do
@@ -171,7 +204,7 @@ if [ -z "$agent_id" ]; then
       p=$(j '.tool_input.path'); [ -z "$p" ] && p="$cwd"
       orch_read_ok "$p" || deny "$ORCH_READ (hledání v: $p)" ;;
     Bash)
-      cmd=$(j '.tool_input.command'); [ -n "$cmd" ] && orch_bash "$cmd" ;;
+      cmd=$(j '.tool_input.command'); [ -n "$cmd" ] && orch_bash "$(strip_data_heredocs "$cmd")" ;;
     Write|Edit|MultiEdit|NotebookEdit)
       fp=$(j '.tool_input.file_path // .tool_input.notebook_path'); [ -n "$fp" ] && ! orch_write_ok "$fp" && deny "$ORCH_EDIT (soubor: $fp)" ;;
   esac
