@@ -69,7 +69,10 @@ if [ -f "$settings" ]; then
   else WARN "statusLine není nastavená (volitelné: setup/statusline.sh)"; fi
   [ -f "$HOME/.claude/statusline.sh" ] && grep -q 'co-dela.sh' "$HOME/.claude/statusline.sh" && OK "~/.claude/statusline.sh volá co-dela.sh --status" || WARN "~/.claude/statusline.sh nevolá co-dela.sh (volitelné)"
 else FAIL "$settings neexistuje"; fi
-[ "${ANTHROPIC_SMALL_FAST_MODEL:-}" = "claude-sonnet-5" ] && OK "ANTHROPIC_SMALL_FAST_MODEL=claude-sonnet-5" || WARN "ANTHROPIC_SMALL_FAST_MODEL není claude-sonnet-5 (pomocné úlohy pojedou na výchozím malém modelu)"
+case "${ANTHROPIC_SMALL_FAST_MODEL:-}" in
+  claude-sonnet-*) OK "ANTHROPIC_SMALL_FAST_MODEL=$ANTHROPIC_SMALL_FAST_MODEL (pevná verze, zkratku proměnná nebere: po vydání nového Sonnetu přepiš)" ;;
+  *) WARN "ANTHROPIC_SMALL_FAST_MODEL není claude-sonnet-* (pomocné úlohy pojedou na výchozím malém modelu)" ;;
+esac
 
 echo "== plugin"
 inst=$(ls -d "$HOME/.claude/plugins/cache/claude-dev-pipeline/dev-pipeline/"*/ 2>/dev/null | sort -V | tail -1)

@@ -100,7 +100,7 @@ const ramec = [
   'Běh je autonomní: uživatele se neptáš. Rozpor s vizí zapiš do docs/vize-spory.md, rozhodni konzervativně a pokračuj. Vykonáváš jen svou fázi; následné a kontrolní fáze spouští workflow.',
   'docs/handoff.md je stav orchestrátora, ne tvůj vstup: nečti ho; co máš vědět, je v tomto zadání.',
   'Tvůj finální výstup je strukturovaný návrat (schéma je vynucené). Do textových polí piš stručně; co se nevejde, napiš do souboru v docs/reviews/ a vrať cestu.',
-  'Tah končí jen strukturovaným návratem. Na proces, který jsi pustil na pozadí, nečekáš ukončením tahu: počkej na něj v tomtéž tahu smyčkou s pevným počtem iterací, nebo ho ukonči.',
+  'Tah končí jen strukturovaným návratem. Na proces, který jsi pustil na pozadí, nečekáš ukončením tahu: počkej na něj v tomtéž tahu (vlastní dlouhý příkaz přes `Monitor`, vnější stav jako nasazení smyčkou s pevným počtem iterací v jednom Bash volání), nebo ho ukonči. Smyčka bez stropu iterací je zakázaná: po timeoutu se přesune na pozadí a přežije tě.',
   // Kolečko nemá číslo řezu, vzor souboru je proto kolecko-<co>.md (jako reporty z rep()).
   'Soubor, který pojmenováváš sám, pojmenuj česky podle vzoru kolecko-<co>.md; Claude Code subagentům blokuje zápis markdownu se jmény summary, findings, analysis a report-….',
 ].filter(Boolean).join('\n')
@@ -284,12 +284,12 @@ const bezpecnostniOpravy = xs => (xs || []).length ? ` Bezpečnostní opravy: ${
 const commit = (faze, zprava, ph, secOpravy) => runSePredavkou(`${ramec}
 
 Úkol: commit změn kolečka po fázi „${faze}“, režim commit-only.${bezpecnostniOpravy(secOpravy)} Jeden commit na vize větvi se zprávou „${zprava}“ se zbylými změnami kolečka (kód, testy, docs/e2e/kolecko.md, docs/journal.md, docs/follow-ups.md, docs/vize-spory.md). docs/reviews/ a markery jsou gitignorované. Když pracovní strom nemá co commitnout, necommituj a vrať stav commit-only, hash HEAD a duvod „beze změn“. Nenasazuj. Po commitu zkontroluj git status a netrackované soubory kolečka jmenuj v návratu.${obnovaVeta(ph, true)}`,
-  { label: `commit:kolečko:${faze}`, phase: ph, agentType: 'dev-pipeline:deploy', schema: DEPLOY, ...M.sonL })
+  { label: `commit:kolečko:${faze}`, phase: ph, agentType: 'dev-pipeline:deploy', schema: DEPLOY, ...M.sonM })
 
 const deploy = (k, pozn, secOpravy) => runSePredavkou(`${ramec}
 
 Úkol: nasazení kolečka (běh ${k}).${bezpecnostniOpravy(secOpravy)} Nejdřív commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, čekej omezenou smyčkou s počtem iterací (žádné nekonečné while), na každém terminálním stavu skonči (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy.` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'}${appPristup ? ` Pokyny majitele k prostředí a nasazení jsou závazné a mají přednost před skripty repa (skript, který nasazuje jinam nebo jinak, než pokyny říkají, nepoužij nebo doplň o správné parametry): ${appPristup.slice(0, 1200)}.` : ''}`} Necháváš na pokoji vše, co jsi sám nezměnil: žádné git checkout --, git restore, git stash ani git clean nad cizími nebo necommitnutými soubory (guard je během běhu blokuje); formátovací kontrolu pouštěj jen nad soubory, které commituješ. Nikdy si nedomýšlej postup, který projekt nedokumentuje.${obnovaVeta('Deploy a E2E', true)}`,
-  { label: `deploy:kolečko:${k}`, phase: 'Deploy a E2E', agentType: 'dev-pipeline:deploy', schema: DEPLOY, ...M.sonL })
+  { label: `deploy:kolečko:${k}`, phase: 'Deploy a E2E', agentType: 'dev-pipeline:deploy', schema: DEPLOY, ...M.sonM })
 
 const sestavE2E = () => runSePredavkou(`${ramec}
 

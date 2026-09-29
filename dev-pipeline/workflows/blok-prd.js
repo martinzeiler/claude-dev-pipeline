@@ -164,7 +164,7 @@ const ramec = [
   `Vizi nečti celou: přečti Proč, Cíle, Ne-cíle, body vize z řádku plánu, dotčená Povolení a Mantinely${mapa ? ` (mapa sekcí: ${mapa})` : ' (mapu sekcí dá grep -n "^## " vize)'}; ostatní jen grepem podle potřeby.`,
   'Běh je autonomní: uživatele se neptáš. Rozpor nebo chybějící rozhodnutí ve vizi zapiš do docs/vize-spory.md (formát podle pravidel běhu), rozhodni konzervativně a pokračuj.',
   'docs/handoff.md je stav orchestrátora, ne tvůj vstup: nečti ho; co máš vědět, je v tomto zadání.',
-  'Tah končí jen strukturovaným návratem. Na proces, který jsi pustil na pozadí, nečekáš ukončením tahu: počkej na něj v tomtéž tahu smyčkou s pevným počtem iterací, nebo ho ukonči.',
+  'Tah končí jen strukturovaným návratem. Na proces, který jsi pustil na pozadí, nečekáš ukončením tahu: počkej na něj v tomtéž tahu (vlastní dlouhý příkaz přes `Monitor`, vnější stav jako nasazení smyčkou s pevným počtem iterací v jednom Bash volání), nebo ho ukonči. Smyčka bez stropu iterací je zakázaná: po timeoutu se přesune na pozadí a přežije tě.',
   'Soubor, který pojmenováváš sám, pojmenuj česky podle vzoru rez-NN-<co>.md; Claude Code subagentům blokuje zápis markdownu se jmény summary, findings, analysis a report-….',
   'Tvůj finální výstup je strukturovaný návrat pro orchestrátor (schéma je vynucené), ne zpráva člověku. Do textových polí piš stručně, žádné výpisy souborů ani diffů.',
 ].join('\n')

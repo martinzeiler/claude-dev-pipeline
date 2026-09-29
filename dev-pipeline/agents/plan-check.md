@@ -42,9 +42,9 @@ If you cannot judge some part well without more context (a file you could not fi
 
 Return to the main session only:
 1. **Completeness table** — each plan item with its status and, for non-✅, the gap.
-2. **Optimality findings** — high-conviction issues where a better solution exists, with the concrete better approach.
+2. **Optimality findings** — every issue where a better solution exists, each with the concrete better approach and a conviction mark (high / medium); high first.
 3. **Intent-fit verdict** — does it genuinely solve the goal for the whole app? One clear yes/no with reasoning.
 4. **Blast radius + readiness** — what could have regressed (checked), and an explicit "ready to use: yes/no (+ what's missing)".
 5. **Open questions / missing info**, if any.
 
-Be direct and high-conviction. Do not edit any file. Do not flood with cosmetic nits; the review pipeline covers those. You focus on completeness, optimality, and intent.
+Be direct. Do not edit any file. Leave cosmetic nits to the review pipeline; you focus on completeness, optimality, and intent.

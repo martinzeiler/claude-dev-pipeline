@@ -1,6 +1,6 @@
 ---
 name: prototyp
-description: Postaví několik strukturálně různých variant jednoho návrhu, aby se dalo rozhodnout podíváním místo dohadováním - UI varianty za ?variant= uvnitř existující stránky, nebo TUI nad čistým logickým modulem. Volá se z /vize session u nové obrazovky, z fáze 1 u nového stavového automatu, nebo z fáze 3 u nového UI povrchu (neblokujícím způsobem). NEpoužívat na úpravu existující obrazovky ani na cokoli, co jde rozhodnout prózou.
+description: Postaví několik strukturálně různých variant jednoho návrhu, aby se dalo rozhodnout podíváním místo dohadováním - UI varianty za ?variant= uvnitř existující stránky, nebo TUI nad čistým logickým modulem. Volá se z /vize session u nové obrazovky nebo stavového automatu a z PRD řezu (agent prd) u nového stavového automatu; autonomní běh UI neprototypuje. NEpoužívat na úpravu existující obrazovky ani na cokoli, co jde rozhodnout prózou.
 ---
 
 # Prototyp — rozhodni podíváním, ne dohadováním
@@ -27,7 +27,7 @@ Tři až čtyři prototypy za vizi je hodně. Když jich vychází víc, chybí 
 | Podklad | `UI.md` v tomhle adresáři | `LOGIC.md` v tomhle adresáři |
 | Kdo rozhoduje | **uživatel podíváním** | **agent měřením** (uživatel jen když měření nerozhodne) |
 | Kritérium | vkus + kritéria vize | co je nereprezentovatelné, co vede do nelegálního stavu |
-| Kde se volá | `/vize`, fáze 3 | `/vize`, fáze 1 (PRD) |
+| Kde se volá | `/vize` | `/vize`, PRD řezu (agent `prd`) |
 
 Přečti si příslušný soubor a řiď se jím. Tenhle SKILL.md jen rozhoduje, která větev to je, a drží pravidla společná oběma.
 
@@ -41,8 +41,8 @@ Přečti si příslušný soubor a řiď se jím. Tenhle SKILL.md jen rozhoduje,
 
 ## Kde se prototyp v pipeline volá
 
-**A. Z `/vize` session** (výchozí pro UI). Tvar UI se rozhoduje ve vizi (viz `vize/SKILL.md`, bod 7); prototyp je nástroj pro případ, kdy próza nestačí. Uživatel je u toho, takže rozhoduje on. Verdikt se zapíše do vize a orchestrátor pak staví podle něj.
+**A. Z `/vize` session** (jediné místo pro UI). Tvar UI se rozhoduje ve vizi (viz `vize/SKILL.md`, bod 7); prototyp je nástroj pro případ, kdy próza nestačí. Uživatel je u toho, takže rozhoduje on. Verdikt se zapíše do vize a orchestrátor pak staví podle něj.
 
-**B. Z fáze 1 (PRD)** pro logiku, když PRD zavádí nový stavový automat nebo mění přechody v existujícím. Uživatel u toho není, takže rozhoduje měření: agent prožene model hraničními případy a nahlásí, co je nereprezentovatelné nebo co vede do nelegálního stavu. Tohle chytá přesně tu třídu chyby, kdy se postaví lane, která je v produkci trvale mrtvá, protože ji žádný reálný vstup neaktivuje. Výsledek jde do PRD, ne do samostatného dokumentu.
+**B. Z PRD řezu (agent `prd` v bloku PRD)** pro logiku, když PRD zavádí nový stavový automat nebo mění přechody v existujícím. Uživatel u toho není, takže rozhoduje měření: agent prožene model hraničními případy a nahlásí, co je nereprezentovatelné nebo co vede do nelegálního stavu. Tohle chytá přesně tu třídu chyby, kdy se postaví lane, která je v produkci trvale mrtvá, protože ji žádný reálný vstup neaktivuje. Výsledek jde do PRD, ne do samostatného dokumentu.
 
-**C. Z fáze 3 pro nový UI povrch — nikdy blokujícím způsobem.** Autonomní běh se nezastavuje a nečeká na uživatele. Agent postaví varianty, **sám vybere s písemným zdůvodněním proti kritériím vize**, vítěze zapojí a varianty odloží na odhoditelnou větev. Do journalu zapíše verdikt a odkaz na tu větev — uživatel se na ně může podívat v závěrečné kontrole a rozhodnout jinak. Když vize tvar UI rozhodla (což by měla), tenhle případ nenastane: prototyp v fázi 3 je pojistka pro povrch, na který vize nemyslela.
+**Autonomní běh UI neprototypuje.** Tvar každé UI plochy rozhodla vize; plochu, kterou vize nejmenuje, PRD nezavádí a orchestrátor kvůli ní běh zastaví (důvod (b) ve skillu `orchestrate`). Zkušební rozhraní uvnitř řezu je lešení za přístupovou hranicí s řádkem plánu na odstranění, ne prototyp.

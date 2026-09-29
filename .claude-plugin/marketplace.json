@@ -4,6 +4,9 @@
     "name": "Martin Zeiler",
     "email": "claude2@zeiler.cz"
   },
+  "metadata": {
+    "description": "Plugin dev-pipeline: z vize k nasazené aplikaci po řezech, autonomní běh se subagenty, review, bránou, nasazením a E2E."
+  },
   "plugins": [
     {
       "name": "dev-pipeline",

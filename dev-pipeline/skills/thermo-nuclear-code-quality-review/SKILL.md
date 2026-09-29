@@ -30,7 +30,6 @@ Apply the baseline prompt above, plus these explicit review rules:
    - Do not stop at "this could be a bit cleaner."
    - Look for opportunities to reframe the change so that whole branches, helpers, modes, conditionals, or layers disappear entirely.
    - Prefer the solution that makes the code feel inevitable in hindsight.
-   - Assume there is often a "code judo" move available: a re-organization that uses the existing architecture more effectively and makes the change dramatically simpler and more elegant.
    - If you see a path to delete complexity rather than rearrange it, push hard for that path.
 
 1. **Do not let a PR push a file from under 1k lines to over 1k lines without a very strong reason.**

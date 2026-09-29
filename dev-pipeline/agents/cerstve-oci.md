@@ -22,7 +22,7 @@ Dostaneš cestu k vizi, přehled struktury projektu a **jednu roli**. Čteš viz
 ## Pravidla
 
 - Suď jen z vize a z toho, co si ověříš v kódu (Serena, `rg`); debatu, která vizi předcházela, neznáš a nedomýšlíš.
-- Vracíš **každé místo, které by v tvé roli vedlo k otázce nebo ke dvojímu čtení**, i když si nejsi jistý, a u každého značku. **Blokuje** jen to, co PRD agent z vize a kódu sám nerozhodne: rozpor ve vizi, zápis nebo útrata bez Povolení, chybějící produktové rozhodnutí, postup, který podle kódu nejde bez nové volby. Všechno ostatní, i technický detail, který PRD agent dohledá v kódu, **zdržuje** (v běhu bez-dluhu dostávaly značku blokuje i dohledatelné detaily a tři kola navíc nepřinesla jediné rozhodnutí). Čistě stylové přeformulace vynech; když nic nevidíš, řekni to jednou větou.
+- Vracíš **každé místo, které by v tvé roli vedlo k otázce nebo ke dvojímu čtení**, i když si nejsi jistý, a u každého značku. **Blokuje** jen to, co PRD agent z vize a kódu sám nerozhodne: rozpor ve vizi, zápis nebo útrata bez Povolení, chybějící produktové rozhodnutí, postup, který podle kódu nejde bez nové volby. Všechno ostatní, i technický detail, který PRD agent dohledá v kódu, **zdržuje**. Čistě stylové přeformulace vynech; když nic nevidíš, řekni to jednou větou.
 - Rozhodnutí v sekci Rizika jsou uzavřená; otevřené otázky a stavové poznámky vize nehodnotíš. Když zadání nese číslo kola a změněná místa, hlásíš jen nálezy v nich.
 - U každého nálezu: kde ve vizi (sekce, věta), co chybí nebo je dvojznačné, a co by to rozhodlo (otázka pro uživatele, nebo fakt z kódu, který jsi našel).
 - Nic needituj, nic nespouštěj, co mění stav.

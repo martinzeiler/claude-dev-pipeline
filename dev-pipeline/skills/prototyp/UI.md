@@ -21,7 +21,7 @@ Přepínání přes query parametr:
 /nejaka/stranka?variant=c
 ```
 
-Vzor pro React Router 7 (React 19), který projekt používá:
+Vzor pro React Router 7 (když ho projekt používá; jinak stejný princip v routeru projektu):
 
 ```tsx
 import { useSearchParams } from 'react-router'
@@ -31,7 +31,7 @@ const variant = (useSearchParams()[0].get('variant') ?? 'a') as 'a' | 'b' | 'c'
 
 K tomu **plovoucí lišta** s přepínačem variant, aby se uživatel nemusel hrabat v URL: fixed dole, tři tlačítka, aktivní zvýrazněné, přepnutí přes `navigate` (ne `window.location` — ztratí se stav aplikace).
 
-**Lištu gateuj na build flag, ne na `NODE_ENV`.** Admin i portál se nasazují jako **produkční** build na Cloudflare Pages, takže podmínka `if (import.meta.env.DEV)` by lištu vypnula přesně tam, kde ji uživatel má vidět. Použij vlastní příznak, který se dá pustit i do produkčního buildu:
+**Lištu gateuj na build flag, ne na `NODE_ENV`.** Když se aplikace, na kterou se uživatel dívá, nasazuje jako **produkční** build (například na Cloudflare Pages), podmínka `if (import.meta.env.DEV)` by lištu vypnula přesně tam, kde ji uživatel má vidět. Použij vlastní příznak, který se dá pustit i do produkčního buildu:
 
 ```tsx
 if (import.meta.env.VITE_PROTOTYPE === '1') { /* lišta */ }
@@ -53,12 +53,12 @@ Ke každé variantě napiš **jednu větu**, čím se liší v rozhodnutí. Kdy�
 ## 3. Ukaž to
 
 - Každou variantu ve **dvou stavech**: s reálným plným obsahem a prázdnou. U formulářů přidej stav s chybou validace.
-- Screenshot per varianta a stav — jako subagent je vracej **popisem**, ne jako obrázek do orchestrátorova kontextu (jeden base64 screenshot je přes 100k tokenů).
+- Screenshot per varianta a stav — jako subagent je vracej **popisem**, ne jako obrázek do kontextu hlavního vlákna (jeden base64 screenshot je přes 100k tokenů).
 - Napiš uživateli **URL k proklikání**, ne jen obrázky. Rozhoduje se to interakcí.
 
 ## 4. Verdikt
 
-Ať rozhoduje uživatel (větev A) nebo agent (větev C), verdikt má vždy stejný tvar:
+Verdikt má vždy tento tvar:
 
 ```
 Vybráno: <varianta>
@@ -67,7 +67,7 @@ Bereme si z poražených: <co konkrétně a proč>
 Nerozhodnuto: <co prototyp neukázal a bude potřeba dořešit>
 ```
 
-Verdikt jde do vize (větev A) nebo do journalu + PRD (větev C). **Varianty se zahazují** — vítěz se staví znovu podle konvencí projektu, včetně testů. Kód prototypu není první verze implementace.
+Verdikt jde do vize. **Varianty se zahazují** — vítěz se staví znovu podle konvencí projektu, včetně testů. Kód prototypu není první verze implementace.
 
 ## 5. Úklid (povinný)
 

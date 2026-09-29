@@ -35,7 +35,7 @@ Místo nálezu najdi Serenou (`find_symbol`), dopad přes `find_referencing_symb
 - **Poslední várka** (zadání to řekne, po ní už review není) se opravuje zúžením: co by potřebovalo nový mechanismus nebo změnu rozhodovací logiky, vrať jako follow-up nebo rozhodnutí.
 - Bezpečnostní nález oprav celý hned, i pre-existing, a vrať `security: true`. **Necommituješ nikdy, ani bezpečnostní opravu:** pre-commit brána měří celý strom včetně rozdělané práce souběžných agentů; commit `fix(security): …` udělá krok commitu po zelené bráně podle tvých `zmenena_mista`.
 - Past ve svých souborech oprav, mimo ně vrať jako follow-up. Testy přidávej k chování do existujících souborů modulu, ne do souborů pojmenovaných po řezu.
-- **Ne-cíle vize z rámce zadání platí i pro opravy.** Oprava, která přidává, co vize zakazuje (kontrolní test nad zmrazeným souborem, nový šev v produkčním kódu, další stráž), se nedělá; nález jde do follow-upu s důvodem. V běhu uklid-po-sklik stála jedna taková oprava celý pokus navíc.
+- **Ne-cíle vize z rámce zadání platí i pro opravy.** Oprava, která přidává, co vize zakazuje (kontrolní test nad zmrazeným souborem, nový šev v produkčním kódu, další stráž), se nedělá; nález jde do follow-upu s důvodem.
 
 ## Po opravě
 

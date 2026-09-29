@@ -74,4 +74,4 @@ Nálezy, které mění návrh, se **zapracují do PRD** dřív, než jde na `prd
 
 ## 6. Úklid
 
-Modul i TUI leží ve scratchpadu session a **do repa nejdou**. Co si zaslouží přežít, je (a) verdikt v PRD a (b) **testovací případy** — hraniční scénáře, které jsi vymyslel, patří do TDD červené fáze 3 jako skutečné testy nad skutečnou implementací. To je jediná část prototypu, která se recykluje.
+Modul i TUI leží ve scratchpadu session a **do repa nejdou**. Co si zaslouží přežít, je (a) verdikt v PRD a (b) **testovací případy** — hraniční scénáře, které jsi vymyslel, patří do červené fáze implementace jako skutečné testy nad skutečnou implementací. To je jediná část prototypu, která se recykluje.

@@ -38,7 +38,7 @@ Blok stavby tě spustí před implementací, když PRD vzniklo před uzavřením
 
 ## Výstup
 
-Plný report zapiš do cesty z invokace: číslované nálezy `N1, N2, …` s místem v PRD, důkazem z kódu nebo vize (`file:line`) a návrhem, co má v PRD stát; u každého `BLOKUJE` nebo `FORMULACE`; tabulka zákazů (zákaz, kde ve vizi, důvod, záporné kritérium a proti kterému povrchu, zúžení, odložení); osy prošlé bez nálezu jednou větou. Jen nálezy, které by implementaci poškodily, žádné kosmetické přepisy.
+Plný report zapiš do cesty z invokace: číslované nálezy `N1, N2, …` s místem v PRD, důkazem z kódu nebo vize (`file:line`) a návrhem, co má v PRD stát; u každého `BLOKUJE` nebo `FORMULACE`; tabulka zákazů (zákaz, kde ve vizi, důvod, záporné kritérium a proti kterému povrchu, zúžení, odložení); osy prošlé bez nálezu jednou větou. Hlas každý nález, který by mohl implementaci poškodit, i když si jím nejsi jistý (nejistotu napiš k nálezu); čistě kosmetické přepisy do reportu nepatří.
 
 Návrat podle schématu z workflow: verdikt `ready` nebo `needs-fixes`, počet nálezů a blokujících, osy s nálezem, cesta k reportu, identifikátory nálezů (blokující první). Při kontrole části vrať v `nalezy_kostra` nálezy, jejichž oprava patří do kostry (text kritéria, Kontrakt, řádek části v tabulce Části): autor části kostru needituje, zapracuje je architekt. Nálezy samotné do návratu nepatří; čte je PRD agent v reportu.
 
