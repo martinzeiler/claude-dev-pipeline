@@ -100,7 +100,7 @@ const ramec = [
   'Běh je autonomní: uživatele se neptáš. Rozpor s vizí zapiš do docs/vize-spory.md, rozhodni konzervativně a pokračuj. Vykonáváš jen svou fázi; následné a kontrolní fáze spouští workflow.',
   'docs/handoff.md je stav orchestrátora, ne tvůj vstup: nečti ho; co máš vědět, je v tomto zadání.',
   'Tvůj finální výstup je strukturovaný návrat (schéma je vynucené). Do textových polí piš stručně; co se nevejde, napiš do souboru v docs/reviews/ a vrať cestu.',
-  'Tah končí jen strukturovaným návratem. Na proces, který jsi pustil na pozadí, nečekáš ukončením tahu: počkej na něj v tomtéž tahu (vlastní dlouhý příkaz přes `Monitor`, vnější stav jako nasazení smyčkou s pevným počtem iterací v jednom Bash volání), nebo ho ukonči. Smyčka bez stropu iterací je zakázaná: po timeoutu se přesune na pozadí a přežije tě.',
+  'Tah končí jen strukturovaným návratem. Na proces, který jsi pustil na pozadí, nečekáš ukončením tahu: počkej na něj v tomtéž tahu (vlastní dlouhý příkaz přes `Monitor`, vnější stav jako nasazení smyčkou s pevným počtem iterací), nebo ho ukonči. Jedno čekací volání trvá nejvýš 4,5 minuty: cache agenta žije 5 minut a delší pauza zapíše celý kontext znovu. Dlouhý proces kontroluj opakovaně kratšími voláními se stropem iterací, ne jednou smyčkou na 10 minut. Smyčka bez stropu je zakázaná: po timeoutu se přesune na pozadí a přežije tě.',
   // Kolečko nemá číslo řezu, vzor souboru je proto kolecko-<co>.md (jako reporty z rep()).
   'Soubor, který pojmenováváš sám, pojmenuj česky podle vzoru kolecko-<co>.md; Claude Code subagentům blokuje zápis markdownu se jmény summary, findings, analysis a report-….',
 ].filter(Boolean).join('\n')
@@ -115,9 +115,9 @@ const cestyZ = xs => cisty((xs || []).map(m => norm(S(m).trim()).split(/[\s:,;()
 const str = d => ({ type: 'string', description: d })
 const arr = d => ({ type: 'array', items: { type: 'string' }, description: d })
 const idDuvod = (d, navic) => ({ type: 'array', items: { type: 'object', required: ['id', 'duvod'], properties: { id: { type: 'string' }, duvod: { type: 'string' }, ...navic } }, description: d })
-const PREDAVKA = str('vyplň jen, když tě k tomu vyzve zpráva PŘEDÁVKA: absolutní cesta k souboru předávky; jinak nevyplňuj')
+const PREDAVKA = str('jen cesta k TVÉ předávce (docs/reviews/predavka-<tvoje agent id>.md), když tě vyzvala zpráva PŘEDÁVKA a práce ještě není hotová; když je zadání hotové, nevyplňuj; cestu předávky předchůdce sem nikdy nevracej')
 const BALICKY = { type: 'array', items: { type: 'object', required: ['soubory', 'nalezy'], properties: { soubory: arr('disjunktní množina souborů'), nalezy: arr('identifikátory nálezů z reportu'), security: { type: 'boolean' } } } }
-const THERMO = { type: 'object', required: ['blokeru', 'nalezu', 'report_path', 'soubory'], properties: { blokeru: { type: 'integer', description: 'nálezy, které rubrika označuje za blokující' }, nalezu: { type: 'integer' }, report_path: str('absolutní cesta k reportu'), soubory: arr('soubory s nálezy BLOCKER a HIGH, cesty relativní ke kořeni projektu'), souhrn: str('max 3 řádky'), predavka: PREDAVKA } }
+const THERMO = { type: 'object', required: ['blokeru', 'nalezu', 'report_path', 'soubory'], properties: { blokeru: { type: 'integer', description: 'nálezy, které rubrika označuje za blokující' }, nalezu: { type: 'integer' }, report_path: str('absolutní cesta k reportu'), soubory: arr('soubory s nálezy BLOCKER a HIGH, cesty relativní ke kořeni projektu'), napravy: { type: 'array', items: { type: 'object', required: ['id', 'soubory'], properties: { id: { type: 'string' }, soubory: arr('soubory, které náprava nálezu mění (nemusí to být soubor s nálezem), cesty relativní ke kořeni projektu') } }, description: 'jen nálezy BLOCKER a HIGH: kde leží jejich náprava' }, souhrn: str('max 3 řádky'), predavka: PREDAVKA } }
 const FIX = { type: 'object', required: ['opraveno', 'zmenena_mista', 'typecheck', 'testy_zelene'], properties: {
   opraveno: { type: 'integer' },
   odmitnuto: idDuvod('nálezy, které jsi po ověření neopravil, s důvodem', { blokuje: { type: 'boolean', description: 'nález byl BLOKUJE' } }),
@@ -159,7 +159,7 @@ const DEPLOY = { type: 'object', required: ['stav', 'commit'], properties: {
   commit: str('40 znaků: git rev-parse HEAD hned po vytvoření commitu (při stromu beze změn hash HEAD); nikdy dopočítaný ani zkrácený'),
   infra: { type: 'boolean', description: 'true = selhání mimo kód: přihlášení nebo účet CLI, oprávnění, výpadek platformy; opakování bez zásahu člověka nepomůže' },
   security_commity: arr('hashe samostatných commitů fix(security) z git rev-parse, nikdy dopočítané'),
-  health: str('doklad, že běží: status platformy + behaviorální doklad'), url: str(''), duvod: str('při failed: přesná chyba; při commit-only beze změn: „beze změn“'),
+  health: str('první řádek „aplikace: <app>@<verze nebo deployment id> nasazeno | <app> nenasazeno (<důvod z diffu>) | …“ za každou aplikaci, které se diff od báze dotkl; pak doklad, že běží: status platformy + behaviorální doklad'), url: str(''), duvod: str('při failed: přesná chyba; při commit-only beze změn: „beze změn“'),
   predavka: PREDAVKA,
 } }
 const SESTAV = { type: 'object', required: ['e2e_path', 'kriterii'], properties: { e2e_path: str('absolutní cesta k docs/e2e/kolecko.md'), kriterii: { type: 'integer' }, plochy: arr('plochy a toky, které scénáře pokrývají'), poznamka: str('co se nedalo pokrýt a proč'), predavka: PREDAVKA } }
@@ -207,12 +207,14 @@ const selhaniDeploye = (d, k, pred = '') => { sberSecurity(d); return selhani(d 
 // ---------- kroky ----------
 const thermo = () => runSePredavkou(`${ramec}
 
-Úkol: thermo-nuclear review celé větve vize (rozsah větev, base ${base}; diff si posbírej sám). Report do ${rep('thermo')}. Vrať počty, cestu a soubory s nálezy BLOCKER a HIGH (relativně ke kořeni projektu). Žádné plošné přestavby na konci vize: co je velké jako řez, označ NOTE jako kandidáta na příští vizi.`,
+Úkol: thermo-nuclear review celé větve vize (rozsah větev, base ${base}; diff si posbírej sám). Report do ${rep('thermo')}. Vrať počty, cestu, soubory s nálezy BLOCKER a HIGH a u každého takového nálezu soubory jeho nápravy v napravy (relativně ke kořeni projektu). Žádné plošné přestavby na konci vize: co je velké jako řez, označ NOTE jako kandidáta na příští vizi.`,
   { label: 'thermo:kolečko', phase: 'Thermo', agentType: 'dev-pipeline:thermo-nuclear-review', schema: THERMO, ...M.opusM })
 
+// Soubory s nálezy BLOCKER/HIGH a soubory jejich náprav: náprava strukturálního nálezu často leží jinde než nález (běh web-podzim).
+const thermoSoubory = th => cisty([...(th.soubory || []), ...(th.napravy || []).flatMap(x => (x && x.soubory) || [])].map(norm))
 const fixThermo = th => runSePredavkou(`${ramec}
 
-Úkol: oprav strukturální nálezy thermo review kolečka: ${th.report_path}. Meze: jen nálezy BLOCKER a HIGH, jen soubory ${cisty(th.soubory).join(', ') || 'z reportu'}; NOTE a plošné přestavby nech jako follow-up. Nezaváděj nové plošné mechanismy. Spouštěj jen dotčené testy a typecheck; plnou suitu nespouštěj, patří bráně. Každý nález je hypotéza: ověř proti kódu. Necommituj.`,
+Úkol: oprav strukturální nálezy thermo review kolečka: ${th.report_path}. Meze: jen nálezy BLOCKER a HIGH, jen soubory ${thermoSoubory(th).join(', ') || 'z reportu'} (soubory s nálezy a soubory jejich náprav); NOTE a plošné přestavby nech jako follow-up. Nezaváděj nové plošné mechanismy. Spouštěj jen dotčené testy a typecheck; plnou suitu nespouštěj, patří bráně. Každý nález je hypotéza: ověř proti kódu. Necommituj.`,
   { label: 'fix-thermo:kolečko', phase: 'Thermo', agentType: 'dev-pipeline:fix', schema: FIX, ...M.opusM })
 
 const review1 = () => runSePredavkou(`${ramec}
@@ -288,7 +290,7 @@ const commit = (faze, zprava, ph, secOpravy) => runSePredavkou(`${ramec}
 
 const deploy = (k, pozn, secOpravy) => runSePredavkou(`${ramec}
 
-Úkol: nasazení kolečka (běh ${k}).${bezpecnostniOpravy(secOpravy)} Nejdřív commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, čekej omezenou smyčkou s počtem iterací (žádné nekonečné while), na každém terminálním stavu skonči (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy.` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'}${appPristup ? ` Pokyny majitele k prostředí a nasazení jsou závazné a mají přednost před skripty repa (skript, který nasazuje jinam nebo jinak, než pokyny říkají, nepoužij nebo doplň o správné parametry): ${appPristup.slice(0, 1200)}.` : ''}`} Necháváš na pokoji vše, co jsi sám nezměnil: žádné git checkout --, git restore, git stash ani git clean nad cizími nebo necommitnutými soubory (guard je během běhu blokuje); formátovací kontrolu pouštěj jen nad soubory, které commituješ. Nikdy si nedomýšlej postup, který projekt nedokumentuje.${obnovaVeta('Deploy a E2E', true)}`,
+Úkol: nasazení kolečka (běh ${k}).${bezpecnostniOpravy(secOpravy)} Nejdřív commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, čekej smyčkou s pevným počtem iterací (žádné nekonečné while; jedno čekací volání nejvýš 4,5 minuty, cache agenta žije 5 minut a delší pauza zapíše celý kontext znovu, dlouhý stav kontroluj opakovaně kratšími voláními), na každém terminálním stavu skonči (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. Co nasadit, urči podle git diff --stat <báze>..HEAD -- apps packages a importů změněných balíčků, nikdy podle diffu jednoho commitu: báze je poslední commit se zprávou „zápis nasazení“ (git log --grep 'zápis nasazení' -1 --format=%H), když žádný není, git merge-base HEAD ${base}; nasaď každou aplikaci, které se diff dotkl (i tu, kterou řez nenasadil), a pole health začni řádkem „aplikace: <app>@<verze nebo deployment id> nasazeno | <app> nenasazeno (<důvod z diffu>) | …“. ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy.` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'}${appPristup ? ` Pokyny majitele k prostředí a nasazení jsou závazné a mají přednost před skripty repa (skript, který nasazuje jinam nebo jinak, než pokyny říkají, nepoužij nebo doplň o správné parametry): ${appPristup.slice(0, 1200)}.` : ''}`} Necháváš na pokoji vše, co jsi sám nezměnil: žádné git checkout --, git restore, git stash ani git clean nad cizími nebo necommitnutými soubory (guard je během běhu blokuje); formátovací kontrolu pouštěj jen nad soubory, které commituješ. Nikdy si nedomýšlej postup, který projekt nedokumentuje.${obnovaVeta('Deploy a E2E', true)}`,
   { label: `deploy:kolečko:${k}`, phase: 'Deploy a E2E', agentType: 'dev-pipeline:deploy', schema: DEPLOY, ...M.sonM })
 
 const sestavE2E = () => runSePredavkou(`${ramec}
@@ -339,6 +341,8 @@ function sluc(balicky) {
 }
 async function vlna(faze, ph, zprava, balicky) {
   if (!balicky.length) { log(`${faze}: žádný balíček k opravě, brána a commit se vynechávají`); return { ok: true, fixAgentu: 0 } }
+  // Nejdelší balíček první: při stropu souběhu Workflow se dlouhý fix agent nesmí řadit na konec dávky (běh web-podzim).
+  balicky = [...balicky].sort((x, y) => y.soubory.length - x.soubory.length)
   const vysledky = await parallel(balicky.map((b, i) => () => fixBalicek(faze, b.zdroje, b, i)))
   const opravy = vysledky.filter(Boolean)
   opravy.forEach(sber)
@@ -384,8 +388,8 @@ const th = await thermo()
 if (!th) return selhani('thermo', nic('thermo:kolečko', 'thermo agent'))
 st.reports.push(th.report_path)
 st.thermo = { nalezu: th.nalezu, blokeru: th.blokeru, opraveno: 0 }
-log(`thermo: ${th.nalezu} nálezů, ${th.blokeru} blokujících, soubory BLOCKER/HIGH: ${cisty(th.soubory).length}`)
-if (cisty(th.soubory).length) {
+log(`thermo: ${th.nalezu} nálezů, ${th.blokeru} blokujících, soubory BLOCKER/HIGH a jejich náprav: ${thermoSoubory(th).length}`)
+if (thermoSoubory(th).length) {
   const f = await fixThermo(th); sber(f)
   if (f) {
     st.thermo.opraveno = f.opraveno

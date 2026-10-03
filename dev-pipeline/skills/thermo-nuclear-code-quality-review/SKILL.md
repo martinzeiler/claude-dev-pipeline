@@ -165,7 +165,7 @@ Prioritize findings in this order:
 6. Modularity and abstraction issues
 7. Legibility and maintainability concerns
 
-List lower-value nits after the structural findings, marked as such, rather than dropping them.
+List lower-value nits after the structural findings as a short list, one line each, at most about ten; count the rest in one line rather than dropping them.
 
 ## Approval Bar
 

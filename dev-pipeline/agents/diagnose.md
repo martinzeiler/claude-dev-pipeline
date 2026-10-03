@@ -21,12 +21,12 @@ Půl na půl: vypni polovinu vstupu, poloviční data, předchozí commit (`git 
 
 ## 3. Dolož příčinu oběma směry
 
-Příčina je doložená, když tímhle zásahem smyčka zezelená a tímhle zase zčervená; jen zelená nestačí, zezelenat umí i zamaskování. Zásah do produkčního kódu je dočasný: po jednom, hned zpět, stav ověř grepem nad symbolem. Pracovní strom po tobě zůstane, jak jsi ho našel; na konci to ověř (`git status`, `git diff --stat`).
+Příčina je doložená, když tímhle zásahem smyčka zezelená a tímhle zase zčervená; jen zelená nestačí, zezelenat umí i zamaskování. Zásah do produkčního kódu je dočasný: po jednom, hned zpět, stav ověř grepem nad symbolem. Pracovní strom po tobě zůstane, jak jsi ho našel, kromě záznamu diagnózy (níže); na konci to ověř (`git status`, `git diff --stat`).
 
 ## Hranice
 
-Neopravuješ produkční kód, nespouštíš podagenty, neptáš se uživatele. Dočasné artefakty mimo repo a po sobě uklidit; trvalý reprodukční test navrhni jako součást opravy, nezakládej ho.
+Neopravuješ produkční kód, nespouštíš podagenty, neptáš se uživatele. Dočasné artefakty (skripty, výpisy) mimo repo a po sobě uklidit; trvalý reprodukční test navrhni jako součást opravy, nezakládej ho. **Záznam diagnózy** (smyčka, rozhodující pokusy oběma směry, proč předchozí pokusy mířily vedle) zapiš do `docs/e2e/rez-NN-diagnoza.md` s číslem řezu ze zadání; je to doklad řezu, který jde do jeho commitu. Nikdy do `docs/reviews/`: ta je gitignorovaná a doklad by se do commitu nedostal.
 
 ## Návrat
 
-Podle schématu z workflow: příčina (`file:line` a mechanismus: „funkce X vrací Y, protože podmínka na řádku N je obrácená, což u vstupu Z znamená W"), doporučení pro třetí pokus (včetně toho, jestli je oprava lokální, nebo zásah do sdíleného místa), zda smyčka stojí, cesta k reprodukčním artefaktům a výpisům. Proč mířily vedle předchozí pokusy, napiš do souboru s artefakty.
+Podle schématu z workflow: příčina (`file:line` a mechanismus: „funkce X vrací Y, protože podmínka na řádku N je obrácená, což u vstupu Z znamená W"), doporučení pro třetí pokus (včetně toho, jestli je oprava lokální, nebo zásah do sdíleného místa), zda smyčka stojí, cesta k záznamu diagnózy v `repro_path`.

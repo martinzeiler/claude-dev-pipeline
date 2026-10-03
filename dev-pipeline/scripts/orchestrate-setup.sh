@@ -12,7 +12,8 @@
 #   6. všechno (gitignore, vize, archiv, stavové soubory) commitne JEDNÍM commitem: projekty s pomalou
 #      pre-commit bránou platí bránu jednou, ne čtyřikrát,
 #   7. vypíše mapu sekcí vize (řádky) pro orchestrátora, stav nastavení Claude Code, na kterém běh závisí
-#      (autoContinueAtUsageLimit; autocompact jen jako doporučení; do ~/.claude nezapisuje, jen hlásí), a varování o velikosti souborů.
+#      (autoContinueAtUsageLimit, zápis do ~/dev-pipeline-feedback.md ze sandboxu; autocompact jen jako informace,
+#      varuje nad 400k; do ~/.claude nezapisuje, jen hlásí), a varování o velikosti souborů.
 # Návratové kódy: 0 ok · 2 chybí předpoklad (zpráva na stderr) · 3 vize nemá sekci Plán řezů.
 set -uo pipefail
 
@@ -33,6 +34,8 @@ sess_file="docs/.orchestrator-session"
 [ -f "$sess_file" ] || die "chybí $sess_file: /dev-pipeline:orchestrate musí uživatel napsat jako prompt (hook si z něj uloží session_id); spuštěno jinak se běh nemá čeho chytit"
 sid=$(jq -r '.session_id // empty' "$sess_file" 2>/dev/null)
 [ -n "$sid" ] || die "$sess_file neobsahuje session_id"
+# příkazová řádka procesu claude (zapisuje hook prompt-submit.sh; hook běží mimo sandbox, setup v Bash sandboxu ps nevidí)
+claude_args=$(jq -r '.claude_args // empty' "$sess_file" 2>/dev/null)
 
 # 2. čistý strom (vize, .gitignore, markery a stavové soubory běhu smí být rozpracované), pak gitignore a vize do indexu
 dirty=$(git status --porcelain --untracked-files=all | grep -v -E ' docs/(\.orchestrator-session|\.orchestrator-run|\.vize-done|\.review-passed|\.deploy-unlocked|\.verify-passed|\.kontext\.jsonl|\.run-args\.json|\.stavba-[^/]*\.json|reviews/)' \
@@ -191,27 +194,36 @@ awk '/^## /{ if (h != "") vypis(st, NR - 1, h); st = NR; h = $0 } END { if (h !=
 # nastavení Claude Code, na kterém běh závisí: jen kontrola a výpis, skript do ~/.claude nezapisuje
 cfgdir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; sfile="$cfgdir/settings.json"; chybi=""
 if [ "$(jq -r '.autoContinueAtUsageLimit // empty' "$sfile" 2>/dev/null)" = "true" ]; then echo "nastavení: autoContinueAtUsageLimit: true"
-else echo "nastavení: autoContinueAtUsageLimit CHYBÍ (Workflow po usage limitu nepokračuje): do $sfile přidej \"autoContinueAtUsageLimit\": true"; chybi="$chybi autoContinueAtUsageLimit"; fi
-# Autocompact je jen doporučení, ne chybějící nastavení (výchozí chování Claude Code odpovídá ~400k; v CK-Go2 ani v bez-dluhu
-# nastavené nebylo a setup zbytečně hlásil CHYBÍ). Orchestrátor má běžet s --autocompact 330k: compact kolem 300 k, nad
-# ~300 k pracuje hůř (analýza bez-dluhu 6.7). Zdroj: přepínač procesu claude, který setup spustil (CLAUDE_PID), env, settings.
+else echo "nastavení: autoContinueAtUsageLimit CHYBÍ (Workflow po usage limitu nepokračuje): do $sfile přidej \"autoContinueAtUsageLimit\": true"; chybi="$chybi;autoContinueAtUsageLimit"; fi
+# Zápis do feedback souboru: sandbox může zapínat i projekt (.claude/settings.local.json) a user settings pak allowWrite
+# nemají; setup běží v témže sandboxu jako orchestrátor, takže zkušební zápis měří přesně to, co orchestrátor potká.
+fb="$HOME/dev-pipeline-feedback.md"
+if [ -e "$fb" ]; then { : >> "$fb"; } 2>/dev/null; fbrc=$?
+else { : >> "$fb"; } 2>/dev/null; fbrc=$?; [ "$fbrc" = 0 ] && rm -f "$fb"; fi
+if [ "$fbrc" = 0 ]; then echo "nastavení: zápis do ~/dev-pipeline-feedback.md funguje"
+else echo "nastavení: zápis do ~/dev-pipeline-feedback.md SELHAL (sandbox bez allowWrite): přidej \"~/dev-pipeline-feedback.md\" do sandbox.filesystem.allowWrite v nastavení, které sandbox zapíná"; chybi="$chybi;zápis do ~/dev-pipeline-feedback.md (sandbox bez allowWrite)"; fi
+# Autocompact je jen informace, ne chybějící nastavení. Orchestrátor běží s --autocompact 400k: compact kolem 370 k
+# proběhl za celý běh dvakrát bez ztráty a stav je na disku; varuje se jen nad 400k. Zdroj: příkazová řádka procesu claude
+# z docs/.orchestrator-session (hook), přepínač procesu podle CLAUDE_PID (bez sandboxu), env, settings.
 ac=""; acz=""
-if [ -n "${CLAUDE_PID:-}" ]; then
-  ac=$(ps -o args= -p "$CLAUDE_PID" 2>/dev/null | sed -nE 's/.*--autocompact[= ]+([0-9]+[kK]?).*/\1/p')
+ac_z() { printf '%s' "$1" | sed -nE 's/.*--autocompact[= ]+([0-9]+[kK]?).*/\1/p'; }
+if [ -n "$claude_args" ]; then ac=$(ac_z "$claude_args"); [ -n "$ac" ] && acz="claude --autocompact"; fi
+if [ -z "$ac" ] && [ -n "${CLAUDE_PID:-}" ]; then
+  ac=$(ac_z "$(ps -o args= -p "$CLAUDE_PID" 2>/dev/null)")
   [ -n "$ac" ] && acz="claude --autocompact"
 fi
 if [ -z "$ac" ] && [ -n "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" ]; then ac=$CLAUDE_CODE_AUTO_COMPACT_WINDOW; acz="env CLAUDE_CODE_AUTO_COMPACT_WINDOW"; fi
 if [ -z "$ac" ]; then ac=$(jq -r '.autoCompactWindow // empty' "$sfile" 2>/dev/null); [ -n "$ac" ] && acz="settings autoCompactWindow"; fi
 acn=${ac%[kK]}; case "$acn" in ''|*[!0-9]*) acn="" ;; esac
 [ -n "$acn" ] && [ "$acn" != "$ac" ] && acn=$((acn * 1000))
-if [ -z "$acn" ]; then echo "nastavení: autocompact nezjištěn (claude --autocompact se nedá přečíst); doporučeno 330k"
-elif [ "$acn" -gt 330000 ]; then echo "nastavení: autocompact $ac ($acz); doporučeno 330k (compact kolem 300 k)"
+if [ -z "$acn" ]; then echo "nastavení: autocompact nezjištěn"
+elif [ "$acn" -gt 400000 ]; then echo "nastavení: autocompact $ac ($acz) je nad 400k: orchestrátor spouštěj s claude --autocompact 400k"
 else echo "nastavení: autocompact $ac ($acz)"; fi
-[ -n "$chybi" ] && echo "nastaveni_chybi:$chybi"
+[ -n "$chybi" ] && echo "nastaveni_chybi: $(printf '%s' "${chybi#;}" | sed 's/;/; /g')"
 
 # varování
 vsize=$(wc -c < "$vize_abs" | tr -d ' ')
-[ "$vsize" -gt 122880 ] && echo "varování: vize má $vsize B, strop těla je ~120 kB (40k tokenů)"
+[ "$vsize" -gt 87040 ] && echo "varování: vize má $vsize B, strop těla je 40k tokenů, u české vize ~85 kB (čeština má ~0,47 tokenu na bajt)"
 if [ -f CLAUDE.md ]; then
   cl=$(wc -l < CLAUDE.md | tr -d ' '); cb=$(wc -c < CLAUDE.md | tr -d ' ')
   { [ "$cl" -gt 400 ] || [ "$cb" -gt 20480 ]; } && echo "varování: CLAUDE.md projektu má $cl řádků a $cb B (doporučený strop 400 řádků a ~20 kB), každý agent ho nese v preambuli; historie a stavy patří do docs/"

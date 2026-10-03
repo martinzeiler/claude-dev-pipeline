@@ -95,11 +95,15 @@ spoustene() {
     -e 's/^((sudo|env|time|nice|nohup|command|exec|do|then|else|if|while|until)[[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)+//' \
     -e 's/^(npx|bunx|pnpm|npm|yarn)([[:space:]]+(-C|--dir|--filter|-F|--prefix)[[:space:]]+[^[:space:]]+|[[:space:]]+-[^[:space:]]*)*([[:space:]]+(exec|dlx|x))?([[:space:]]+--)?[[:space:]]+//'
 }
+# `--dry-run` nic nenasazuje (wrangler deploy --dry-run jen sestaví bundle): do 1.5.0 ho gate blokoval a code-review
+# řezu 02 v běhu web-podzim kontrolu bundlu vynechal.
+SUCHY='(^|[[:space:]])--dry-run([[:space:]=]|$)'
 je_deploy() {
   if printf '%s' "$1" | grep -Eq '(^|[;&|({[:space:]])((ba|z)?sh[[:space:]]+-[A-Za-z]*c|eval)[[:space:]]'; then
-    printf '%s' "$1" | grep -Eq "(railway[[:space:]]+up|wrangler[[:space:]]+(pages[[:space:]]+)?deploy)([[:space:]\"']|$)" && return 0
+    printf '%s' "$1" | grep -Eo "(railway[[:space:]]+up|wrangler[[:space:]]+(pages[[:space:]]+)?deploy)([[:space:]\"']|$)[^;&|\"']*" \
+      | grep -Evq -- "$SUCHY" && return 0
   fi
-  spoustene "$1" | grep -Eq "$DEPLOY_RE"
+  spoustene "$1" | grep -E "$DEPLOY_RE" | grep -Evq -- "$SUCHY"
 }
 if [ -n "$proj" ] && [ -f "$proj/docs/.orchestrator-run" ]; then
   if je_deploy "$cmd"; then

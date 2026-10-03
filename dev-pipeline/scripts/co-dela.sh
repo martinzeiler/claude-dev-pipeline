@@ -16,6 +16,7 @@
 #     stavový soubor <session>/workflows/<wf>.json vzniká až při doběhnutí (status completed|failed|killed),
 #     takže Workflow bez stavového souboru běží; živý agent = POSLEDNÍ started daného key bez result/failed
 #     (stall watchdog restartuje agenta se stejným key a novým agentId; starý started bez result není živý agent).
+#     Restarty (po stallu a po usage limitu) se ukazují u běžícího i doběhlého bloku s odhadem ztraceného času.
 #     Obnova přes resumeFromRunId píše do téhož journalu a stavový soubor přerušeného běhu přepíše až při doběhnutí:
 #     journal o víc než 5 s novější než stavový soubor = obnovený běh, který běží.
 #   Labely agentů podle spec 1.4.0 § 1.1 (části, kontrakt, integrace, oprava, nástupce po předávce :nN) se vypisují
@@ -278,6 +279,52 @@ def predavky_bloku(st):
     logs = st.get("logs") if isinstance(st.get("logs"), list) else []
     return sum(1 for l in logs if isinstance(l, str) and re.search(r": (předávka \d+/\d+|\d+\. předávka)", l))
 
+# ---------- restarty agentů (stall watchdog, usage limit) ----------
+# Claude Code restartuje agenta, který dlouho nedostal odpověď modelu (stall), a agenta přerušeného usage limitem; nový
+# pokus má stejný key a nové agentId a začíná od nuly. Běžící blok: pokusy z journalu, časy ze vzniku transkriptů (journal
+# časy nenese); pokus, jehož transkript končí syntetickou odpovědí (model <synthetic>), skončil na limitu. Doběhlý blok:
+# řádky logu „[stall] agent "<label>" stalled … after Ns“ (N = jak dlouho přerušený pokus běžel) a lastAttemptReason throttled.
+STALL_LOG = re.compile(r'\[stall\] agent "([^"]+)" stalled.*?after (\d+)s')
+
+def restarty_bezici(d, poradi):
+    pokusy = {}
+    for e in poradi:
+        pokusy.setdefault(e.get("key") or e.get("agentId"), []).append(e)
+    r = {"stall": 0, "limit": 0, "ztrata": 0.0, "posledni": None}
+    for xs in pokusy.values():
+        for a, b in zip(xs, xs[1:]):
+            pa = os.path.join(d, f"agent-{a.get('agentId')}.jsonl")
+            ta, tb = birth(pa), birth(os.path.join(d, f"agent-{b.get('agentId')}.jsonl"))
+            rec = last_record(pa)
+            limit = bool(rec) and (rec.get("message") or {}).get("model") == "<synthetic>"
+            if limit:
+                r["limit"] += 1
+            else:
+                r["stall"] += 1
+                if ta and tb and tb > ta:
+                    r["ztrata"] += tb - ta
+            if tb and (r["posledni"] is None or tb > r["posledni"][0]):
+                r["posledni"] = (tb, b.get("label") or "")
+    return r
+
+def restarty_hotove(st):
+    logs = st.get("logs") if isinstance(st.get("logs"), list) else []
+    stall = [int(m.group(2)) for m in (STALL_LOG.search(l) for l in logs if isinstance(l, str)) if m]
+    prog = st.get("workflowProgress") if isinstance(st.get("workflowProgress"), list) else []
+    limit = sum(1 for x in prog if isinstance(x, dict) and x.get("lastAttemptReason") == "throttled")
+    return {"stall": len(stall), "limit": limit, "ztrata": float(sum(stall)), "posledni": None}
+
+def restarty_text(r, s_casem=True):
+    kusy = []
+    if r["stall"]:
+        t = f"restartů po stallu {r['stall']} (ztráta {doba(r['ztrata'])}"
+        if s_casem and r["posledni"]:
+            t += f", poslední {local_hm(r['posledni'][0])} {one_line(citelny(r['posledni'][1]), 40)}"
+        kusy.append(t + ")")
+    if r["limit"]:
+        kusy.append(f"po limitu {r['limit']}")
+    return " · ".join(kusy)
+
 # ---------- kontext běhu z handoffu (jen když běží v cwd projektu; jinak degraduje) ----------
 def handoff_info():
     txt = read_text(os.path.join(os.getcwd(), "docs", "handoff.md"))
@@ -463,7 +510,7 @@ for d in sorted(glob.glob(os.path.join(sess, "subagents", "workflows", "wf_*")))
     kola = len({l for l in labels if re.match(r"review:řez\s*[0-9a-z]+:2", l)})
     hotove = [f"{p} 2 kola" if p == "Review" and kola else p for p in done_phases]
     pokusy = [int(m.group(1)) for m in (POKUS.match(l) for l in labels) if m]
-    restarty = len(poradi) - len(by_key)
+    restarty = restarty_bezici(d, poradi)
     running.append({
         "wf": wf, "name": name, "rez": rez, "start": start, "hotovo": len(done), "live": live,
         "faze": faze, "cur": cur, "faze_start": faze_start, "hotove_faze": hotove, "pokus": max(pokusy) if pokusy else None,
@@ -525,7 +572,8 @@ def vysledek_bloku(st):
         extra.append(f"pokus {res['pokusy']}")
     if res.get("kriteria"):
         extra.append(f"{res['kriteria']} kritérií")
-    return f"✓ {jmeno} {detail}".rstrip() + (f" ({', '.join(extra)})" if extra else "")
+    rt = restarty_text(restarty_hotove(st), s_casem=False)
+    return f"✓ {jmeno} {detail}".rstrip() + (f" ({', '.join(extra)})" if extra else "") + (f" · {rt}" if rt else "")
 
 def agent_line(a, indent):
     hlava = f"{indent}{a['label']}"
@@ -559,8 +607,9 @@ for w in running:
         hl += f" · fáze {idx}{w['cur']} ({doba(now - w['faze_start'])})"
     if w["hotove_faze"]:
         hl += f" · hotové: {', '.join(w['hotove_faze'])}"
-    if w["restarty"]:
-        hl += f" · restartů po stallu {w['restarty']}"
+    rt = restarty_text(w["restarty"])
+    if rt:
+        hl += f" · {rt}"
     if w["predavky"]:
         hl += f" · předávek {w['predavky']}"
     out.append(hl)

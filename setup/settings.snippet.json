@@ -1,5 +1,5 @@
 {
-  "_komentar": "Výřez ~/.claude/settings.json pro dev-pipeline. Slouč se svým nastavením (klíče se přidávají, nic se nemaže). Cesty musí být absolutní: nahraď /Users/<user>. autoCompactWindow = práh automatického compactu session i jejích subagentů (totéž co /autocompact 330k): orchestrátor se zkompaktuje kolem 300k, subagenty běhu předá nástupci hlídač kontextu dřív. sandbox.filesystem.allowWrite platí jen se zapnutým sandboxem: ~/.claude je chráněná cesta, proto feedback soubor leží v domovském adresáři. Sekce _komentar smaž.",
+  "_komentar": "Výřez ~/.claude/settings.json pro dev-pipeline. Slouč se svým nastavením (klíče se přidávají, nic se nemaže). Cesty musí být absolutní: nahraď /Users/<user>. autoCompactWindow = práh automatického compactu session i jejích subagentů (totéž co /autocompact 400k): orchestrátor se zkompaktuje kolem 370k, subagenty běhu předá nástupci hlídač kontextu dřív. sandbox.filesystem.allowWrite platí jen se zapnutým sandboxem, ale sandbox může zapnout i projekt (.claude/settings.local.json), proto ho sem dej vždy: ~/.claude je chráněná cesta, feedback soubor proto leží v domovském adresáři. Strop souběžných agentů jednoho Workflow (výchozí jádra − 2, na 8 jádrech 6) nastav v profilu shellu: export CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS=8. Push na telefon chodí jen se zapnutým Remote Control (bez něj Claude Code hlásí „Mobile push not sent“). Sekce _komentar smaž.",
   "extraKnownMarketplaces": {
     "claude-dev-pipeline": {
       "source": { "source": "directory", "path": "/Users/<user>/claude-dev-pipeline" }
@@ -11,7 +11,7 @@
     "claude-security@claude-plugins-official": true
   },
   "autoContinueAtUsageLimit": true,
-  "autoCompactWindow": 330000,
+  "autoCompactWindow": 400000,
   "sandbox": { "filesystem": { "allowWrite": ["~/dev-pipeline-feedback.md"] } },
   "agentPushNotifEnabled": true,
   "hooks": {

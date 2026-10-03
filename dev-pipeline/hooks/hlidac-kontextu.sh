@@ -73,6 +73,13 @@ if [ -z "$udalost" ]; then
   elif [ "$f100" = 1 ] && [ $((max - zap)) -ge 25000 ]; then udalost=mereni
   fi
 fi
+# Strukturovaný návrat je poslední krok agenta: práh překročený až jím není důvod k předávce ani událost prahu, jen měření
+# (v běhu web-podzim 5 falešných „mekky“, agent byl hotový; 1.5.0).
+if [ "$tool" = StructuredOutput ]; then
+  case "$udalost" in tvrdy|mekky)
+    if [ "$f100" != 1 ] || [ $((max - zap)) -ge 25000 ]; then udalost=mereni; else udalost=""; fi ;;
+  esac
+fi
 case "$udalost" in tvrdy) ft=1; fm=1; f100=1 ;; mekky) fm=1; f100=1 ;; mereni) f100=1 ;; esac
 if [ -n "$udalost" ]; then
   zap=$max; zmena=1
@@ -89,8 +96,9 @@ case "$t" in */subagents/workflows/*) ;; *) exit 0 ;; esac
 
 P="$proj/docs/reviews/predavka-$aid.md"
 BODY="1. zadání jednou větou; 2. co je hotové a čím je to ověřené (příkaz, test); 3. co zbývá, v pořadí, jak bys pokračoval; 4. zjištění, která nástupce potřebuje (soubory, symboly, pasti, užitečné příkazy); 5. rozdělané soubory a stav testů a typechecku; 6. všechno, co patří do tvého strukturovaného návratu (follow-upy, odchylky, nálezy, počty), aby ho nástupce mohl vrátit za celé zadání."
-if [ "$ev" = "PostToolUse" ] && [ "$ctx" -ge "$MEKKY" ]; then
-  jq -cn --arg z "PŘEDÁVKA: tuhle práci dokončí nástupce se stejným zadáním. Dokonči jen rozdělaný krok (dopiš rozepsanou změnu a nech projít její test; strom nenechávej rozbitý), nic nového nezačínej. Pak zapiš předávku do $P: $BODY Pak ukonči práci strukturovaným návratem: pole predavka = $P, ostatní povinná pole vyplň podle skutečného stavu (stav: castecne, když ho schéma má)." \
+if [ "$ev" = "PostToolUse" ] && [ "$ctx" -ge "$MEKKY" ] && [ "$tool" != StructuredOutput ]; then
+  # Hotový agent nepředává: 6 předávek v běhu web-podzim neslo „nic nezbývá“ a nástupce jen vracel návrat (1.5.0).
+  jq -cn --arg z "PŘEDÁVKA: Když je celé zadání už hotové a zbývá jen návrat, vrať normální návrat bez předávky (pole predavka nevyplňuj). Jinak tuhle práci dokončí nástupce se stejným zadáním. Dokonči jen rozdělaný krok (dopiš rozepsanou změnu a nech projít její test; strom nenechávej rozbitý), nic nového nezačínej. Pak zapiš předávku do $P: $BODY Pak ukonči práci strukturovaným návratem: pole predavka = $P, ostatní povinná pole vyplň podle skutečného stavu (stav: castecne, když ho schéma má)." \
     '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$z}}'
 elif [ "$ev" = "PreToolUse" ] && [ "$ctx" -ge "$TVRDY" ]; then
   # Projde jen strukturovaný návrat a práce se souborem předávky (cesta i relativně: agent ji mohl zkrátit).
@@ -99,7 +107,7 @@ elif [ "$ev" = "PreToolUse" ] && [ "$ctx" -ge "$TVRDY" ]; then
     Write|Edit|MultiEdit|Read) case "$fp" in "$P"|*/docs/reviews/"predavka-$aid.md"|docs/reviews/"predavka-$aid.md") exit 0 ;; esac ;;
     Bash) [ "$bash_predavka" = true ] && exit 0 ;;
   esac
-  jq -cn --arg r "PŘEDÁVKA je povinná: jediné povolené kroky jsou zápis předávky do $P a strukturovaný návrat s polem predavka = $P. Předávka: $BODY" \
+  jq -cn --arg r "PŘEDÁVKA je povinná: jediné povolené kroky jsou zápis předávky do $P a strukturovaný návrat s polem predavka = $P (když je zadání už hotové, stačí strukturovaný návrat bez předávky). Předávka: $BODY" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
 fi
 exit 0

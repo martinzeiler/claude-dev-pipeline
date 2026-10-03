@@ -30,7 +30,7 @@ if have claude; then
   # v běhu bez-dluhu (2.1.280) na něm stál celý běh 40 minut. Od 2.1.281 ho po 2 min sám zamítne.
   if [ -n "$v" ] && [ "$(printf '%s\n2.1.281\n' "$v" | sort -V | head -1)" = "2.1.281" ]; then OK "Claude Code $v ≥ 2.1.281 (autoContinueAtUsageLimit, statusLine.refreshInterval, dotaz na mazání s limitem 2 min)"
   else WARN "Claude Code ${v:-?} < 2.1.281: dotaz na mazání (rm s nechráněnou proměnnou) čeká v bypassPermissions bez časového limitu a zastaví běh; aktualizuj (claude update)"; fi
-  claude --help 2>/dev/null | grep -q -- '--autocompact' && OK "claude --autocompact k dispozici (orchestrátor spouštěj s --autocompact 330k)" || WARN "claude --autocompact není v --help; použij /autocompact 330k v session"
+  claude --help 2>/dev/null | grep -q -- '--autocompact' && OK "claude --autocompact k dispozici (orchestrátor spouštěj s --autocompact 400k)" || WARN "claude --autocompact není v --help; použij /autocompact 400k v session"
 fi
 
 echo "== Serena"
@@ -53,14 +53,16 @@ if [ -f "$settings" ]; then
   jq -e '.extraKnownMarketplaces["claude-dev-pipeline"]' "$settings" >/dev/null 2>&1 && OK "marketplace claude-dev-pipeline: $(jq -r '.extraKnownMarketplaces["claude-dev-pipeline"].source.path' "$settings")" || FAIL "marketplace claude-dev-pipeline chybí v settings.json"
   [ "$(jq -r '.enabledPlugins["dev-pipeline@claude-dev-pipeline"]' "$settings")" = "true" ] && OK "plugin dev-pipeline zapnutý" || FAIL "plugin dev-pipeline není zapnutý (claude plugin install dev-pipeline@claude-dev-pipeline)"
   [ "$(jq -r '.autoContinueAtUsageLimit' "$settings")" = "true" ] && OK "autoContinueAtUsageLimit: true" || FAIL "autoContinueAtUsageLimit není true (Workflow po usage limitu nepokračuje)"
-  # Doporučeno 330k: compact orchestrátora kolem 300 k, nad ~300 k pracuje hůř (analýza bez-dluhu 6.7).
+  # Doporučeno 400k: compact orchestrátora kolem 370 k proběhl v běhu bez ztráty, stav je na disku; subagenty běhu
+  # předá nástupci hlídač kontextu dřív. Varuje se jen nad 400k nebo bez hodnoty.
   acw=$(jq -r '.autoCompactWindow // empty' "$settings")
-  if [ -z "$acw" ]; then WARN "autoCompactWindow chybí (doporučeno 330k: orchestrátor spouštěj s claude --autocompact 330k, nebo natrvalo /autocompact 330k v session)"
-  elif [ "$acw" -gt 330000 ] 2>/dev/null; then WARN "autoCompactWindow: $acw, doporučeno 330000 (/autocompact 330k; compact kolem 300 k)"
+  if [ -z "$acw" ]; then WARN "autoCompactWindow chybí (doporučeno 400k: orchestrátor spouštěj s claude --autocompact 400k, nebo natrvalo /autocompact 400k v session)"
+  elif [ "$acw" -gt 400000 ] 2>/dev/null; then WARN "autoCompactWindow: $acw, doporučeno nejvýš 400000 (/autocompact 400k)"
   else OK "autoCompactWindow: $acw"; fi
-  if [ "$(jq -r '.sandbox.enabled // empty' "$settings")" = "true" ]; then
-    jq -e '.sandbox.filesystem.allowWrite // [] | index("~/dev-pipeline-feedback.md")' "$settings" >/dev/null 2>&1 && OK "sandbox: ~/dev-pipeline-feedback.md v allowWrite" || WARN "sandbox je zapnutý a ~/dev-pipeline-feedback.md není v sandbox.filesystem.allowWrite (orchestrátor nezapíše nálezy o pipeline)"
-  fi
+  # allowWrite vždy: sandbox může zapínat i projekt (.claude/settings.local.json), user settings pak sandbox.enabled nemají
+  # a zápis orchestrátora do feedback souboru přesto selže.
+  if jq -e '.sandbox.filesystem.allowWrite // [] | index("~/dev-pipeline-feedback.md")' "$settings" >/dev/null 2>&1; then OK "sandbox: ~/dev-pipeline-feedback.md v allowWrite"
+  else WARN "~/dev-pipeline-feedback.md není v sandbox.filesystem.allowWrite (sandbox může zapnout i projekt; orchestrátor pak nezapíše nálezy o pipeline, setup běhu to ohlásí)"; fi
   [ "$(jq -r '.enabledPlugins["context7@claude-plugins-official"]' "$settings")" = "true" ] && OK "plugin context7 zapnutý" || WARN "plugin context7 není zapnutý (implement agent bez aktuální dokumentace knihoven)"
   [ "$(jq -r '.enabledPlugins["claude-security@claude-plugins-official"]' "$settings")" = "true" ] && OK "plugin claude-security zapnutý (sken jen na vyžádání)" || WARN "plugin claude-security není zapnutý (volitelný)"
   if jq -e '.statusLine' "$settings" >/dev/null 2>&1; then
@@ -69,6 +71,17 @@ if [ -f "$settings" ]; then
   else WARN "statusLine není nastavená (volitelné: setup/statusline.sh)"; fi
   [ -f "$HOME/.claude/statusline.sh" ] && grep -q 'co-dela.sh' "$HOME/.claude/statusline.sh" && OK "~/.claude/statusline.sh volá co-dela.sh --status" || WARN "~/.claude/statusline.sh nevolá co-dela.sh (volitelné)"
 else FAIL "$settings neexistuje"; fi
+# Strop souběhu agentů jednoho Workflow: Claude Code pouští najednou nejvýš min(16, jádra − 2) agentů, zbytek čeká ve frontě
+# (review a thermo po částech mají 9–17 agentů). Proměnná ho přepíše; agenti myslí na serverech, těžké příkazy řadí fronta pluginu.
+jadra=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo "?")
+wfmax=${CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS:-}
+case "$jadra" in ''|*[!0-9]*) vychozi="jádra − 2" ;; *) vychozi=$(( jadra - 2 < 2 ? 2 : (jadra - 2 > 16 ? 16 : jadra - 2) )) ;; esac
+case "$wfmax" in
+  '') WARN "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS není nastavená: Workflow pustí najednou nejvýš $vychozi agentů (jádra − 2, strop 16), zbytek review a částí čeká ve frontě (export CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS=8 v profilu shellu)" ;;
+  *[!0-9]*) WARN "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS=$wfmax není číslo" ;;
+  *) if [ "$wfmax" -ge 8 ]; then OK "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS=$wfmax (strop souběhu agentů jednoho Workflow)"
+     else WARN "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS=$wfmax: pod 8 čeká review a thermo po částech ve frontě (doporučeno 8)"; fi ;;
+esac
 case "${ANTHROPIC_SMALL_FAST_MODEL:-}" in
   claude-sonnet-*) OK "ANTHROPIC_SMALL_FAST_MODEL=$ANTHROPIC_SMALL_FAST_MODEL (pevná verze, zkratku proměnná nebere: po vydání nového Sonnetu přepiš)" ;;
   *) WARN "ANTHROPIC_SMALL_FAST_MODEL není claude-sonnet-* (pomocné úlohy pojedou na výchozím malém modelu)" ;;

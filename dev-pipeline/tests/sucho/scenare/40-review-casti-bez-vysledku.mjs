@@ -17,7 +17,8 @@ export default {
     k.pocet(/^review:řez 05:část K2:1$/, 4, 'review K2 (3 běhy bez výsledku v pokusu 1 a 1 v pokusu 2)')
     k.pocet(/^thermo:řez 05:část K2$/, 4, 'thermo K2')
     k.pocet(/^review:řez 05:část K1:1$/, 1, 'review K1 jen jednou')
-    k.ok(logy.some(l => /část K2: thermo a review bez výsledku/.test(l)), 'log jmenuje nezrevidovanou část K2')
+    // Pořadí v logu sleduje pořadí úloh review (od 1.5.0 review před thermo, nejdelší první).
+    k.ok(logy.some(l => /část K2: (thermo a review|review a thermo) bez výsledku/.test(l)), 'log jmenuje nezrevidovanou část K2')
     return k.chyby
   },
 }

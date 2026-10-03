@@ -72,9 +72,33 @@ file_args() {
   printf '%s' "$1" | awk '{for (i = 2; i <= NF; i++) if ($i !~ /^-/) print $i}' | tr -d "'\""
 }
 
+# Segmenty složeného příkazu, jeden na řádek: dělí na | ; & a konci řádku jen MIMO uvozovky (konec řádku v uvozovkách
+# je mezera, zpětné lomítko escapuje). Text v uvozovkách zůstává v segmentu (cesty čtení se kontrolují i v uvozovkách).
+# Proč: do 1.5.0 dělil guard i uvnitř uvozovek a `grep -E 'agent-browser|curl|wrangler'` orchestrátora skončil jako
+# příkaz curl (běh web-podzim, 1. 10. 11:43).
+segmenty() {
+  printf '%s' "$1" | awk 'BEGIN { RS = "\001"; sq = "\047" } {
+    s = $0; q = ""; out = ""; n = length(s)
+    for (i = 1; i <= n; i++) {
+      c = substr(s, i, 1)
+      if (q == sq) { if (c == sq) q = ""; out = out (c == "\n" ? " " : c); continue }
+      if (c == "\\" && i < n) { d = substr(s, i + 1, 1); out = out c (d == "\n" ? " " : d); i++; continue }
+      if (q == "\"") { if (c == "\"") q = ""; out = out (c == "\n" ? " " : c); continue }
+      if (c == sq || c == "\"") { q = c; out = out c; continue }
+      if (c == "|" || c == ";" || c == "&" || c == "\n") { print out; out = ""; continue }
+      out = out c
+    }
+    print out
+  }'
+}
+
 # ---------- orchestrátor ----------
 # Tělo datového heredocu (cat/tee nebo přesměrování do souboru) není příkaz, je to text; stejná funkce jako v guard-blast-radius.
 # Bez ní orchestrátor neprošel se zápisem do ~/dev-pipeline-feedback.md, jehož záhlaví nebo řádek začínal wrangler, pnpm nebo curl.
+# Orchestrátorovi se navíc vynechává tělo heredocu do interpretu jiného než shell (python3 - <<'EOF'): je to kód skriptu,
+# ne příkazy shellu; do 1.5.0 skončil text „…; vitest projekt admin; …“ v pythonu, který upravoval handoff, jako příkaz
+# vitest (běh web-podzim, 1. 10. 21:45). Heredoc do shellu (bash <<EOF, ssh host <<EOF) se dál kontroluje.
+INTERPRET_HEREDOC='(^|[|;&[:space:](])(python[0-9.]*|node|ruby|perl|php|deno)([[:space:]]|$)'
 strip_data_heredocs() {
   local line delim="" out="" probe trimmed d
   while IFS= read -r line || [ -n "$line" ]; do
@@ -86,8 +110,9 @@ strip_data_heredocs() {
     probe=$(printf '%s' "$line" | sed 's/<<</@@HS@@/g')   # herestring není heredoc
     case "$probe" in
       *"<<"*)
-        # jen datový heredoc: cat/tee nebo přesměrování do souboru na témže řádku
-        if printf '%s' "$probe" | grep -Eq '(^|[|;&[:space:]])(cat|tee)([[:space:]]|$)|>>?[[:space:]]*[^[:space:]|&]'; then
+        # datový heredoc (cat/tee nebo přesměrování do souboru na témže řádku) nebo heredoc do interpretu jiného než shell
+        if printf '%s' "$probe" | grep -Eq '(^|[|;&[:space:]])(cat|tee)([[:space:]]|$)|>>?[[:space:]]*[^[:space:]|&]' \
+           || printf '%s' "$probe" | grep -Eq "$INTERPRET_HEREDOC"; then
           d=$(printf '%s' "$probe" | sed -n "s/.*<<-\{0,1\}[[:space:]]*[\"']\{0,1\}\([A-Za-z_][A-Za-z0-9_]*\)[\"']\{0,1\}.*/\1/p")
           [ -n "$d" ] && delim="$d"
         fi
@@ -99,6 +124,17 @@ strip_data_heredocs() {
 $1
 HEREDOC_STRIPPER_EOF
   printf '%s' "$out"
+}
+# Segmenty pro kontrolu orchestrátora: segmenty mimo uvozovky; řetězec pro shell (bash -c, sh -c, eval) je příkaz,
+# proto se jeho segment rozdělí ještě naivně i uvnitř uvozovek (jako do 1.5.0), aby `bash -c "cd x; pnpm test"` neprošel.
+orch_segmenty() {
+  local seg
+  while IFS= read -r seg; do
+    printf '%s\n' "$seg"
+    if printf '%s' "$seg" | grep -Eq '(^|[[:space:](])((ba|z)?sh[[:space:]]+-[A-Za-z]*c|eval)[[:space:]]'; then
+      printf '%s\n' "$seg" | sed -E "s/.*((ba|z)?sh[[:space:]]+-[A-Za-z]*c|eval)[[:space:]]+//" | tr '|;&' '\n' | sed -E "s/^[[:space:]]*[\"']+//; s/[\"']+[[:space:]]*$//"
+    fi
+  done < <(segmenty "$1")
 }
 orch_bash() {
   local cmd="$1" seg w a p
@@ -119,7 +155,7 @@ orch_bash() {
           deny "Orchestrátor nečte diffy ani obsah commitů; použij --stat nebo --name-only, obsah ti shrne agent."
         fi ;;
     esac
-  done < <(printf '%s\n' "$cmd" | tr '|;&' '\n')
+  done < <(orch_segmenty "$cmd")
 }
 
 # ---------- subagenti ----------
@@ -181,10 +217,30 @@ sub_bash() {
 # docs/.verify-passed píše jen scripts/verify-marker.sh (verify agent po zelené plné bráně).
 VERIFY_MARK="docs/.verify-passed zapisuje jen scripts/verify-marker.sh po zelené plné bráně (verify agent v bloku stavby). Ručně zapsaný marker by pre-commit hooku podvrhl doklad, že suita proběhla; to není oprava, to je obcházení brány. Když je brána červená, oprav příčinu a nech verify proběhnout znovu."
 is_verify_marker_path() { case "$(abspath "$1")" in */docs/.verify-passed) return 0 ;; esac; return 1; }
+# Zápis = cílem je sám marker: přesměrování do něj, tee/touch/install/truncate s ním, cp/mv/ln s ním jako cílem, dd of=,
+# sed/perl -i nad ním, nebo skript (python, node…), který ho zmiňuje a zapisuje. Čtení markeru s `2>/dev/null` jinde
+# v příkazu zápis není: do 1.5.0 to guard bral jako zápis a verify agenti řezů 04 a 09 marker přečíst nesměli.
 bash_writes_verify_marker() {
-  case "$1" in *verify-marker.sh*) return 1 ;; esac
   case "$1" in *".verify-passed"*) ;; *) return 1 ;; esac
-  case "$1" in *">"*|*"tee "*|*"touch "*|*"cp "*|*"mv "*|*"sed -i"*|*"install "*|*"dd "*|*"python"*|*"node "*|*"perl "*) return 0 ;; esac
+  if printf '%s' "$1" | grep -Eq "$INTERPRET_HEREDOC" \
+     && printf '%s' "$1" | grep -Eq "write|['\"][wa]b?\+?['\"]|['\"]>>?['\"]"; then
+    return 0
+  fi
+  local seg w posl
+  while IFS= read -r seg; do
+    case "$seg" in *".verify-passed"*) ;; *) continue ;; esac
+    case "$seg" in *verify-marker.sh*) continue ;; esac
+    printf '%s' "$seg" | grep -Eq ">[>|]?[[:space:]]*[\"']?[^[:space:]\"'|;&<>]*\\.verify-passed" && return 0
+    w=$(first_word "$seg")
+    case "$w" in
+      tee|touch|install|truncate) return 0 ;;
+      cp|mv|ln|rsync)
+        posl=$(printf '%s' "$seg" | awk '{print $NF}' | tr -d "'\"")
+        case "$posl" in *.verify-passed) return 0 ;; esac ;;
+      dd) printf '%s' "$seg" | grep -Eq 'of=[^[:space:]]*\.verify-passed' && return 0 ;;
+      sed|perl) printf '%s' "$seg" | grep -Eq '(^|[[:space:]])-[A-Za-z]*i' && return 0 ;;
+    esac
+  done < <(segmenty "$1")
   return 1
 }
 case "$tool" in

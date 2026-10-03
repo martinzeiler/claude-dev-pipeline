@@ -11,6 +11,7 @@ seq 1 500 | sed 's/^/const x/' > "$proj/src/big.ts"; seq 1 100 > "$proj/src/smal
 echo "# vize" > "$proj/docs/vize/test.md"; echo "# prd" > "$proj/docs/prd/rez-01.md"
 printf 'stav běhu: běží workflow blok-stavby řez 01\n| řez | stav |\n' > "$proj/docs/handoff.md"
 pass=0; fail=0
+ok() { pass=$((pass+1)); }; ko() { fail=$((fail+1)); echo "FAIL $*"; }
 run() { # name script json expect(allow|deny|block|ctx) [grep]
   local name=$1 script=$2 json=$3 expect=$4 grepfor=${5:-} out rc got=allow
   out=$(printf '%s' "$json" | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/$script" 2>/dev/null); rc=$?
@@ -64,6 +65,28 @@ HOME="$fbh" run fb-write guard-run.sh "$(pre $SID '' Write file_path "$fbh/dev-p
 HOME="$fbh" run fb-bash-append guard-run.sh "$(pre $SID '' Bash command $'cat >> ~/dev-pipeline-feedback.md <<\'EOF\'\n## 2026-09-29 | test | krok\nEOF')" allow
 HOME="$fbh" run fb-bash-append-slova guard-run.sh "$(pre $SID '' Bash command $'cat >> ~/dev-pipeline-feedback.md <<\'EOF\'\n## 2026-09-29 | Surya | wrangler preflight\npnpm test padl, curl vrátil 500\nEOF')" allow
 run orch-heredoc-interpret-deny guard-run.sh "$(pre $SID '' Bash command $'bash <<\'EOF\'\npnpm test\nEOF')" deny
+# --- orchestrátor: oddělovače v uvozovkách a heredoc do interpretu (1.5.0, falešné zásahy z běhu web-podzim 1. 10.)
+c_alt=$(cat <<'EOF'
+ls -la -t docs/reviews/ | grep 'rez-07' | head -5; date; ps -Ao pid,etime,command | grep -E 'agent-browser|curl|python3|node .*vitest|wrangler' | grep -v grep | cut -c1-160 | head -15
+EOF
+)
+run orch-grep-alternace-ok guard-run.sh "$(pre $SID '' Bash command "$c_alt")" allow
+c_py=$(cat <<'EOS'
+python3 - <<'EOF'
+p='docs/handoff.md'; s=open(p).read()
+a="apps/web kotvy sekcí."
+b="apps/web kotvy sekcí (WEB_SECTIONS v packages/shared), rail Podobné zájezdy; vitest projekt admin; měřidlo kes-html."
+assert a in s; s=s.replace(a,b)
+open(p,'w').write(s); print(len(s.encode()))
+EOF
+EOS
+)
+run orch-python-heredoc-ok guard-run.sh "$(pre $SID '' Bash command "$c_py")" allow
+run orch-python-heredoc-pak-pnpm-deny guard-run.sh "$(pre $SID '' Bash command $'python3 - <<\'EOF\'\nprint(1)\nEOF\npnpm test')" deny "nespouští"
+run orch-bash-c-pnpm-deny guard-run.sh "$(pre $SID '' Bash command "bash -c \"cd $proj; pnpm test\"")" deny "nespouští"
+run orch-bash-c-jeden-deny guard-run.sh "$(pre $SID '' Bash command "bash -c 'pnpm test'")" deny "nespouští"
+run orch-echo-strednik-v-uvozovkach-ok guard-run.sh "$(pre $SID '' Bash command 'echo "hotovo; pnpm test pustí brána" > /tmp/dp-poznamka.txt')" allow
+run orch-cat-src-v-uvozovkach-deny guard-run.sh "$(pre $SID '' Bash command 'cat "src/small.ts"')" deny "nečte projekt"
 HOME="$fbh" run fb-other-home-deny guard-run.sh "$(pre $SID '' Write file_path "$fbh/jiny.md" content "x")" deny "needituje"
 # --- orchestrátor čte args bloků z disku (po compactu)
 echo '{}' > "$proj/docs/.run-args.json"; echo '{}' > "$proj/docs/.stavba-05.json"
@@ -105,6 +128,21 @@ run vm-bash-script-ok guard-run.sh "$(pre $SID ag1 Bash command "bash $hooks/../
 run vm-bash-read-ok guard-run.sh "$(pre $SID ag1 Bash command "cat docs/.verify-passed")" allow
 run vm-bash-rm-ok guard-run.sh "$(pre $SID ag1 Bash command "rm -f docs/.verify-passed")" allow
 run vm-other-session-ok guard-run.sh "$(pre $OTHER ag1 Write file_path "$proj/docs/.verify-passed" content "{}")" allow
+# čtení markeru s 2>/dev/null není zápis (1.5.0; verify řezů 04 a 09 v běhu web-podzim)
+run vm-bash-read-stderr-ok guard-run.sh "$(pre $SID ag1 Bash command "cd $proj; cat docs/.verify-passed 2>/dev/null")" allow
+c_vm09=$(cat <<'EOF'
+cd /sucho/CK-Go2; grep -n "lint-staged" -A12 package.json | head -30; ls .lintstagedrc* 2>/dev/null; grep -n "Základ řezu" docs/prd/rez-09-admin-rychlost-ulozeni-hledani.md | head; grep -n "\[měřidlo\]" docs/prd/rez-09-cast-K2.md docs/prd/rez-09-cast-K4.md | cut -c1-80; sed -n 28,45p package.json | cut -c1-150; git log --oneline -3; cat docs/.verify-passed 2>/dev/null
+EOF
+)
+run vm-bash-read-v-dlouhem-ok guard-run.sh "$(pre $SID ag1 Bash command "$c_vm09")" allow
+run vm-bash-redirect-uvozovky-deny guard-run.sh "$(pre $SID ag1 Bash command "printf x > \"$proj/docs/.verify-passed\"")" deny "verify-marker"
+run vm-bash-append-deny guard-run.sh "$(pre $SID ag1 Bash command "ls 2>/dev/null; echo x >> docs/.verify-passed")" deny
+run vm-bash-cp-cil-deny guard-run.sh "$(pre $SID ag1 Bash command "cp /tmp/m docs/.verify-passed")" deny
+run vm-bash-cp-zdroj-ok guard-run.sh "$(pre $SID ag1 Bash command "cp docs/.verify-passed /tmp/m")" allow
+run vm-bash-sed-i-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -i '' 's/a/b/' docs/.verify-passed")" deny
+run vm-bash-python-zapis-deny guard-run.sh "$(pre $SID ag1 Bash command "python3 -c \"open('docs/.verify-passed','w').write('x')\"")" deny
+run vm-bash-python-heredoc-zapis-deny guard-run.sh "$(pre $SID ag1 Bash command $'python3 - <<\'EOF\'\nfrom pathlib import Path\nPath(\'docs/.verify-passed\').write_text(\'{}\')\nEOF')" deny
+run vm-bash-python-cteni-ok guard-run.sh "$(pre $SID ag1 Bash command "python3 -c \"print(open('docs/.verify-passed').read())\"")" allow
 # --- blast-radius během běhu: stash, clean, checkout/restore nad tečkou a docs/
 br() { jq -n --arg s "$1" --arg c "$proj" --arg cmd "$2" '{session_id:$s, cwd:$c, hook_event_name:"PreToolUse", tool_name:"Bash", tool_input:{command:$cmd}}'; }
 run br-stash-deny guard-blast-radius.sh "$(br $SID 'git stash')" deny
@@ -129,6 +167,11 @@ run br-railway-up-deny guard-blast-radius.sh "$(br $SID "cd $proj/apps/api && ra
 run br-wrangler-deploy-deny guard-blast-radius.sh "$(br $SID 'npx wrangler pages deploy dist')" deny
 run br-env-deploy-deny guard-blast-radius.sh "$(br $SID 'CLOUDFLARE_ACCOUNT_ID=x pnpm --filter web exec wrangler deploy')" deny
 run br-bash-c-deploy-deny guard-blast-radius.sh "$(br $SID "bash -c 'railway up'")" deny
+# --dry-run nic nenasazuje (1.5.0; code-review řezu 02 v běhu web-podzim kvůli blokaci vynechal kontrolu bundlu)
+run br-wrangler-dry-run-ok guard-blast-radius.sh "$(br $SID "cd $proj/apps/api && npx wrangler deploy --dry-run --outdir \$TMPDIR/api-dist --env=production > \$TMPDIR/wb.log 2>&1; echo rc=\$?; tail -6 \$TMPDIR/wb.log")" allow
+run br-dry-run-pak-deploy-deny guard-blast-radius.sh "$(br $SID 'npx wrangler deploy --dry-run --outdir /tmp/d && npx wrangler deploy --env=production')" deny
+run br-bash-c-dry-run-ok guard-blast-radius.sh "$(br $SID "bash -c 'wrangler deploy --dry-run'")" allow
+run br-bash-c-deploy-po-dry-run-deny guard-blast-radius.sh "$(br $SID "bash -c 'wrangler deploy --dry-run; wrangler deploy'")" deny
 # --- rm s nechráněnou proměnnou před lomítkem (pravidlo 6): 2 blokace, 6 průchodů
 run br-rm-glob-deny guard-blast-radius.sh "$(br $SID 'rm $S/*.orig.ts')" deny
 run br-rm-var-deny guard-blast-radius.sh "$(br $SID 'for f in a b; do rm -f $S/$f.bak.ts; done')" deny
@@ -177,6 +220,16 @@ run ps-orch prompt-submit.sh "$(ps $SID '/orchestrate docs/vize/test.md')" ctx "
 run ps-plugin-prefix prompt-submit.sh "$(ps $OTHER '/dev-pipeline:orchestrate')" ctx "$OTHER"
 run ps-other prompt-submit.sh "$(ps $SID 'ahoj, jak to jde')" allow
 run ps-similar prompt-submit.sh "$(ps $SID '/orchestrateX')" allow
+# claude_args: příkazová řádka procesu claude (rodič hooku přes exec -a jako claude --autocompact 400k), setup z ní čte autocompact
+printf '%s\n' 'printf "%s" "$1" | CLAUDE_PROJECT_DIR="$2" bash "$3" > /dev/null' > "$tmp/ps-rodic.sh"
+bash -c 'exec -a "claude --dangerously-skip-permissions --autocompact 400k" bash "$0" "$@"' "$tmp/ps-rodic.sh" "$(ps $SID '/orchestrate docs/vize/test.md')" "$proj" "$hooks/prompt-submit.sh"
+ca=$(jq -r '.claude_args' "$proj/docs/.orchestrator-session" 2>/dev/null)
+case "$ca" in "claude --dangerously-skip-permissions --autocompact 400k"*) ok ;; *) ko "ps-claude-args: '$ca'" ;; esac
+[ "$(jq -r .session_id "$proj/docs/.orchestrator-session")" = "$SID" ] && ok || ko "ps-claude-args-session"
+# hook nesmí selhat ani bez zjistitelného rodiče (PPID 1 po odpojení): soubor vznikne s prázdným claude_args
+printf '%s\n' '( printf "%s" "$1" | CLAUDE_PROJECT_DIR="$2" bash "$3" > /dev/null & ) ; sleep 1' > "$tmp/ps-sirotek.sh"
+bash "$tmp/ps-sirotek.sh" "$(ps $OTHER '/orchestrate')" "$proj" "$hooks/prompt-submit.sh"
+[ "$(jq -r '.session_id + "|" + (.claude_args | type)' "$proj/docs/.orchestrator-session" 2>/dev/null)" = "$OTHER|string" ] && ok || ko "ps-sirotek: $(cat "$proj/docs/.orchestrator-session")"
 # --- PreCompact
 pc() { jq -n --arg s "$1" --arg c "$proj" '{session_id:$s, cwd:$c, hook_event_name:"PreCompact", trigger:"manual"}'; }
 head -c 6000 /dev/zero | tr '\0' 'a' > "$proj/docs/handoff.md"
@@ -202,7 +255,8 @@ kx 50000;  hl hl-pod-prahem-post hlidac-kontextu.sh "$(hk $SID $AID PostToolUse 
 kx 120000; hl hl-100k hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Read file_path "$proj/src/a.ts")" allow
 kx 150000; hl hl-narust hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Read file_path "$proj/src/a.ts")" allow
 kx 160000; hl hl-narust-malo hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Read file_path "$proj/src/a.ts")" allow
-kx 260000; hl hl-mekky-ctx hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" ctx "PŘEDÁVKA: tuhle práci dokončí nástupce"
+kx 260000; hl hl-mekky-ctx hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" ctx "tuhle práci dokončí nástupce"
+           hl hl-mekky-hotovy hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" ctx "PŘEDÁVKA: Když je celé zadání už hotové a zbývá jen návrat, vrať normální návrat bez předávky"
            hl hl-mekky-cesta hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Edit file_path "$proj/src/a.ts")" ctx "do $PRED: 1. zadání"
            hl hl-mekky-pre hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test")" allow
 kx 300000; hl hl-tvrdy-bash-deny hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test")" deny "PŘEDÁVKA je povinná"
@@ -223,6 +277,15 @@ echo >> "$T"
 kx 100000; hl hl-compact hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" allow
 k=$(jq -sc 'map(select(.aid == "agtest1")) | [map(.udalost), (last | .compactu, .max), (first | .rez, .typ, .aid)]' "$proj/docs/.kontext.jsonl" 2>/dev/null)
 [ "$k" = '[["mereni","mereni","mekky","tvrdy","compact"],1,100000,"05","implement","agtest1"]' ] && ok || ko "hl-kontext-jsonl: $k"
+# strukturovaný návrat nad prahem: žádná výzva ani událost prahu, jen měření (1.5.0; 5 falešných „mekky“ v běhu web-podzim)
+AID3=agnavrat; T3="$tdir/agent-$AID3.jsonl"; head -1 "$T" > "$T3"
+jq -cn '{type:"assistant", message:{usage:{input_tokens:10, cache_read_input_tokens:258890, cache_creation_input_tokens:1000, output_tokens:100}}}' >> "$T3"
+           hl hl-structured-post-bez-vyzvy hlidac-kontextu.sh "$(hk $SID $AID3 PostToolUse StructuredOutput stav hotovo)" allow
+           hl hl-structured-pre hlidac-kontextu.sh "$(hk $SID $AID3 PreToolUse StructuredOutput stav hotovo)" allow
+k3=$(jq -sc --arg a "$AID3" '[.[] | select(.aid == $a) | .udalost]' "$proj/docs/.kontext.jsonl" 2>/dev/null)
+[ "$k3" = '["mereni"]' ] && ok || ko "hl-structured-jen-mereni: $k3"
+# týž agent po návratu dál pracuje (nástroj jiný než StructuredOutput): výzva přijde, práh platí
+           hl hl-po-navratu-vyzva hlidac-kontextu.sh "$(hk $SID $AID3 PostToolUse Bash command "pnpm test")" ctx "tuhle práci dokončí nástupce"
 # --- fronta těžkých příkazů: váhy, obal přes updatedInput, E2E verifikátor
 fr() { # sid agent_id agent_type příkaz → vstup PreToolUse Bash
   jq -n --arg s "$1" --arg a "$2" --arg ty "$3" --arg c "$4" --arg p "$proj" \

@@ -1,11 +1,12 @@
 ---
 name: fix
 description: Opravný agent - dostane cestu k reportu (prd-check, thermo, code-review, brána, E2E) a identifikátory svých nálezů, nebo seznam selhání, a opraví je. Každý nález bere jako hypotézu k ověření proti kódu; když míří vedle, opraví skutečnou příčinu a rozdíl vysvětlí. Vrací změněná místa, odmítnuté nálezy a rozšířený zásah; necommituje. Spouští ho Workflow blok stavby a kolečka.
+tools: Bash, Read, Edit, Write, Glob, Grep, Monitor, TaskStop, WebFetch, WebSearch, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, mcp__serena__find_declaration, mcp__serena__find_implementations, mcp__serena__replace_symbol_body, mcp__serena__insert_after_symbol, mcp__serena__insert_before_symbol, mcp__serena__rename_symbol, mcp__serena__safe_delete_symbol, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs
 model: opus
 effort: medium
 ---
 
-<!-- tools: se záměrně neomezuje: opravy potřebují Serena symbol tools. -->
+<!-- tools: výčet místo neomezené sady: bez něj agent dostane výpis ~60 skillů a seznam odložených nástrojů (start ~52 k tokenů místo ~30 k); Serena je tu přímo, bez ToolSearch; replace_content Sereny chybí záměrně (regex s DOTALL umí ustřihnout stovky řádků). -->
 
 # Fix agent
 
