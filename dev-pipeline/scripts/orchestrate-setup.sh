@@ -16,6 +16,7 @@
 #      varuje nad 400k; do ~/.claude nezapisuje, jen hlásí), a varování o velikosti souborů.
 # Návratové kódy: 0 ok · 2 chybí předpoklad (zpráva na stderr) · 3 vize nemá sekci Plán řezů.
 set -uo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
 
 die() { echo "orchestrate-setup: $*" >&2; exit 2; }
 proj=$(git rev-parse --show-toplevel 2>/dev/null) || die "nejsi v git repozitáři"
@@ -95,6 +96,10 @@ if [ -n "$stare" ]; then
   else
     [ -n "$old_slug" ] || old_slug="predchozi-$today"
     arch="docs/archive/$old_slug"
+    # Odkazy z kódu a z follow-ups na docs/prd a docs/e2e minulých vizí přepíše na archiv vize, ve které vznikly, dřív než
+    # se dokumenty přesunou: v běhu sonnet-5-5-a-cache (Surya) pre-commit brána odmítla commit setupu kvůli odkazům na
+    # přesunuté soubory a 13 ze 14 odkazů už ukazovalo na stejnojmenný dokument pozdější vize. Změny skript dá do indexu.
+    python3 -I "$here/odkazy-archivu.py" "$proj" "$old_slug" "$vize_rel" || echo "odkazy na archiv: kontrola selhala, odkazy zůstaly beze změny"
     mkdir -p "$arch"
     for f in $stare; do
       base=$(basename "$f")
@@ -184,7 +189,7 @@ fi
 git add docs/handoff.md docs/journal.md docs/vize-spory.md docs/follow-ups.md 2>/dev/null
 if ! git diff --cached --quiet; then
   [ -n "$obsah" ] && zprava="$zprava (${obsah# })"
-  git commit -q -m "$zprava" || die "commit selhal (pre-commit brána?); oprav a spusť setup znovu"
+  git commit -q -m "$zprava" || die "commit selhal (pre-commit brána?). Archiv, stavové soubory a přepsané odkazy zůstaly v indexu a docs/.orchestrator-run existuje, takže pouhé nové spuštění setupu neprojde na čistém stromu. Oprav příčinu podle výstupu brány (kód opravuje uživatel nebo jiná session, orchestrátor ne), commitni index zprávou „$zprava“ a napiš znovu /dev-pipeline:orchestrate $vize_rel: setup vizi naváže."
   echo "commit: $zprava"
 fi
 
