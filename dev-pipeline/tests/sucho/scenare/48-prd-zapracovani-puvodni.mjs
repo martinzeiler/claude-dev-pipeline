@@ -16,10 +16,11 @@ export default {
   },
   over(v, volani) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, rezim: 'zapracovani', e2e_sekce: SEKCE, kontrakt_potreba: false, doklad_pred: true, doklad_popis: PUVODNI.doklad_popis, kriteria: 30 })
+    k.navrat(v, { ok: true, rezim: 'zapracovani', kontrakt_potreba: false, doklad_pred: true, doklad_popis: PUVODNI.doklad_popis, kriteria: 30 })
+    k.rovno(v && v.stavba && v.stavba.e2e_sekce, SEKCE, 'návrat.stavba.e2e_sekce')
     if (v) {
-      k.rovno((v.casti || []).map(c => [c.id, c.prd_path]), CASTI.map(c => [c.id, c.prd_path]), 'návrat.casti (id a PRD částí z puvodni)')
-      k.rovno(((v.casti || []).find(c => c.id === 'K2') || {}).soubory, ['apps/K2/**', 'apps/K2b/**'], 'soubory K2 ze zapracování')
+      k.rovno(((v.stavba || {}).casti || []).map(c => [c.id, c.prd_path]), CASTI.map(c => [c.id, c.prd_path]), 'návrat.casti (id a PRD částí z puvodni)')
+      k.rovno((((v.stavba || {}).casti || []).find(c => c.id === 'K2') || {}).soubory, ['apps/K2/**', 'apps/K2b/**'], 'soubory K2 ze zapracování')
     }
     return k.chyby
   },

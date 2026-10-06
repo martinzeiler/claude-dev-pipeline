@@ -26,9 +26,9 @@ export default {
     k.obsahuje(f, 'id K2 dvakrát', 'nález duplicitního id')
     for (const a of k.s(/^prd-část:/)) k.pred(f, a)
     if (v) {
-      const ids = (v.casti || []).map(c => c.id)
+      const ids = ((v.stavba || {}).casti || []).map(c => c.id)
       k.ok(new Set(ids).size === ids.length && ids.length === 3, `návrat.casti id: ${ids.join(', ')}`)
-      k.rovno(((v.casti || []).find(c => c.id === 'K2') || {}).zavisi_na, ['K1'], 'zavisi_na K2 normalizované jako id')
+      k.rovno((((v.stavba || {}).casti || []).find(c => c.id === 'K2') || {}).zavisi_na, ['K1'], 'zavisi_na K2 normalizované jako id')
     }
     return k.chyby
   },

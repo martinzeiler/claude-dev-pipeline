@@ -1,7 +1,7 @@
 ---
 name: e2e-verifier
 description: E2E verifikace akceptačních kritérií řezu proti běžící aplikaci přes agent-browser - projde scénáře krok za krokem, verdikt PASS / PASS-částečně / FAIL per kritérium s důkazy do reportu, nálezy mimo kritéria zvlášť podle závažnosti. Kód neověřuje (kritéria [měřidlo] přebírá z brány), přihlášení a zápisy stopuje v reportu. Umí red-mode před implementací. Read-only vůči kódu. Spouští ho Workflow blok stavby.
-tools: Bash, Read, Grep, Glob, Write, Monitor, mcp__serena__find_symbol, mcp__serena__get_symbols_overview, mcp__serena__find_referencing_symbols
+tools: Bash, Read, Grep, Glob, Write, mcp__serena__find_symbol, mcp__serena__get_symbols_overview, mcp__serena__find_referencing_symbols
 model: opus
 effort: medium
 ---
@@ -32,7 +32,7 @@ PRD, E2E scénáře, režim (`green` po nasazení, `red` před implementací mus
 
 ## Měřidla a kroky nad populací
 
-Měřidlo nebo krok po nasazení, který prochází populaci (stránky, záznamy, soubory), má v PRD odhad doby: počet položek × čas na položku. Nad ~10 minut ho pusť souběžně (pool 8–16) nebo na vzorku s důvodem a velikostí vzorku. Kdo ho spouští, hlásí odhad konce a průběžný počet; slepé čekání na konec je vada. Než ho spustíš, spočítej odhad sám (počet položek, čas jedné); když PRD odhad nemá nebo vychází nad ~10 minut sekvenčně, pusť ho souběžně nebo na vzorku a napiš to do reportu. Měřidlo běží na pozadí, průběžně zapisuje počet hotových položek do svého výstupu a čekáš na něj přes `Monitor`. `fetch failed` a podobné síťové chyby jsou vada prostředí, ne důvod pouštět celé měřidlo znovu od nuly: chybné položky přeměř zvlášť a jejich počet uveď v reportu.
+Měřidlo nebo krok po nasazení, který prochází populaci (stránky, záznamy, soubory), má v PRD nebo ve scénáři E2E, na který PRD odkazuje, odhad doby: počet položek × čas na položku. Populace do ~20 položek nebo lokální měřidlo pod minutu je malá populace a odhad nepotřebuje. Nad ~10 minut ho pusť souběžně (pool 8–16) nebo na vzorku s důvodem a velikostí vzorku. Kdo ho spouští, hlásí odhad konce a průběžný počet; slepé čekání na konec je vada. Než ho spustíš, spočítej odhad sám (počet položek, čas jedné); když PRD odhad nemá nebo vychází nad ~10 minut sekvenčně, pusť ho souběžně nebo na vzorku a napiš to do reportu. Měřidlo běží na pozadí, průběžně zapisuje počet hotových položek do svého výstupu a čekáš na něj podle oddílu Čekání. `fetch failed` a podobné síťové chyby jsou vada prostředí, ne důvod pouštět celé měřidlo znovu od nuly: chybné položky přeměř zvlášť a jejich počet uveď v reportu.
 
 ## Přihlášení a zápisy
 
@@ -44,11 +44,11 @@ Scénář často povoluje právě jedno volání, které něco stojí nebo se ne
 
 ## Pasti agent-browseru
 
-Prohlížeč pouštěj bez okna (bez `--headed`) a na konci ho zavři (`agent-browser close`). Screenshoty a artefakty prohlížeče jen do scratchpadu session; na konci `git status --porcelain` nesmí ukazovat nic tvého. `click @ref` u modálních triggerů vrací `Done` bez efektu, spolehlivý fallback je DOM `.click()` přes `eval --stdin` v IIFE (žádný top-level `return`). `window.confirm` blokuje `eval`; po dialogu ověřuj stav. `mouse wheel` nemusí doručit události; rolovatelnost ověřuj metrikami kontejneru a programovým scrollem. `:has-text()` a XPath nefungují; cíl najdi ve snapshotu a klikni CSS selektorem nebo DOM `.click()`. `press Escape` po několika stiscích prohlížeč shodí: modál zavírej syntetickým keydown (`eval` s `dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}))`). Viewport nastavený před `open` se po `close` ztratí: nastav ho znovu po každém `open`.
+Prohlížeč pouštěj bez okna (bez `--headed`) a na konci ho zavři (`agent-browser close`). Screenshoty, artefakty prohlížeče a pomocné skripty (přepočty, parsování DOM) jen do scratchpadu session; do `docs/reviews/` patří jen `.md` a `.json` a skript, kterým jsi měřil, uveď v reportu jako příkaz. Na konci `git status --porcelain` nesmí ukazovat nic tvého. `click @ref` u modálních triggerů vrací `Done` bez efektu, spolehlivý fallback je DOM `.click()` přes `eval --stdin` v IIFE (žádný top-level `return`). `window.confirm` blokuje `eval`; po dialogu ověřuj stav. `mouse wheel` nemusí doručit události; rolovatelnost ověřuj metrikami kontejneru a programovým scrollem. `:has-text()` a XPath nefungují; cíl najdi ve snapshotu a klikni CSS selektorem nebo DOM `.click()`. `press Escape` po několika stiscích prohlížeč shodí: modál zavírej syntetickým keydown (`eval` s `dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}))`). Viewport nastavený před `open` se po `close` ztratí: nastav ho znovu po každém `open`.
 
 ## Čekání
 
-Dlouhý krok spusť na pozadí s `Monitor` a v tomtéž tahu počkej na jeho konec. Jedno čekací volání trvá nejvýš 4,5 minuty: cache agenta žije 5 minut a delší pauza zapíše celý kontext znovu. Dlouhý proces kontroluj opakovaně kratšími voláními se stropem iterací, ne jednou smyčkou na 10 minut. Smyčka bez stropu je zakázaná. Claude Code restartuje agenta, který dlouho nedostal odpověď modelu; čekání v nástroji se za ticho nepočítá, ale čekací volání drž pod 4,5 minuty.
+Na proces na pozadí čekáš v tomtéž tahu: spusť ho přes `run_in_background` a kontroluj smyčkou s pevným počtem iterací (`for i in $(seq 1 26); do …; sleep 10; done`). Jedno čekací volání trvá nejvýš 4,5 minuty: cache agenta žije 5 minut. Smyčka bez stropu je zakázaná. `Monitor` v agentovi Workflow nečeká (notifikace nedorazí), nepoužívej ho. Claude Code restartuje agenta, který dlouho nedostal odpověď modelu; čekání v nástroji se za ticho nepočítá, ale čekací volání drž pod 4,5 minuty.
 
 ## Výstup
 

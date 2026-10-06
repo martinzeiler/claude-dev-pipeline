@@ -22,7 +22,10 @@ export default {
   },
   over(v, volani) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, kontrakt_potreba: true, odhad_radku: 3500, e2e_sekce: SEKCE, predavky: 0 })
+    k.navrat(v, { ok: true, kontrakt_potreba: true, odhad_radku: 3500, predavky: 0 })
+    // Od 1.6.0 nese pole pro stavbu podobjekt stavba (spec 1.6.0 § 1.4).
+    k.rovno(v && v.stavba && v.stavba.e2e_sekce, SEKCE, 'návrat.stavba.e2e_sekce')
+    k.rovno(v && v.stavba && v.stavba.kontrakt_potreba, true, 'návrat.stavba.kontrakt_potreba')
     const ar = k.jeden('prd:řez 05')
     k.agent(ar, 'dev-pipeline:prd', 'opus', 'high')
     k.pole(ar, ['casti', 'odhad_radku', 'kontrakt_potreba', 'rozdelit_navrh', 'e2e_sekce', 'predavka'], 'PRD_SCHEMA')
@@ -53,8 +56,8 @@ export default {
       k.obsahuje(x, 'Vizi nečti celou', 'výřez vize (§ 2)')
     }
     if (v) {
-      k.rovno((v.casti || []).map(c => [c.id, c.prd_path]), IDS.map(id => [id, prdCasti(id)]), 'návrat.casti s prd_path')
-      k.rovno((v.casti || []).map(c => [c.nazev, c.soubory, c.zavisi_na]), CASTI3.map(c => [c.nazev, c.soubory, c.zavisi_na]), 'návrat.casti převzaté z architekta')
+      k.rovno(((v.stavba || {}).casti || []).map(c => [c.id, c.prd_path]), IDS.map(id => [id, prdCasti(id)]), 'návrat.casti s prd_path')
+      k.rovno(((v.stavba || {}).casti || []).map(c => [c.nazev, c.soubory, c.zavisi_na]), CASTI3.map(c => [c.nazev, c.soubory, c.zavisi_na]), 'návrat.casti převzaté z architekta')
       k.ok(v.kontrola && v.kontrola.verdikt === 'ready', `návrat.kontrola: ${JSON.stringify(v.kontrola)}`)
     }
     rozhrani(k, volani)

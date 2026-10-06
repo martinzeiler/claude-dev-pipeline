@@ -8,7 +8,8 @@ export default {
   odpoved: () => null,
   over(v, volani) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, casti: [], predavky: 0 })
+    k.navrat(v, { ok: true, casti_pocet: 0, predavky: 0 })
+    k.rovno(v && v.stavba && v.stavba.casti, [], 'návrat.stavba.casti')
     k.ok(!(v && v.kontrakt_potreba), 'návrat.kontrakt_potreba u malého řezu')
     const ar = k.jeden('prd:řez 05'), ks = k.jeden('prd-check:řez 05:1')
     k.pred(ar, ks)

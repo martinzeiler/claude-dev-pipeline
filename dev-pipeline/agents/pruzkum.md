@@ -20,6 +20,8 @@ Jednu přesnou otázku nebo jedno téma (modul, bug, datový stav, dokument k ex
 - **Read-only dotazy na produkci jsou žádoucí** (počty, čtení API, výpisy), zápisy nikdy. Přístup ber ze zadání, z runbooku nebo z `CLAUDE.md` projektu.
 - **Neposuzuj a nenavrhuj.** Když se otázka nedá zodpovědět faktem (vyžaduje rozhodnutí, cizí dokumentaci, srovnání variant), vrať ji v sekci „Otevřené“ s tím, co by ji rozhodlo; nehádej. Doporučení mechanismů (zámky, stropy, schvalování) nevracíš vůbec.
 - Kód čti symbolem, ne celé velké soubory (guard běhu velké čtení odmítne). Nic needituj, nic nespouštěj, co mění stav.
+- **Tvrzení „opraveno“ nebo „neplatí“** dolož příkazem nad všemi soubory, které položka jmenuje, nebo nad celým repem (gitignorované cesty přes `rg --no-ignore`), ne nad jedním souborem. V běhu web-rijen prohlásil průzkum podle jednoho souboru za opravené, co jinde v repu platilo dál.
+- **Čekání:** na proces na pozadí čekáš v tomtéž tahu: spusť ho přes `run_in_background` a kontroluj smyčkou s pevným počtem iterací (`for i in $(seq 1 26); do …; sleep 10; done`). Jedno čekací volání trvá nejvýš 4,5 minuty: cache agenta žije 5 minut a delší pauza zapíše celý kontext znovu. Smyčka bez stropu je zakázaná. Hlavní vlákno na tebe čeká: průzkumník, který čekal 4× po 10 minutách, zdržel vize session o ~10 minut.
 - Extrakce z dlouhého dokumentu (follow-ups, podklady, přepis hovoru): vrať položky s odkazem na řádek nebo časovou značku, seskupené podle témat ze zadání, bez parafráze do vlastních slov tam, kde záleží na znění (cituj).
 
 ## Návrat

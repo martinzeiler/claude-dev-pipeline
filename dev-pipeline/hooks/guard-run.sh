@@ -3,10 +3,13 @@
 #
 # Aktivní JEN když v projektu leží docs/.orchestrator-run se session_id shodným s touto session.
 # Hlavní session (hook input bez agent_id) je orchestrátor: neptá se uživatele, nečte projekt
-# (jen vizi, produkt.md, handoff, vize-spory, follow-ups, args bloků v docs/.run-args.json a docs/.stavba-*.json,
-# deník vad ~/dev-pipeline-feedback.md a soubory pluginu), nespouští projekt, needituje kód.
+# (jen vizi, produkt.md, handoff, vize-spory, follow-ups, args a výsledky bloků v docs/.run-args.json, docs/.stavba-*.json,
+# docs/.prd-*.json, docs/.kolecko.json, docs/.vysledek-*.json, log docs/.kontext.jsonl, deník vad ~/dev-pipeline-feedback.md
+# a soubory pluginu), nespouští projekt, needituje kód.
 # Subagenti (s agent_id): nečtou celé velké zdrojové soubory, ani přes Read bez offset/limit,
-# ani přes cat, sed -n, head, tail v Bash. Práh DEV_PIPELINE_READ_MAX_LINES, výchozí 350.
+# ani přes cat, sed -n, head, tail v Bash (výstup přesměrovaný do souboru není čtení). Práh DEV_PIPELINE_READ_MAX_LINES,
+# výchozí 350. Radu Sereny dostanou jen u jazyků, které má projekt v .serena/project.yml.
+# Všichni v běhu: do docs/reviews/ nepíšou skripty (pomocný skript patří do scratchpadu agenta).
 # Fail-open: cokoli nejednoznačného projde. Deny = JSON permissionDecision, exit 0.
 set -uo pipefail
 
@@ -46,8 +49,10 @@ orch_read_ok() {
   case "$p" in
     "$plugin_root"/*|"$HOME"/.claude/*|"$FEEDBACK"|/private/tmp/*|/tmp/*|/var/folders/*) return 0 ;;
     "$proj"/docs/handoff.md|"$proj"/docs/vize*|"$proj"/docs/follow-ups.md|"$proj"/docs/produkt.md|"$proj"/docs/.orchestrator-run|"$proj"/docs/.orchestrator-session) return 0 ;;
-    # args bloků na disku: po compactu je orchestrátor čte odtud (PO-COMPACTU), jinak by je znovu zjišťoval
-    "$proj"/docs/.run-args.json|"$proj"/docs/.stavba-*.json) return 0 ;;
+    # args a výsledky bloků na disku: po compactu je orchestrátor čte odtud (PO-COMPACTU), jinak by je znovu zjišťoval;
+    # plné seznamy stavby (docs/.vysledek-stavba-NN.json) čte jen při potřebě, compacty počítá z docs/.kontext.jsonl (1.6.0)
+    "$proj"/docs/.run-args.json|"$proj"/docs/.stavba-*.json|"$proj"/docs/.prd-*.json|"$proj"/docs/.kolecko.json) return 0 ;;
+    "$proj"/docs/.vysledek-*.json|"$proj"/docs/.kontext.jsonl) return 0 ;;
   esac
   return 1
 }
@@ -60,7 +65,7 @@ orch_write_ok() {
   return 1
 }
 
-ORCH_READ="Orchestrátor nečte projekt. Sám čteš jen vizi, produkt.md, handoff, vize-spory, follow-ups, docs/.run-args.json, docs/.stavba-*.json, ~/dev-pipeline-feedback.md a soubory pluginu; na cokoli z kódu, PRD, reportů, diffů nebo logů pošli agenta dev-pipeline:pruzkum s přesnou otázkou, formátem důkazů a stropem délky návratu."
+ORCH_READ="Orchestrátor nečte projekt. Sám čteš jen vizi, produkt.md, handoff, vize-spory, follow-ups, args a výsledky bloků (docs/.run-args.json, docs/.stavba-*.json, docs/.prd-*.json, docs/.kolecko.json, docs/.vysledek-*.json), docs/.kontext.jsonl, ~/dev-pipeline-feedback.md a soubory pluginu; na cokoli z kódu, PRD, reportů, diffů nebo logů pošli agenta dev-pipeline:pruzkum s přesnou otázkou, formátem důkazů a stropem délky návratu."
 ORCH_RUN="Orchestrátor nespouští projekt (balíčkovač, testy, typecheck, curl, deploy). Tu práci dělají fázoví agenti v bloku stavby; stav si nech ověřit agentem a převzít jen výsledek."
 ORCH_EDIT="Orchestrátor needituje kód ani konfiguraci projektu; píše jen do docs/ (handoff, vize-spory, follow-ups). Opravy dělá fix agent v bloku stavby."
 
@@ -172,8 +177,39 @@ big_source() {
   LINES=$(wc -l < "$p" | tr -d ' ')
   [ "$LINES" -gt "$MAX" ]
 }
+# Přípony, pro které má projekt language server Sereny (.serena/project.yml: language_servers, languages nebo language).
+# V běhu web-rijen guard radil Serenu i u .py, kterou projekt neměl, a 28 volání Sereny nad .py selhalo (1.6.0).
+SERENA_EXT=""
+serena_ext() {
+  [ -n "$SERENA_EXT" ] && return 0
+  local y="$proj/.serena/project.yml" l
+  SERENA_EXT=" "
+  [ -f "$y" ] || return 0
+  for l in $(awk '
+    /^[[:space:]]*#/ { next }
+    /^(language_servers|languages):/ { blok = 1; sub(/^[a-z_]+:[[:space:]]*/, ""); if ($0 != "") { gsub(/[][,"\047]/, " "); print }; next }
+    /^language:/ { sub(/^language:[[:space:]]*/, ""); gsub(/["\047]/, ""); print; next }
+    blok && /^[[:space:]]*-/ { sub(/^[[:space:]]*-[[:space:]]*/, ""); gsub(/["\047]/, ""); print; next }
+    /^[^[:space:]]/ { blok = 0 }' "$y"); do
+    case "$l" in
+      typescript|javascript|vue) SERENA_EXT="$SERENA_EXT ts tsx js jsx mjs cjs mts cts" ;;
+      python*) SERENA_EXT="$SERENA_EXT py pyi" ;;
+      go) SERENA_EXT="$SERENA_EXT go" ;; rust) SERENA_EXT="$SERENA_EXT rs" ;; java) SERENA_EXT="$SERENA_EXT java" ;;
+      kotlin) SERENA_EXT="$SERENA_EXT kt kts" ;; csharp*) SERENA_EXT="$SERENA_EXT cs" ;; php*) SERENA_EXT="$SERENA_EXT php" ;;
+      ruby*) SERENA_EXT="$SERENA_EXT rb" ;; swift) SERENA_EXT="$SERENA_EXT swift" ;; scala) SERENA_EXT="$SERENA_EXT scala" ;;
+      dart) SERENA_EXT="$SERENA_EXT dart" ;; cpp|c|clangd) SERENA_EXT="$SERENA_EXT c cc cpp h hpp" ;;
+    esac
+  done
+  SERENA_EXT="$SERENA_EXT "
+}
 read_reason() {
-  printf 'Soubor %s má %s řádků. Celé velké zdrojové soubory se nečtou: použij mcp__serena__get_symbols_overview a mcp__serena__find_symbol (include_body=true) na to, co potřebuješ, nebo čti po částech do %s řádků (Read s offset/limit, sed -n s užším rozsahem).' "$1" "$2" "$MAX"
+  serena_ext
+  case "$SERENA_EXT" in
+    *" ${1##*.} "*)
+      printf 'Soubor %s má %s řádků. Celé velké zdrojové soubory se nečtou: použij mcp__serena__get_symbols_overview a mcp__serena__find_symbol (include_body=true) na to, co potřebuješ, nebo čti po částech do %s řádků (Read s offset/limit, sed -n s užším rozsahem).' "$1" "$2" "$MAX" ;;
+    *)
+      printf 'Soubor %s má %s řádků. Celé velké zdrojové soubory se nečtou: najdi místo přes rg -n a čti po částech do %s řádků (Read s offset/limit, sed -n s užším rozsahem). Serena tenhle jazyk v projektu nemá (.serena/project.yml), nepoužívej ji na něj.' "$1" "$2" "$MAX" ;;
+  esac
 }
 check_files() { local a; for a in $(file_args "$1"); do big_source "$a" && deny "$(read_reason "$a" "$LINES")"; done; }
 
@@ -189,6 +225,9 @@ sub_bash() {
   local cmd="$1" seg w rng x y n k a
   case "$cmd" in *"|"*|*"<<"*) return 0 ;; esac
   while IFS= read -r seg; do
+    # Výstup přesměrovaný do souboru do kontextu nejde (sed -n 177,866p a.ts > $TMPDIR/a.ts v běhu web-rijen; 1.6.0).
+    # 2> a >&2 se nepočítají: chyby a stderr kontext dostane.
+    printf '%s' "$seg" | grep -Eq '(^|[^0-9&>])>>?[[:space:]]*[^&[:space:]]' && continue
     w=$(first_word "$seg")
     case "$w" in
       cat) check_files "$seg" ;;
@@ -243,11 +282,42 @@ bash_writes_verify_marker() {
   done < <(segmenty "$1")
   return 1
 }
+# Do docs/reviews/ patří reporty .md, doklady .json a logy; pomocný skript ne. V běhu web-rijen nechal fix řezu 11 skript
+# rez-11-pismo-pokus.mjs v docs/reviews/, brána řezu 12 na něm zčervenala (eslint . lintuje i gitignorované soubory), fix
+# brány kvůli tomu změnil sdílený eslint.config.js a měřidlo rozsahu řez shodilo (1.6.0).
+REVIEW_SKRIPT_EXT='mjs|cjs|js|jsx|ts|tsx|mts|cts|py|sh|bash|zsh|rb|pl|php'
+REVIEW_SKRIPT="Do docs/reviews/ patří jen reporty .md, doklady .json a logy, ne skripty: brána je lintuje (eslint . vidí i gitignorované soubory) a v běhu web-rijen kvůli takovému skriptu fix brány změnil sdílený eslint.config.js. Pomocný skript dej do scratchpadu agenta; když jím něco dokládáš, uveď v reportu příkaz."
+is_review_script() { printf '%s' "$1" | tr -d "'\"" | grep -Eq "(^|/)docs/reviews/([^[:space:]]*/)?[^/[:space:]]+\.($REVIEW_SKRIPT_EXT)$"; }
+bash_writes_review_script() {
+  case "$1" in *docs/reviews*) ;; *) return 1 ;; esac
+  local seg w posl a
+  while IFS= read -r seg; do
+    case "$seg" in *docs/reviews*) ;; *) continue ;; esac
+    printf '%s' "$seg" | grep -Eq ">[>|]?[[:space:]]*[\"']?[^[:space:]\"'|;&<>]*docs/reviews/[^[:space:]\"'|;&<>]*\.($REVIEW_SKRIPT_EXT)([\"'[:space:]]|$)" && return 0
+    w=$(first_word "$seg")
+    case "$w" in
+      tee) for a in $(file_args "$seg"); do is_review_script "$a" && return 0; done ;;
+      cp|mv|ln|install|rsync)
+        posl=$(printf '%s' "$seg" | awk '{print $NF}' | tr -d "'\"")
+        if is_review_script "$posl"; then return 0; fi
+        # cíl je adresář docs/reviews(/): rozhoduje přípona zdroje
+        case "$posl" in
+          docs/reviews|docs/reviews/|*/docs/reviews|*/docs/reviews/)
+            for a in $(printf '%s' "$seg" | awk '{for (i = 2; i < NF; i++) if ($i !~ /^-/) print $i}' | tr -d "'\""); do
+              case "$a" in *.*) printf '%s' "${a##*.}" | grep -Eqx "$REVIEW_SKRIPT_EXT" && return 0 ;; esac
+            done ;;
+        esac ;;
+    esac
+  done < <(segmenty "$1")
+  return 1
+}
 case "$tool" in
   Write|Edit|MultiEdit|NotebookEdit)
-    fp=$(j '.tool_input.file_path // .tool_input.notebook_path'); [ -n "$fp" ] && is_verify_marker_path "$fp" && deny "$VERIFY_MARK" ;;
+    fp=$(j '.tool_input.file_path // .tool_input.notebook_path'); [ -n "$fp" ] && is_verify_marker_path "$fp" && deny "$VERIFY_MARK"
+    [ -n "$fp" ] && is_review_script "$fp" && deny "$REVIEW_SKRIPT (soubor: $fp)" ;;
   Bash)
-    cmd=$(j '.tool_input.command'); [ -n "$cmd" ] && bash_writes_verify_marker "$cmd" && deny "$VERIFY_MARK" ;;
+    cmd=$(j '.tool_input.command'); [ -n "$cmd" ] && bash_writes_verify_marker "$cmd" && deny "$VERIFY_MARK"
+    [ -n "$cmd" ] && bash_writes_review_script "$(strip_data_heredocs "$cmd")" && deny "$REVIEW_SKRIPT" ;;
 esac
 
 if [ -z "$agent_id" ]; then

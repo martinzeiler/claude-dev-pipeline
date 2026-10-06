@@ -11,18 +11,14 @@ Celé kolečko je **jeden Workflow blok** `<plugin_root>/workflows/blok-kolecko.
 
 ## Jediný krok
 
-Do handoffu `stav běhu: běží workflow blok-kolecko (task <id>)` a spusť:
+Do handoffu `stav běhu: běží workflow blok-kolecko (task <id>)`, args do souboru a spusť:
 
 ```
-Workflow({ name: "dev-pipeline:blok-kolecko", args: {
-  cwd, plugin_root, vize, produkt,
-  base: "main",
-  ne_cile: "<text sekce Ne-cíle z vize, do 1 500 znaků>",
-  runbook, deploy_mode, deploy_okno, app_pristup
-} })
+python3 <plugin_root>/scripts/args-bloku.py kolecko <cwd> --doplnit '{"base": "main"}'
+Workflow({ name: "dev-pipeline:blok-kolecko", args: { cwd, plugin_root, args_file: "docs/.kolecko.json" } })
 ```
 
-Odkud jsou args: `cwd`, `plugin_root`, `vize` a `produkt` stejné jako u bloků řezů; `base` je `main`, jiný jen když ho invokace výslovně předá; `ne_cile` opiš z vize, kterou máš přečtenou (blok ho dá do rámce každého agenta včetně fix agentů, aby oprava nepřidala, co vize zakazuje); `runbook`, `deploy_mode`, `deploy_okno` a `app_pristup` z projektových faktů ze setupu (bez deploy konfigurace `deploy_mode: "commit-only"`, bez přístupu do aplikace poběží E2E jako doložení kritérií bez prohlížeče). Workflow běží na pozadí, výsledek přijde notifikací; tah ukonči.
+Odkud jsou args: `vize`, `produkt`, `ne_cile` (blok ho dá do rámce každého agenta včetně fix agentů, aby oprava nepřidala, co vize zakazuje), `runbook`, `deploy_mode`, `deploy_okno` a `app_pristup` načte blok z `docs/.run-args.json` ze setupu běhu (bez deploy konfigurace `deploy_mode: "commit-only"`, bez přístupu do aplikace poběží E2E jako doložení kritérií bez prohlížeče); `base` je `main`, jiný jen když ho invokace výslovně předá. Mimo běh (uživatel výslovně, bez `docs/.run-args.json`) předej args celé ve volání: `{ cwd, plugin_root, vize, produkt, base, ne_cile, runbook, deploy_mode, deploy_okno, app_pristup }`. Workflow běží na pozadí, výsledek přijde notifikací; tah ukonči.
 
 Co blok udělá (pro orientaci, ne k zásahu): thermo → oprava jen BLOCKER/HIGH → brána → commit `kolecko: thermo` · code-review kolo 1 nad celou větví → opravy po disjunktních balíčcích souběžně → brána → commit · kolo 2: pět souběžných čoček (`data-a-izolace`, `kontrakty-a-volajici`, `regrese-z-historie`, `bezpecnost`, `testy-a-doktrina`) nad celým rozsahem, pak triáž jedním agentem (sloučení duplicit; opravit teď / follow-up jako kandidát na řez / odmítnout s důvodem / sporné k rozhodnutí) → opravy → brána → commit · bezpečnost: bezpečnostní čočka s checklistem (multi-tenant routy a nástroje včetně starých, sweep rizikových vzorů z CLAUDE.md, pre-existing nálezy platí) souběžně s `security-review` (agent ho zkusí přes Skill; když není k dispozici, udělá ekvivalentní průchod a v návratu to řekne) → opravy bez commitu → brána → krok commitu nejdřív samostatně commitne `fix(security): …` (soubor, který nese i jinou změnu, jde řádkem `fix(security)` do commitu vlny) · brána → nasazení → sestavení `docs/e2e/kolecko.md` z commitů kolečka → E2E verifikace (FAIL: jedna oprava, deploy, E2E znovu; vadné kritérium se neopravuje, jde k rozhodnutí; závažný nález mimo kritéria: oprava bez commitu, brána, deploy se samostatným `fix(security)`) · závěr: ověření hashů bezpečnostních commitů, journal, follow-ups, `docs/.review-passed`, commit docs. Žádná fáze se nepřeskakuje, protože minulá nic nenašla; brána má jednu opravu na vlnu; neúspěch fáze blok neopakuje. Fix agenti kolečka nikdy necommitují, ani bezpečnostní opravu: commitují jen kroky commitu a deploye po zelené bráně.
 

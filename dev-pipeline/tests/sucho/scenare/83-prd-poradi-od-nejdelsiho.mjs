@@ -34,7 +34,7 @@ export default {
     poradi(['prd-check:řez 05:část K3:2', 'prd-check:řez 05:část K1:2', 'prd-check:řez 05:část K2:2'], 'delta částí od největšího počtu nálezů')
     k.vsechnySoubezne(['prd-část:řez 05:K1', 'prd-část:řez 05:K2', 'prd-část:řez 05:K3'].map(l => volani.find(x => x.label === l)), 'autoři souběžně')
     // Výsledky se párují s částmi podle id, ne podle pořadí startu.
-    k.rovno((v && v.casti || []).map(c => [c.id, c.odhad_radku]), CASTI.map(c => [c.id, c.odhad_radku]), 'návrat.casti v pořadí architekta')
+    k.rovno((v && v.stavba && v.stavba.casti || []).map(c => [c.id, c.odhad_radku]), CASTI.map(c => [c.id, c.odhad_radku]), 'návrat.casti v pořadí architekta')
     return k.chyby
   },
 }

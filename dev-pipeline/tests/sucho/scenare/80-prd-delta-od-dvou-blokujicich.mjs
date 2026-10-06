@@ -27,7 +27,7 @@ export default {
     k.nic(/^prd-check:řez 05:část K2:2$/, 'delta části s jediným blokujícím nálezem')
     k.ok(logy.some(l => /delta kontrola kostry se nekoná \(kolo 1 s jediným blokujícím nálezem, delta od 2\)/.test(l)), 'log o kostře bez delty (jediný blokující)')
     k.ok(logy.some(l => /část K2 zapracována; delta kontrola se nekoná \(kolo 1 s jediným blokujícím nálezem/.test(l)), 'log o části K2 bez delty')
-    const h = v && v.hypotezy_pro_stavbu
+    const h = v && v.stavba && v.stavba.hypotezy
     k.ok(h && S(h.report).includes(rep('')) && S(h.report).includes(rep('K2')), `hypotezy_pro_stavbu.report bez reportů kola 1 kostry a K2: ${JSON.stringify(h)}`)
     k.ok(h && h.ids.includes('N1') && h.ids.includes('K2/N1') && !h.ids.some(id => id.startsWith('K1/')), `hypotezy_pro_stavbu.ids: ${JSON.stringify(h && h.ids)}`)
     k.ok(v && v.kontrola && v.kontrola.kola === 2, `návrat.kontrola.kola: ${JSON.stringify(v && v.kontrola)}`)

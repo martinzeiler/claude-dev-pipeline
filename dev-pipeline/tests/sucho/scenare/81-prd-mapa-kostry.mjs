@@ -1,37 +1,43 @@
-// 81 · PRD · 1.5.0 mapa sekcí kostry (spec 1.5.0 § 1.14 bod 3): architekt vrátí mapa_kostry, autoři, kontroly a zapracování
-// kostry ji dostanou v zadání; zapracování kostry vrátí novou mapu a zapracování částí i delta kostry dostanou tu novou;
-// návrat bloku nese aktuální mapu (pro režim zapracování a stavbu).
+// 81 · PRD · 1.6.0 bez mapa_kostry (spec 1.6.0 § 1.3): mapu sekcí kostry si každý čtenář udělá sám jedním rg nad kostrou;
+// pole mapa_kostry zmizelo ze schématu, zadání i návratu (v běhu web-rijen dostala stavba 8 mapu řezu 7 se stejnými nadpisy).
+// Čtenáři části čtou ze sekce kritérií jen svá kritéria podle ID (rozbor-prd návrh 11).
 import { argsPrd, kontrola, rozhrani, stub, CWD } from '../stuby.mjs'
 import { CASTI3 } from './17-prd-tri-casti.mjs'
 
-const MAPA1 = 'MAPA-KOSTRY-1: 1-30 ## Cíl · 31-90 ## Kontrakt · 91-120 ## Části'
-const MAPA2 = 'MAPA-KOSTRY-2: 1-30 ## Cíl · 31-110 ## Kontrakt · 111-140 ## Části'
 const IDS = CASTI3.map(c => c.id)
+const KOSTRA = `${CWD}/docs/prd/rez-05-sucho.md`
 
 export default {
-  nazev: 'PRD: mapa sekcí kostry jde čtenářům kostry',
+  nazev: 'PRD: čtenáři kostry si mapu sekcí dělají sami',
   blok: 'blok-prd',
-  args: argsPrd(),
+  // Starý volající ještě posílá mapa_kostry: blok ho ignoruje.
+  args: argsPrd({ mapa_kostry: 'STARA-MAPA: 1-30 ## Cíl' }),
   odpoved(label) {
-    if (label === 'prd:řez 05') return stub(label, { kriteria: 10, casti: CASTI3, odhad_radku: 3500, kontrakt_potreba: true, mapa_kostry: MAPA1 })
+    if (label === 'prd:řez 05') return stub(label, { kriteria: 10, casti: CASTI3, odhad_radku: 3500, kontrakt_potreba: true, mapa_kostry: 'MAPA-OD-ARCHITEKTA' })
     if (label === 'prd-check:řez 05:1') return { verdikt: 'needs-fixes', nalezu: 2, blokujicich: 2, osy: ['C'], report_path: `${CWD}/docs/reviews/rez-05-prd-check-kolo-1.md`, nalezy_ids: ['N1', 'N2'] }
-    if (label === 'prd-fix:řez 05') return stub(label, { zmenena_mista: ['Kontrakt: typ Rozpocet'], mapa_kostry: MAPA2 })
+    if (label === 'prd-fix:řez 05') return stub(label, { zmenena_mista: ['Kontrakt: typ Rozpocet'] })
     return null
   },
   over(v, volani) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, mapa_kostry: MAPA2 })
+    k.navrat(v, { ok: true })
+    k.ok(v && !('mapa_kostry' in v) && !('mapa_kostry' in (v.stavba || {})), 'návrat bez mapa_kostry')
     const ar = k.jeden('prd:řez 05')
-    k.pole(ar, ['mapa_kostry'], 'PRD_SCHEMA')
-    k.obsahuje(ar, 'mapa_kostry', 'pokyn vrátit mapu kostry')
-    for (const id of IDS) { const a = k.jeden(`prd-část:řez 05:${id}`); k.obsahuje(a, MAPA1, 'mapu kostry od architekta'); k.obsahuje(a, 'jen sekce, které potřebuješ') }
-    const ks = k.jeden('prd-check:řez 05:1')
-    k.obsahuje(ks, MAPA1, 'mapu kostry v kontrole kostry')
-    for (const id of IDS) k.obsahuje(k.jeden(`prd-check:řez 05:část ${id}:1`), MAPA1, 'mapu kostry v kontrole části')
-    const fk = k.jeden('prd-fix:řez 05')
-    k.obsahuje(fk, MAPA1, 'mapu kostry v zapracování kostry'); k.obsahuje(fk, 'aktuální mapa_kostry', 'pokyn vrátit aktuální mapu')
-    for (const id of IDS) { const f = k.jeden(`prd-fix:řez 05:část ${id}`); k.obsahuje(f, MAPA2, 'novou mapu po zapracování kostry'); k.neobsahuje(f, MAPA1, 'starou mapu') }
-    k.obsahuje(k.jeden('prd-check:řez 05:2'), MAPA2, 'novou mapu v delta kontrole kostry')
+    k.ok(ar && !ar.klice.includes('mapa_kostry'), 'PRD_SCHEMA bez pole mapa_kostry')
+    for (const x of volani) {
+      k.neobsahuje(x, 'MAPA-OD-ARCHITEKTA', 'mapu od architekta'); k.neobsahuje(x, 'STARA-MAPA', 'mapu z args')
+      k.neobsahuje(x, 'mapa_kostry', 'pole mapa_kostry')
+    }
+    const rg = `rg -n '^## ' ${KOSTRA}`
+    for (const id of IDS) {
+      const c = CASTI3.find(x => x.id === id)
+      for (const l of [`prd-část:řez 05:${id}`, `prd-check:řez 05:část ${id}:1`, `prd-fix:řez 05:část ${id}`]) {
+        const x = k.jeden(l)
+        k.obsahuje(x, rg, 'mapu sekcí přes rg nad kostrou')
+        k.obsahuje(x, `rg -n '\\b(${c.kriteria.join('|')})\\b' ${KOSTRA}`, 'jen svá kritéria podle ID')
+      }
+    }
+    for (const l of ['prd-check:řez 05:1', 'prd-fix:řez 05', 'prd-check:řez 05:2']) k.obsahuje(k.jeden(l), rg, 'mapu sekcí přes rg nad kostrou')
     rozhrani(k, volani)
     return k.chyby
   },

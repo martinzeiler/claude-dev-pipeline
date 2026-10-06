@@ -23,7 +23,8 @@
 #     čitelně (implement řez 05 · část K2 · pokus 1 · nástupce 2); předávky = labely nástupců, u doběhlých bloků
 #     pole predavky výsledku nebo log „předávka“.
 #   Kontext agentů z docs/.kontext.jsonl v cwd (hook hlídač kontextu): u živého agenta poslední záznam jeho agent_id,
-#     v souhrnu nejvyšší kontext podle typu agenta a compacty, jen za agenty této session.
+#     v souhrnu nejvyšší kontext podle typu agenta a compacty, jen za agenty této session; compacty orchestrátora
+#     zvlášť ze záznamů hooku pre-compact (aid orchestrator), z nich je bere i závěrečná zpráva.
 #   Fronta těžkých příkazů: scripts/tezky.py stav (co drží, co čeká); status line čte stavový soubor fronty napřímo
 #     (bez podprocesu a zámku) a počítá jen čekající se živým PID.
 #   Kontext běhu (název řezu, hotové řezy) z docs/handoff.md v cwd; fáze bloku ze skriptu workflows/scripts/<blok>-<wf>.js.
@@ -382,6 +383,12 @@ def kontext_agentu():
         compactu[aid] = max(compactu.get(aid, 0), cislo(e.get("compactu")))
     return posledni, podle_typu, sum(compactu.values())
 
+def compacty_orchestratoru():
+    """Compacty orchestrátorské session: záznamy hooku pre-compact (aid orchestrator, udalost compact). Soubor patří
+    běžící vizi (setup ho při nové vizi archivuje), proto se počítají všechny záznamy."""
+    return sum(1 for e in jsonl(tail_lines(os.path.join(os.getcwd(), "docs", ".kontext.jsonl"), 2 * 1024 * 1024))
+               if isinstance(e, dict) and e.get("aid") == "orchestrator" and e.get("udalost") == "compact")
+
 # ---------- fronta těžkých příkazů (scripts/tezky.py) ----------
 def pid_zije(pid):
     """Stejné pravidlo jako tezky.py: ProcessLookupError = mrtvý, PermissionError = živý."""
@@ -555,6 +562,7 @@ kratce = mode == "kratce"
 ctx = handoff_info()
 kontext_posl, kontext_typ, compactu = kontext_agentu()
 predavek = sum(w["predavky"] for w in running) + sum(predavky_bloku(st) for _, _, st in finished)
+compactu_orch = compacty_orchestratoru()
 
 def vysledek_bloku(st):
     """Jedna věta o dokončeném Workflow: ✓ s výsledkem, nebo ✗ s důvodem (ne ok=False)."""
@@ -651,6 +659,8 @@ if kontext_typ:
     souhrn.append(f"compactů {compactu}")
 if kontext_typ or predavek:
     souhrn.append(f"předávek {predavek}")
+if compactu_orch:
+    souhrn.append(f"compactů orchestrátora {compactu_orch}")
 if souhrn:
     out.append("kontext agentů: " + " · ".join(souhrn))
 

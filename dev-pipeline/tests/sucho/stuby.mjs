@@ -82,7 +82,7 @@ export const e2ePass = (celkem, extra = {}) => ({
 })
 
 export const oprava = (extra = {}) => ({
-  opraveno: 1, zmenena_mista: ['apps/sucho/rez.ts: uloz'], odmitnuto: [], jinak_nez_nalez: [], rozsireny_zasah: false,
+  opraveno: 1, opravene_ids: [], zmenena_mista: ['apps/sucho/rez.ts: uloz'], odmitnuto: [], jinak_nez_nalez: [], rozsireny_zasah: false,
   typecheck: true, testy_zelene: true, follow_ups: [], spory: [], ...extra,
 })
 
@@ -98,6 +98,9 @@ function impl(l) {
     odchylky_od_prd: [], pasti_opravene: [], follow_ups: [], spory: [],
   }
 }
+
+const pridelene = prompt => [...S(prompt).matchAll(/(?:tvoje nálezy:|: nálezy) ([^.·]+?)(?:\.(?:\s|$)| ·)/g)]
+  .flatMap(m => m[1].split(',').map(x => x.trim())).filter(x => x && !/^všechny/.test(x))
 
 // Vrací undefined pro label mimo § 1.1; harness to hlásí jako chybu scénáře.
 export function vychozi(label, prompt, opts, stav) {
@@ -123,7 +126,8 @@ export function vychozi(label, prompt, opts, stav) {
     case 'thermo': return { blokeru: 0, nalezu: 0, report_path, soubory: [], souhrn: 'stub' }
     case 'review': case 'security': return { nalezu: 0, blokujicich: 0, balicky: [], report_path, follow_up_ids: [] }
     case 'triáž': return { nalezu: 0, opravit_ted: 0, follow_up: 0, odmitnuto: 0, balicky: [], report_path, follow_ups: [], odmitnute: [], sporne: [] }
-    case 'fix': case 'fix-thermo': case 'fix-brana': case 'fix-e2e': case 'fix-security': return oprava()
+    // Věrný fix vrací v opravene_ids (od 1.6.0 povinné) nálezy, které mu zadání přidělilo: stavba „tvoje nálezy: …“, kolečko „: nálezy …“.
+    case 'fix': case 'fix-thermo': case 'fix-brana': case 'fix-e2e': case 'fix-security': return oprava({ opravene_ids: pridelene(prompt) })
     // Věrný agent brány vrací jako vystup_path cestu, kam mu zadání výstup uložit (blok ji smí předat E2E místo rep()).
     case 'verify': { const m = /ulož do (\S+?\.md)/.exec(S(prompt)); return zelenaBrana(m ? { vystup_path: m[1] } : {}) }
     case 'doklad': return { ok: true, path: `${cwd}/docs/e2e/rez-${nn}-doklad-pred.md`, souhrn: 'stub' }
@@ -137,6 +141,8 @@ export function vychozi(label, prompt, opts, stav) {
     case 'diagnose': return { pricina: 'stub', doporuceni: 'stub', smycka_postavena: true }
     case 'uzavření': return { ok: true, thermo_nesesouhlaseno: 0, chybejici_doklady: [], commit_overeny: '', chybejici_commity: [], kontext: 'implement 180 k, 0 compactů, 0 předávek' }
     case 'závěr': return { ok: true, review_passed: true, chybejici_commity: [] }
+    // Načítací agent args (1.6.0): vrátí args bloku jako ze souboru; číslo řezu podle labelu, kolečko „kolecko“.
+    case 'args': return l.kolecko ? { ...argsKolecko(), rez: 'kolecko' } : { ...argsStavby(), rez: nn }
     default: return undefined
   }
 }
@@ -191,6 +197,8 @@ export function rozhrani(k, volani, { vyjimky = /^(uzavření|závěr):/ } = {})
   const porus = {}
   const pridej = (pravidlo, v) => { (porus[pravidlo] = porus[pravidlo] || []).push(v.label) }
   for (const v of volani) {
+    // Načítací agent args (1.6.0) běží před rámcem bloku a předávku nedělá: jen přečte soubor.
+    if (parsujLabel(v.label).typ === 'args') continue
     if (!v.klice.includes('predavka')) pridej('schéma bez pole predavka (§ 1.2)', v)
     for (const [id, veta] of Object.entries(RAMEC)) if (!v.prompt.includes(veta)) pridej(`rámec bez věty ${id} „${veta}…“ (§ 1.8)`, v)
     // Agenti o limitu kontextu nevědí (§ 0.13); uzavření a závěr kontext jen vykazují z docs/.kontext.jsonl (§ 3 CLOSE).

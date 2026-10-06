@@ -28,16 +28,16 @@ MEKKY="${DEV_PIPELINE_KONTEXT_MEKKY:-250000}"
 TVRDY="${DEV_PIPELINE_KONTEXT_TVRDY:-290000}"
 stdir="${TMPDIR:-/tmp}"; stdir="${stdir%/}/dev-pipeline-kontext"; st="$stdir/$aid"
 
-t=""; rez=""; max=0; zap=0; f100=0; fm=0; ft=0; comp=0; zmena=0
+t=""; rez=""; max=0; zap=0; f100=0; fm=0; ft=0; comp=0; pz=0; zmena=0
 if [ -f "$st" ]; then
   while IFS='=' read -r k v; do
-    case "$k" in t) t=$v ;; rez) rez=$v ;; max) max=$v ;; zap) zap=$v ;; f100) f100=$v ;; fm) fm=$v ;; ft) ft=$v ;; comp) comp=$v ;; esac
+    case "$k" in t) t=$v ;; rez) rez=$v ;; max) max=$v ;; zap) zap=$v ;; f100) f100=$v ;; fm) fm=$v ;; ft) ft=$v ;; comp) comp=$v ;; pz) pz=$v ;; esac
   done < "$st"
 fi
 uloz() {
   [ "$zmena" = 1 ] || return 0
   [ -d "$stdir" ] || mkdir -p "$stdir" 2>/dev/null
-  printf 't=%s\nrez=%s\nmax=%s\nzap=%s\nf100=%s\nfm=%s\nft=%s\ncomp=%s\n' "$t" "$rez" "$max" "$zap" "$f100" "$fm" "$ft" "$comp" > "$st.$$" 2>/dev/null \
+  printf 't=%s\nrez=%s\nmax=%s\nzap=%s\nf100=%s\nfm=%s\nft=%s\ncomp=%s\npz=%s\n' "$t" "$rez" "$max" "$zap" "$f100" "$fm" "$ft" "$comp" "$pz" > "$st.$$" 2>/dev/null \
     && mv -f "$st.$$" "$st" 2>/dev/null
 }
 
@@ -47,10 +47,12 @@ if [ -z "$t" ] || [ ! -f "$t" ]; then
   t=$(find "${DEV_PIPELINE_TRANSCRIPTS:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects}"/*/"$sid"/subagents -name "agent-$aid.jsonl" 2>/dev/null | head -1)
   [ -n "$t" ] || exit 0
   # Řez jednou ze zadání na začátku transkriptu: rámec bloku PRD i stavby začíná „Řez NN:“; kolečko číslo řezu nemá.
-  rez=$(head -c 200000 "$t" | grep -m1 -o -E 'Řez [0-9]+')
+  # Bez roury: grep -q/-m1 skončí po první shodě, head dostane SIGPIPE a pod pipefail vrátí roura 141, takže podmínka
+  # padla i při shodě (v běhu web-rijen mělo 65 záznamů kolečka rez "-"; 1.6.0).
+  rez=$(grep -m1 -o -E 'Řez [0-9]+' < <(head -c 200000 "$t"))
   rez=${rez%%$'\n'*}; rez=${rez##* }
   if [ -n "$rez" ]; then rez=$(printf '%02d' "$((10#$rez))")
-  elif head -c 200000 "$t" | grep -q '[Kk]olečk'; then rez=kolecko
+  elif grep -q '[Kk]olečk' < <(head -c 200000 "$t"); then rez=kolecko
   else rez=-; fi
   zmena=1
 fi
@@ -86,6 +88,15 @@ if [ -n "$udalost" ]; then
   jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg rez "$rez" --arg aid "$aid" --arg typ "${typ#dev-pipeline:}" \
     --argjson k "$ctx" --argjson m "$max" --argjson c "$comp" --arg u "$udalost" \
     '{ts:$ts, rez:$rez, aid:$aid, typ:(if $typ == "" then "-" else $typ end), kontext:$k, max:$m, compactu:$c, udalost:$u}' \
+    >> "$proj/docs/.kontext.jsonl" 2>/dev/null
+fi
+# Předávka do logu: první volání po tom, co agent zapsal svou předávku (Write, Edit i Bash heredoc), zapíše záznam
+# udalost "predavka". Uzavření počítá předávky řezu z logu; do 1.6.0 v něm nebyly a journal psal rozporné věty.
+if [ "$pz" != 1 ] && [ "$ev" = PostToolUse ] && [ -f "$proj/docs/reviews/predavka-$aid.md" ]; then
+  pz=1; zmena=1
+  jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg rez "$rez" --arg aid "$aid" --arg typ "${typ#dev-pipeline:}" \
+    --argjson k "$ctx" --argjson m "$max" --argjson c "$comp" --arg s "docs/reviews/predavka-$aid.md" \
+    '{ts:$ts, rez:$rez, aid:$aid, typ:(if $typ == "" then "-" else $typ end), kontext:$k, max:$m, compactu:$c, udalost:"predavka", soubor:$s}' \
     >> "$proj/docs/.kontext.jsonl" 2>/dev/null
 fi
 uloz

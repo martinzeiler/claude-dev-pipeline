@@ -8,6 +8,8 @@ SID="sess-orch"; OTHER="sess-other"
 jq -n --arg s "$SID" '{session_id:$s, started:"2026-09-16T12:00:00Z", vize:"docs/vize/test.md", slug:"test"}' > "$proj/docs/.orchestrator-run"
 cp "$proj/docs/.orchestrator-run" "$tmp/marker"; : > "$tmp/oldmarker"
 seq 1 500 | sed 's/^/const x/' > "$proj/src/big.ts"; seq 1 100 > "$proj/src/small.ts"; seq 1 500 > "$proj/docs/big.md"
+seq 1 500 | sed 's/^/x = /' > "$proj/src/big.py"
+mkdir -p "$proj/.serena"; printf 'project_name: "t"\n# languages: [python]\nlanguage_servers:\n- typescript\nincluded_apis: []\n' > "$proj/.serena/project.yml"
 echo "# vize" > "$proj/docs/vize/test.md"; echo "# prd" > "$proj/docs/prd/rez-01.md"
 printf 'stav běhu: běží workflow blok-stavby řez 01\n| řez | stav |\n' > "$proj/docs/handoff.md"
 pass=0; fail=0
@@ -92,6 +94,60 @@ HOME="$fbh" run fb-other-home-deny guard-run.sh "$(pre $SID '' Write file_path "
 echo '{}' > "$proj/docs/.run-args.json"; echo '{}' > "$proj/docs/.stavba-05.json"
 run read-run-args guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/.run-args.json")" allow
 run bash-cat-stavba-args guard-run.sh "$(pre $SID '' Bash command "cat docs/.stavba-05.json")" allow
+# 1.6.0: args a výsledky bloků (args_file, plné seznamy stavby), log kontextu, skripty args-bloku.py a zbytek-rezu.sh
+for f in .prd-05.json .prd-vysledek-05.json .kolecko.json .vysledek-stavba-05.json .kontext.jsonl; do echo '{}' > "$proj/docs/$f"; done
+run read-prd-args guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/.prd-05.json")" allow
+run read-prd-vysledek guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/.prd-vysledek-05.json")" allow
+run read-kolecko-args guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/.kolecko.json")" allow
+run bash-cat-vysledek-stavby guard-run.sh "$(pre $SID '' Bash command "cat docs/.vysledek-stavba-05.json")" allow
+run bash-tail-kontext guard-run.sh "$(pre $SID '' Bash command "tail -5 docs/.kontext.jsonl")" allow
+run bash-args-bloku guard-run.sh "$(pre $SID '' Bash command "python3 -I $hooks/../scripts/args-bloku.py stavba $proj 05 --prd-run wf_abc-123 --doplnit '{\"prd_stale\":[],\"hypotezy\":{\"text\":[\"x; pnpm test\"]}}'")" allow
+run bash-zbytek-rezu guard-run.sh "$(pre $SID '' Bash command "bash $hooks/../scripts/zbytek-rezu.sh $proj 12")" allow
+# záložní cesta args stavby: plný výsledek bloku PRD ze souboru .output runtime (useknutá notifikace) mimo projekt
+run bash-args-bloku-output guard-run.sh "$(pre $SID '' Bash command "python3 -I $hooks/../scripts/args-bloku.py stavba $proj 05 --prd-vysledek /private/tmp/claude-501/-Users-x-proj/sess/tasks/wf1wa23ij.output --doplnit '{\"prd_stale\":[]}'")" allow
+run read-vysledek-stavby guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/.vysledek-stavba-05.json")" allow
+rm -f "$proj/docs/.kontext.jsonl" "$proj/docs/.prd-05.json" "$proj/docs/.prd-vysledek-05.json" "$proj/docs/.kolecko.json"
+# --- scripts/args-bloku.py (1.6.0): args bloků do souboru, výsledek bloku PRD ze souboru běhu Workflow
+ab() { DEV_PIPELINE_TRANSCRIPTS="$tmp/abproj" python3 -I "$hooks/../scripts/args-bloku.py" "$@" 2>&1; }
+wfd="$tmp/abproj/-p/$SID/workflows"; mkdir -p "$wfd"
+jq -n '{status:"completed", workflowName:"blok-prd", result:{ok:true, rez:"05", souhrn:"x", stavba:{rez:"05", prd_path:"/p/docs/prd/rez-05.md", casti:[{id:"K1"}], hypotezy:{blokujici:["N1"], ids:["N2"]}, mapa_kostry:"1-2 ## Cíl", ne_cile:"x", vize:"/jina.md"}}}' > "$wfd/wf_aaa-111.json"
+jq -n '{status:"completed", workflowName:"blok-prd", result:{ok:true, rez:"05", prd_path:"/p/docs/prd/rez-05.md", casti:[], hypotezy_pro_stavbu:{ids:["N3"]}, kriteria:7}}' > "$wfd/wf_bbb-222.json"
+jq -n '{status:"running", workflowName:"blok-prd", result:null}' > "$wfd/wf_ccc-333.json"
+jq -n '{status:"completed", workflowName:"blok-stavby", result:{rez:"05"}}' > "$wfd/wf_ddd-444.json"
+jq -n '{vize:"/p/docs/vize/v.md", produkt:"/p/docs/produkt.md", ne_cile:"y"}' > "$proj/docs/.run-args.json"
+o=$(ab stavba "$proj" 5 --prd-run wf_aaa-111 --doplnit '{"prd_stale":[{"rez":"04"}],"hypotezy":{"text":["věta"]}}'); rc=$?
+k=$(jq -c '[.rez, .cwd == $p, .casti[0].id, .hypotezy.blokujici, .hypotezy.text, .prd_stale[0].rez, has("mapa_kostry"), has("ne_cile"), has("vize")]' --arg p "$proj" "$proj/docs/.stavba-05.json" 2>/dev/null)
+[ $rc -eq 0 ] && [ "$k" = '["05",true,"K1",["N1"],["věta"],"04",false,false,false]' ] && printf '%s' "$o" | grep -q '^docs/.stavba-05.json: ' && ok || ko "ab-stavba: rc=$rc $o $k"
+o=$(ab stavba "$proj" 5 --prd-run bbb-222); rc=$?
+k=$(jq -c '[.hypotezy.ids, .kriteria]' "$proj/docs/.stavba-05.json" 2>/dev/null)
+[ $rc -eq 0 ] && [ "$k" = '[["N3"],7]' ] && printf '%s' "$o" | grep -q 'před 1.6.0' && ok || ko "ab-stavba-stary-blok: rc=$rc $o $k"
+o=$(ab stavba "$proj" 6 --prd-run wf_aaa-111); [ $? -eq 4 ] && printf '%s' "$o" | grep -q 'patří řezu 05' && ok || ko "ab-jiny-rez: $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_ccc-333); [ $? -eq 3 ] && printf '%s' "$o" | grep -q 'záložní cesta' && ok || ko "ab-nedokonceny: $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_nic-000); [ $? -eq 3 ] && ok || ko "ab-nenalezen: $o"
+jq -n '{rez:"05", prd_path:"/p/x.md", hypotezy:{ids:["N9"]}}' > "$tmp/stavba.json"
+o=$(ab stavba "$proj" 5 --prd-vysledek "$tmp/stavba.json"); rc=$?
+[ $rc -eq 0 ] && [ "$(jq -c '.hypotezy.ids' "$proj/docs/.stavba-05.json")" = '["N9"]' ] && ok || ko "ab-zalozni: rc=$rc $o"
+o=$(ab prd "$proj" 5 --puvodni-run wf_bbb-222 --doplnit '{"rezim":"zapracovani","od_faze":"autori"}'); rc=$?
+[ $rc -eq 0 ] && [ "$(jq -c '[.rez, .puvodni.kriteria, .od_faze, has("vize")]' "$proj/docs/.prd-05.json")" = '["05",7,"autori",false]' ] && ok || ko "ab-prd-puvodni: rc=$rc $o"
+o=$(ab prd "$proj" 5 --puvodni-run wf_ddd-444); [ $? -eq 3 ] && printf '%s' "$o" | grep -q 'ne blok-prd' && ok || ko "ab-puvodni-stavba: $o"
+o=$(ab prd "$proj" 5 --doplnit '{"rez":"06"}'); [ $? -eq 4 ] && ok || ko "ab-doplnit-rez: $o"
+o=$(ab prd "$proj" 5 --doplnit '{neni'); [ $? -eq 2 ] && ok || ko "ab-nevalidni: $o"
+rm "$proj/docs/.run-args.json"
+o=$(ab kolecko "$proj" --doplnit '{"base":"main"}'); rc=$?
+[ $rc -eq 0 ] && [ "$(jq -c '[.rez, .base, .vize]' "$proj/docs/.kolecko.json")" = "[\"kolecko\",\"main\",\"$proj/docs/vize/test.md\"]" ] && ok || ko "ab-kolecko-vize-z-markeru: rc=$rc $o $(cat "$proj/docs/.kolecko.json")"
+rm -f "$proj"/docs/.stavba-05.json "$proj"/docs/.prd-05.json "$proj"/docs/.kolecko.json
+# --- scripts/zbytek-rezu.sh (1.6.0): zbytky neúspěšného řezu do patche, docs/ zůstává, strom zpět na HEAD
+zr="$tmp/zr"; mkdir -p "$zr/docs" "$zr/apps"; (cd "$zr" && git init -q && git config user.email t@t && git config user.name t \
+  && echo 'export default [];' > eslint.config.js && echo a > apps/a.ts && echo '# h' > docs/handoff.md && git add -A && git commit -qm init)
+(cd "$zr" && echo zmena > eslint.config.js && rm apps/a.ts && echo novy > apps/b.mjs && echo '# h2' > docs/handoff.md)
+o=$(bash "$hooks/../scripts/zbytek-rezu.sh" "$zr" 12 2>&1); rc=$?
+st=$(git -C "$zr" status --porcelain | tr '\n' '|')
+[ $rc -eq 0 ] && [ "$st" = ' M docs/handoff.md|?? docs/e2e/|' ] && printf '%s' "$o" | grep -q 'rez-12-zbytek.patch, uložené soubory (3)' && ok || ko "zr-uloz: rc=$rc st=$st $o"
+(cd "$zr" && git apply docs/e2e/rez-12-zbytek.patch) && [ "$(cat "$zr/eslint.config.js")" = zmena ] && [ -f "$zr/apps/b.mjs" ] && [ ! -e "$zr/apps/a.ts" ] && ok || ko "zr-obnova"
+o=$(bash "$hooks/../scripts/zbytek-rezu.sh" "$zr" 12 -- eslint.config.js 2>&1); rc=$?
+[ $rc -eq 0 ] && [ -f "$zr/docs/e2e/rez-12-zbytek-2.patch" ] && [ -f "$zr/apps/b.mjs" ] && ok || ko "zr-cesty-druhy-patch: rc=$rc $o"
+o=$(bash "$hooks/../scripts/zbytek-rezu.sh" "$zr" 3 -- eslint.config.js 2>&1); [ $? -eq 0 ] && printf '%s' "$o" | grep -q 'nic neuloženo' && ok || ko "zr-nic: $o"
+bash "$hooks/../scripts/zbytek-rezu.sh" "$tmp/neni-repo" 3 >/dev/null 2>&1; [ $? -eq 2 ] && ok || ko "zr-neni-repo"
 # --- subagenti
 run sub-ask guard-run.sh "$(pre $SID ag1 AskUserQuestion questions "")" allow
 run sub-read-big-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts")" deny "find_symbol"
@@ -116,6 +172,36 @@ run sub-tail-plus-deny guard-run.sh "$(pre $SID ag1 Bash command "tail -n +1 src
 run sub-tail-plus-ok guard-run.sh "$(pre $SID ag1 Bash command "tail -n +300 src/big.ts")" allow
 run sub-cd-cat-deny guard-run.sh "$(pre $SID ag1 Bash command "cd $proj && cat src/big.ts")" deny
 run sub-pnpm guard-run.sh "$(pre $SID ag1 Bash command "pnpm test")" allow
+# 1.6.0: výstup přesměrovaný do souboru není čtení do kontextu (falešný zásah prd-část řezu 10 v běhu web-rijen)
+run sub-sed-do-souboru guard-run.sh "$(pre $SID ag1 Bash command "sed -n 1,500p src/big.ts > \$TMPDIR/cat.ts")" allow
+run sub-cat-do-souboru guard-run.sh "$(pre $SID ag1 Bash command "cat src/big.ts >> /tmp/dp-x.ts")" allow
+run sub-cat-stderr-deny guard-run.sh "$(pre $SID ag1 Bash command "cat src/big.ts 2>/dev/null")" deny
+run sub-sed-na-stderr-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -n 1,500p src/big.ts >&2")" deny
+# 1.6.0: rada Sereny jen pro jazyky z .serena/project.yml (28 marných volání Sereny nad .py v běhu web-rijen)
+run sub-read-big-py-bez-sereny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.py")" deny "Serena tenhle jazyk v projektu nemá"
+printf 'language_servers:\n  - typescript\n  - python\n' > "$proj/.serena/project.yml"
+run sub-read-big-py-se-serenou guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.py")" deny "find_symbol"
+printf 'languages: [typescript, "python"]\n' > "$proj/.serena/project.yml"
+run sub-read-big-py-languages guard-run.sh "$(pre $SID ag1 Bash command "cat src/big.py")" deny "find_symbol"
+mv "$proj/.serena/project.yml" "$tmp/serena.yml"
+run sub-read-big-ts-bez-projektu guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts")" deny "rg -n"
+mv "$tmp/serena.yml" "$proj/.serena/project.yml"; printf 'language_servers:\n- typescript\n' > "$proj/.serena/project.yml"
+# 1.6.0: do docs/reviews/ žádné skripty (rez-11-pismo-pokus.mjs shodil mini-řez 12 v běhu web-rijen)
+run rv-write-mjs-deny guard-run.sh "$(pre $SID ag1 Write file_path "$proj/docs/reviews/rez-11-pismo-pokus.mjs" content "x")" deny "scratchpadu"
+run rv-write-rel-py-deny guard-run.sh "$(pre $SID ag1 Write file_path "docs/reviews/a.py" content "x")" deny
+run rv-write-md-ok guard-run.sh "$(pre $SID ag1 Write file_path "$proj/docs/reviews/rez-11-e2e-kolo-1.md" content "x")" allow
+run rv-write-json-ok guard-run.sh "$(pre $SID ag1 Write file_path "$proj/docs/reviews/rez-11-doklad.json" content "{}")" allow
+run rv-orch-write-mjs-deny guard-run.sh "$(pre $SID '' Write file_path "$proj/docs/reviews/x.mjs" content "x")" deny "scratchpadu"
+run rv-cp-do-adresare-deny guard-run.sh "$(pre $SID ag1 Bash command "cp \$TMPDIR/pokus.mjs docs/reviews/")" deny "scratchpadu"
+run rv-cp-cil-deny guard-run.sh "$(pre $SID ag1 Bash command "cp /tmp/p.mjs $proj/docs/reviews/rez-11-pismo-pokus.mjs")" deny
+run rv-redirect-deny guard-run.sh "$(pre $SID ag1 Bash command "echo 'print(1)' > docs/reviews/a.py")" deny
+run rv-tee-deny guard-run.sh "$(pre $SID ag1 Bash command "printf x | tee -a docs/reviews/a.sh")" deny
+run rv-heredoc-skript-deny guard-run.sh "$(pre $SID ag1 Bash command $'cat > docs/reviews/m.mjs <<\'EOF\'\nconsole.log(1)\nEOF')" deny
+run rv-heredoc-md-telo-ok guard-run.sh "$(pre $SID ag1 Bash command $'cat > docs/reviews/r.md <<\'EOF\'\nskript: echo x > docs/reviews/a.py\nEOF')" allow
+run rv-mv-na-txt-ok guard-run.sh "$(pre $SID '' Bash command "mv docs/reviews/rez-11-pismo-pokus.mjs docs/reviews/rez-11-pismo-pokus.mjs.txt")" allow
+run rv-log-ok guard-run.sh "$(pre $SID ag1 Bash command "pnpm vitest run > docs/reviews/rez-09-vitest.log 2>&1; echo EXIT=\$?")" allow
+run rv-cp-md-do-adresare-ok guard-run.sh "$(pre $SID ag1 Bash command "cp /tmp/r.md docs/reviews/")" allow
+run rv-jina-session-ok guard-run.sh "$(pre $OTHER ag1 Write file_path "$proj/docs/reviews/x.mjs" content "x")" allow
 run sub-write-src guard-run.sh "$(pre $SID ag1 Write file_path "$proj/src/a.ts" content "x")" allow
 # --- docs/.verify-passed: jen verify-marker.sh
 run vm-sub-write-deny guard-run.sh "$(pre $SID ag1 Write file_path "$proj/docs/.verify-passed" content "{}")" deny "verify-marker"
@@ -159,6 +245,37 @@ run br-checkout-branch-ok guard-blast-radius.sh "$(br $SID 'git checkout main')"
 run br-checkout-newbranch-ok guard-blast-radius.sh "$(br $SID 'git checkout -b vize/x')" allow
 run br-restore-staged-ok guard-blast-radius.sh "$(br $SID 'git restore --staged src/a.ts')" allow
 run br-heredoc-stash-ok guard-blast-radius.sh "$(br $SID $'cat >> docs/journal.md <<\'EOF\'\ngit stash\nEOF')" allow
+# 1.6.0: checkout a restore v klonu mimo projekt (2 falešné zásahy v běhu web-rijen), stash radí zbytek-rezu.sh
+run br-cd-promenna-mimo-ok guard-blast-radius.sh "$(br $SID 'S=/private/tmp/claude-501/x/scratchpad/sim; cd $S && git checkout -q -- docs scripts && node ../fix.mjs')" allow
+run br-cd-absolutni-mimo-ok guard-blast-radius.sh "$(br $SID "cd $proj; ls; cd /private/tmp/claude-501/x/scratchpad/klon; git status --porcelain; git checkout -q docs/vize/a.md")" allow
+run br-git-C-mimo-ok guard-blast-radius.sh "$(br $SID 'git -C /tmp/dp-klon checkout -- .')" allow
+run br-cd-zpet-do-projektu-deny guard-blast-radius.sh "$(br $SID "cd /tmp/dp-klon && cd $proj && git checkout -- docs/handoff.md")" deny
+run br-cd-neznama-deny guard-blast-radius.sh "$(br $SID 'cd $NEZNAMA && git checkout .')" deny
+run br-cd-relativni-deny guard-blast-radius.sh "$(br $SID 'cd apps/web && git restore .')" deny
+run br-git-C-projekt-deny guard-blast-radius.sh "$(br $SID "git -C $proj checkout -- docs/x.md")" deny
+run br-cd-mimo-stash-ok guard-blast-radius.sh "$(br $SID 'cd /tmp/dp-klon && git stash')" allow
+# review 1.6.0, N1: stav „mimo projekt“ nepřežije konec subshellu ani návrat do projektu; čemu guard nerozumí, blokuje
+run br-subshell-cd-stash-deny guard-blast-radius.sh "$(br $SID '(cd /tmp && ls); git stash')" deny
+run br-cd-minus-checkout-deny guard-blast-radius.sh "$(br $SID 'cd /tmp; cd -; git checkout -- docs/')" deny
+run br-cd-oldpwd-deny guard-blast-radius.sh "$(br $SID 'cd /tmp && cd "$OLDPWD" && git checkout -- docs/x.md')" deny
+run br-cd-projectdir-deny guard-blast-radius.sh "$(br $SID 'cd /tmp && cd "$CLAUDE_PROJECT_DIR" && git stash')" deny
+run br-cd-relativne-zpet-deny guard-blast-radius.sh "$(br $SID "cd $proj/src && cd .. && git checkout -- docs/a.md")" deny
+run br-cd-tecky-do-projektu-deny guard-blast-radius.sh "$(br $SID "cd /tmp && cd $proj/../$(basename "$proj") && git stash")" deny
+run br-cd-substituce-deny guard-blast-radius.sh "$(br $SID 'cd "$(mktemp -d)" && git stash')" deny
+run br-pushd-deny guard-blast-radius.sh "$(br $SID 'pushd /tmp && popd && git stash')" deny
+run br-subshell-mimo-ok guard-blast-radius.sh "$(br $SID '(cd /tmp/klon && git stash)')" allow
+run br-subshell-mimo-pak-projekt-deny guard-blast-radius.sh "$(br $SID '(cd /tmp/klon && git stash); git stash')" deny
+run br-mimo-substituce-ok guard-blast-radius.sh "$(br $SID 'cd /tmp/klon && x=$(git rev-parse HEAD) && git checkout -- .')" allow
+run br-mimo-relativni-ok guard-blast-radius.sh "$(br $SID 'cd /tmp/klon && cd sub && git checkout -- .')" allow
+# review 1.6.0, N6: samoodkazující přiřazení dřív rozvoj zacyklilo; hook visel do timeoutu 30 s a příkaz pak prošel bez kontroly
+z=$(date +%s)
+run br-promenna-sama-na-sebe-deny guard-blast-radius.sh "$(br $SID 'S=$S/x; cd $S; git stash')" deny
+run br-promenna-zdvojena-deny guard-blast-radius.sh "$(br $SID 'S=/a; S=$S$S; S=$S$S; S=$S$S; S=$S$S; S=$S$S; S=$S$S; S=$S$S; S=$S$S; S=$S$S; S=$S$S; S=$S$S; S=$S$S; S=$S$S; cd $S; cd "$CLAUDE_PROJECT_DIR"; git stash')" deny
+run br-promenna-rozvinuta-ok guard-blast-radius.sh "$(br $SID 'S=/tmp/a; S=$S/b; cd $S && git stash')" allow
+run br-args-bloku-output guard-blast-radius.sh "$(br $SID "python3 -I $hooks/../scripts/args-bloku.py stavba $proj 05 --prd-vysledek /private/tmp/claude-501/-Users-x-proj/sess/tasks/wf1wa23ij.output")" allow
+[ $(( $(date +%s) - z )) -le 3 ] && ok || ko "br-promenna-rychle: tři rozvoje proměnných trvaly přes 3 s"
+out=$(br $SID 'git stash push -m x -- eslint.config.js' | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/guard-blast-radius.sh" 2>&1 >/dev/null); rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'scripts/zbytek-rezu.sh <cwd> <NN>' && ok || ko "br-stash-zbytek-hlaska: rc=$rc $out"
 # --- guard nasazení čte spouštěný příkaz, ne text (třída F); docs/.deploy-unlocked chybí
 run br-deploy-commitmsg-ok guard-blast-radius.sh "$(br $SID 'git commit -m "rez 07: nasazeno přes railway up"')" allow
 run br-deploy-grep-ok guard-blast-radius.sh "$(br $SID 'grep "railway up" docs/dev-runbook.md')" allow
@@ -236,6 +353,10 @@ head -c 6000 /dev/zero | tr '\0' 'a' > "$proj/docs/handoff.md"
 out=$(pc $SID | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/pre-compact.sh"); printf '%s' "$out" | grep -q systemMessage && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-warn: $out"; }
 printf 'x\n' > "$proj/docs/handoff.md"; out=$(pc $SID | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/pre-compact.sh"); [ -z "$out" ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-quiet: $out"; }
 out=$(pc $OTHER | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/pre-compact.sh"); [ -z "$out" ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-other: $out"; }
+# 1.6.0: každý compact orchestrátorské session jeden záznam v docs/.kontext.jsonl (co-dela.sh a zpráva ho počítají), cizí session žádný
+k=$(jq -sc '[.[] | select(.aid == "orchestrator") | [.udalost, .typ, .trigger, .rez]]' "$proj/docs/.kontext.jsonl" 2>/dev/null)
+[ "$k" = '[["compact","orchestrator","manual","-"],["compact","orchestrator","manual","-"]]' ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-kontext-zaznam: $k"; }
+rm -f "$proj/docs/.kontext.jsonl"
 ok() { pass=$((pass+1)); }; ko() { fail=$((fail+1)); echo "FAIL $*"; }
 # --- hlídač kontextu: syntetický transkript subagenta pod DEV_PIPELINE_TRANSCRIPTS, stav hooku v dočasném TMPDIR
 AID=agtest1; tdir="$tmp/transcripts/-proj/$SID/subagents/workflows/wf_1"; mkdir -p "$tdir" "$tmp/tmpdir"; T="$tdir/agent-$AID.jsonl"
@@ -286,6 +407,21 @@ k3=$(jq -sc --arg a "$AID3" '[.[] | select(.aid == $a) | .udalost]' "$proj/docs/
 [ "$k3" = '["mereni"]' ] && ok || ko "hl-structured-jen-mereni: $k3"
 # týž agent po návratu dál pracuje (nástroj jiný než StructuredOutput): výzva přijde, práh platí
            hl hl-po-navratu-vyzva hlidac-kontextu.sh "$(hk $SID $AID3 PostToolUse Bash command "pnpm test")" ctx "tuhle práci dokončí nástupce"
+# 1.6.0: zapsaná předávka jde do logu jako udalost "predavka", jednou za agenta
+mkdir -p "$proj/docs/reviews"; echo "# předávka" > "$PRED"
+           hl hl-predavka-zapis hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Write file_path "$PRED" content "x")" allow
+           hl hl-predavka-znovu hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "git status")" allow
+           hl hl-predavka-pre hlidac-kontextu.sh "$(hk $SID $AID PreToolUse StructuredOutput stav castecne)" allow
+kp=$(jq -sc --arg a "$AID" '[.[] | select(.aid == $a and .udalost == "predavka") | [.rez, .typ, .soubor]]' "$proj/docs/.kontext.jsonl" 2>/dev/null)
+[ "$kp" = "[[\"05\",\"implement\",\"docs/reviews/predavka-$AID.md\"]]" ] && ok || ko "hl-predavka-log: $kp"
+# 1.6.0: kolečko se pozná i ve velkém transkriptu (head | grep -q pod pipefail vracel 141 a 65 záznamů kolečka mělo rez "-")
+AID4=agkolecko; T4="$tdir/agent-$AID4.jsonl"
+jq -cn '{type:"user", message:{role:"user", content:"Závěrečné review kolečko vize: thermo nad diffem main...HEAD"}}' > "$T4"
+for i in $(seq 1 400); do jq -cn --arg x "$(head -c 600 /dev/zero | tr '\0' 'x')" '{type:"user", message:{role:"user", content:$x}}' >> "$T4"; done
+jq -cn '{type:"assistant", message:{usage:{input_tokens:10, cache_read_input_tokens:118890, cache_creation_input_tokens:1000, output_tokens:100}}}' >> "$T4"
+           hl hl-kolecko hlidac-kontextu.sh "$(hk $SID $AID4 PostToolUse Bash command "git status")" allow
+k4=$(jq -sc --arg a "$AID4" '[.[] | select(.aid == $a) | .rez] | unique' "$proj/docs/.kontext.jsonl" 2>/dev/null)
+[ "$k4" = '["kolecko"]' ] && ok || ko "hl-kolecko-rez: $k4"
 # --- fronta těžkých příkazů: váhy, obal přes updatedInput, E2E verifikátor
 fr() { # sid agent_id agent_type příkaz → vstup PreToolUse Bash
   jq -n --arg s "$1" --arg a "$2" --arg ty "$3" --arg c "$4" --arg p "$proj" \

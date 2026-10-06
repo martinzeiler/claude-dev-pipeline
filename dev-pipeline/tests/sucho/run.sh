@@ -15,9 +15,19 @@ echo "wf-check:"
 node "$plugin/scripts/wf-check.mjs" "$bloky"/*.js
 rc_wf=$?
 
-if [ "$rc_scenare" -eq 0 ] && [ "$rc_wf" -eq 0 ]; then
+# Testy skriptů orchestrátora (args-bloku.py, zbytek-rezu.sh) v dočasných adresářích; bez filtru scénářů.
+rc_skripty=0
+if [ "$#" -eq 0 ]; then
+  for t in "$plugin"/tests/skripty/*.sh; do
+    echo
+    echo "skripty: $(basename "$t")"
+    bash "$t" || rc_skripty=1
+  done
+fi
+
+if [ "$rc_scenare" -eq 0 ] && [ "$rc_wf" -eq 0 ] && [ "$rc_skripty" -eq 0 ]; then
   echo "suchý běh: vše prošlo"
   exit 0
 fi
-echo "suchý běh: SELHÁNÍ (scénáře rc=$rc_scenare, wf-check rc=$rc_wf)"
+echo "suchý běh: SELHÁNÍ (scénáře rc=$rc_scenare, wf-check rc=$rc_wf, skripty rc=$rc_skripty)"
 exit 1

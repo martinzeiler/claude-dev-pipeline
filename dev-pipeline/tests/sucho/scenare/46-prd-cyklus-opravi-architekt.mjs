@@ -21,7 +21,7 @@ export default {
     k.obsahuje(f, 'cyklus v zavisi_na: K1 → K3 → K1', 'nález cyklu')
     for (const a of k.s(/^prd-část:/)) k.pred(f, a)
     k.pocet(/^prd-část:/, 3, 'autoři částí')
-    if (v) k.rovno((v.casti || []).map(c => [c.id, c.zavisi_na]), CASTI3.map(c => [c.id, c.zavisi_na]), 'návrat.casti po opravě')
+    if (v) k.rovno(((v.stavba || {}).casti || []).map(c => [c.id, c.zavisi_na]), CASTI3.map(c => [c.id, c.zavisi_na]), 'návrat.casti po opravě')
     return k.chyby
   },
 }
