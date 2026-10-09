@@ -20,11 +20,13 @@
 #     Obnova přes resumeFromRunId píše do téhož journalu a stavový soubor přerušeného běhu přepíše až při doběhnutí:
 #     journal o víc než 5 s novější než stavový soubor = obnovený běh, který běží.
 #   Labely agentů podle spec 1.4.0 § 1.1 (části, kontrakt, integrace, oprava, nástupce po předávce :nN) se vypisují
-#     čitelně (implement řez 05 · část K2 · pokus 1 · nástupce 2); předávky = labely nástupců, u doběhlých bloků
-#     pole predavky výsledku nebo log „předávka“.
+#     čitelně (implement řez 05 · část K2 (název části) · pokus 1 · nástupce 2); název části z docs/.stavba-NN.json.
+#   Předávky jen z docs/.kontext.jsonl (záznamy udalost predavka, hook hlídač kontextu): za běh a za řez přes všechny
+#     bloky (PRD, stavba, obnova). Součet výsledků bloků dával v běhu sonnet-5-5 32 místo 46, obnova přepsala výsledek
+#     stavby 03 (1.7.0). Bez logu (ruční --session mimo projekt) labely nástupců a pole predavky výsledků.
 #   Kontext agentů z docs/.kontext.jsonl v cwd (hook hlídač kontextu): u živého agenta poslední záznam jeho agent_id,
 #     v souhrnu nejvyšší kontext podle typu agenta a compacty, jen za agenty této session; compacty orchestrátora
-#     zvlášť ze záznamů hooku pre-compact (aid orchestrator), z nich je bere i závěrečná zpráva.
+#     zvlášť ze záznamů hooku session-start při compactu (aid orchestrator), z nich je bere i závěrečná zpráva.
 #   Fronta těžkých příkazů: scripts/tezky.py stav (co drží, co čeká); status line čte stavový soubor fronty napřímo
 #     (bez podprocesu a zámku) a počítá jen čekající se živým PID.
 #   Kontext běhu (název řezu, hotové řezy) z docs/handoff.md v cwd; fáze bloku ze skriptu workflows/scripts/<blok>-<wf>.js.
@@ -246,17 +248,34 @@ CISLO_JAKO = {"implement": "pokus", "review": "kolo", "prd-check": "kolo", "veri
 NASTUPCE = re.compile(r":n\d+$")
 POKUS = re.compile(r"implement:řez\s*[0-9a-z]+:(?:[^:]+:)?(\d+)(?::n\d+)?$")
 
+_NAZVY_CASTI = {}
+
+def nazvy_casti(rez):
+    """{id části: název} z docs/.stavba-NN.json v cwd (pole casti[].nazev z bloku PRD); prázdné, když soubor není."""
+    n = rez_int(rez)
+    if n is None:
+        return {}
+    if n not in _NAZVY_CASTI:
+        d = load_json(os.path.join(os.getcwd(), "docs", f".stavba-{n:02d}.json"))
+        casti = d.get("casti") if isinstance(d, dict) else None
+        _NAZVY_CASTI[n] = {str(c.get("id")): str(c.get("nazev") or "").strip() for c in (casti if isinstance(casti, list) else [])
+                           if isinstance(c, dict) and c.get("id") and str(c.get("nazev") or "").strip()}
+    return _NAZVY_CASTI[n]
+
 def citelny(label):
-    """implement:řez 05:část K2:1:n2 → implement řez 05 · část K2 · pokus 1 · nástupce 2 (neznámé kusy beze změny)."""
+    """implement:řez 05:část K2:1:n2 → implement řez 05 · část K2 (název) · pokus 1 · nástupce 2 (neznámé kusy beze změny).
+    Holé „K2“ bez vize v ruce nikdo nepřečte (Martinova poznámka k běhu sonnet-5-5): název části je z args stavby."""
     kusy = str(label or "").split(":")
-    typ, hlava, dal = kusy[0], kusy[0], []
+    typ, hlava, dal, rez = kusy[0], kusy[0], [], None
     for i, k in enumerate(kusy[1:], 1):
         if i == len(kusy) - 1 and re.fullmatch(r"n\d+", k):
             dal.append(f"nástupce {k[1:]}")
         elif i == 1 and re.fullmatch(r"řez\s*\S+|kolečko", k):
             hlava += " " + k
+            rez = rez_int(k[3:].strip()) if k.startswith("řez") else None
         elif re.fullmatch(r"K\d+", k):
-            dal.append(f"část {k}")
+            nazev = nazvy_casti(rez).get(k) if rez is not None else None
+            dal.append(f"část {k}" + (f" ({one_line(nazev, 30)})" if nazev else ""))
         elif re.fullmatch(r"\d+", k):
             co = "pokus" if kusy[i - 1] == "oprava" else CISLO_JAKO.get(typ)
             dal.append(f"{co} {k}" if co else k)
@@ -384,10 +403,25 @@ def kontext_agentu():
     return posledni, podle_typu, sum(compactu.values())
 
 def compacty_orchestratoru():
-    """Compacty orchestrátorské session: záznamy hooku pre-compact (aid orchestrator, udalost compact). Soubor patří
-    běžící vizi (setup ho při nové vizi archivuje), proto se počítají všechny záznamy."""
+    """Compacty orchestrátorské session: záznamy hooku session-start při compactu (aid orchestrator, udalost compact; do
+    1.6.x je psal pre-compact). Soubor patří běžící vizi (setup ho při nové vizi archivuje), proto se počítají všechny."""
     return sum(1 for e in jsonl(tail_lines(os.path.join(os.getcwd(), "docs", ".kontext.jsonl"), 2 * 1024 * 1024))
                if isinstance(e, dict) and e.get("aid") == "orchestrator" and e.get("udalost") == "compact")
+
+def predavky_z_logu():
+    """(předávek za běh, {řez: předávek}) ze záznamů udalost predavka v docs/.kontext.jsonl (hook hlídač píše jeden na
+    agenta, který zapsal předávku); None, když log v cwd není. Jeden zdroj pro výpis i závěrečnou zprávu: počítá všechny
+    bloky řezu (PRD, stavba, obnova), soubor patří běžící vizi."""
+    cesta = os.path.join(os.getcwd(), "docs", ".kontext.jsonl")
+    if not os.path.exists(cesta):
+        return None
+    podle_rezu = {}
+    for e in jsonl(tail_lines(cesta, 8 * 1024 * 1024)):
+        if isinstance(e, dict) and e.get("udalost") == "predavka":
+            r = str(e.get("rez") or "-")
+            k = rez_int(r) if rez_int(r) is not None else r
+            podle_rezu[k] = podle_rezu.get(k, 0) + 1
+    return sum(podle_rezu.values()), podle_rezu
 
 # ---------- fronta těžkých příkazů (scripts/tezky.py) ----------
 def pid_zije(pid):
@@ -561,7 +595,14 @@ out = []
 kratce = mode == "kratce"
 ctx = handoff_info()
 kontext_posl, kontext_typ, compactu = kontext_agentu()
-predavek = sum(w["predavky"] for w in running) + sum(predavky_bloku(st) for _, _, st in finished)
+log_predavek = predavky_z_logu()
+if log_predavek is not None:
+    predavek = log_predavek[0]
+    for w in running:   # na řádku bloku předávky celého řezu (všechny jeho bloky), kolečko pod klíčem kolecko
+        klic = "kolecko" if w["name"] == "blok-kolecko" else rez_int(w["rez"])
+        w["predavky"], w["predavky_rezu"] = log_predavek[1].get(klic, 0), klic != "kolecko"
+else:
+    predavek = sum(w["predavky"] for w in running) + sum(predavky_bloku(st) for _, _, st in finished)
 compactu_orch = compacty_orchestratoru()
 
 def vysledek_bloku(st):
@@ -619,7 +660,7 @@ for w in running:
     if rt:
         hl += f" · {rt}"
     if w["predavky"]:
-        hl += f" · předávek {w['predavky']}"
+        hl += f" · předávek {'řezu ' if w.get('predavky_rezu') else ''}{w['predavky']}"
     out.append(hl)
     for a in sorted(w["live"], key=lambda a: -a["ticho"]):
         out.extend(agent_line(a, "    "))

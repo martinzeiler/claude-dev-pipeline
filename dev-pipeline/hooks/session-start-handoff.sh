@@ -7,6 +7,9 @@
 # projektu dostane jednu větu, že orchestrace běží jinde a ona jí není. Bez markeru hook
 # mlčí. Důvod: v minulém běhu hook injektoval 246 kB handoffu po každém compactu a ruční
 # sessions dostávaly orchestrátorský blok kvůli zapomenutému markeru.
+# Compact orchestrátora zapíše do docs/.kontext.jsonl (aid orchestrator, udalost compact) až tady při source=compact:
+# PreCompact proběhne i bez compactu a v běhu sonnet-5-5 tak zpráva psala 2 compacty, byl 1 (1.7.0). Trigger nechává
+# pre-compact.sh v dočasném souboru session. co-dela.sh a závěrečná zpráva počítají compacty orchestrátora odtud.
 set -uo pipefail
 
 input=$(cat)
@@ -35,7 +38,14 @@ fi
 # Orchestrátorská session. Při startup se skill invokuje znovu a text dostane čerstvý;
 # injektuje se jen po compactu a resume, kdy skill soubory nikdo znovu nenačte.
 case "$src" in
-  compact) uvod="Právě proběhl compact." ;;
+  compact)
+    uvod="Právě proběhl compact."
+    stdir="${TMPDIR:-/tmp}"; stdir="${stdir%/}/dev-pipeline-kontext"; tf="$stdir/compact-trigger-$sid"; trigger=""
+    if [ -f "$tf" ]; then IFS= read -r trigger < "$tf" || true; rm -f "$tf" 2>/dev/null; fi
+    jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg tr "$trigger" \
+      '{ts:$ts, rez:"-", aid:"orchestrator", typ:"orchestrator", udalost:"compact", trigger:$tr}' \
+      >> "$proj/docs/.kontext.jsonl" 2>/dev/null
+    ;;
   resume)  uvod="Pokračuješ v obnovené session." ;;
   *) exit 0 ;;
 esac

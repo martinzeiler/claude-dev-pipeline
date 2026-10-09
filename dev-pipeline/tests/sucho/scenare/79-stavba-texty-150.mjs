@@ -17,7 +17,7 @@ export default {
     const d = k.jeden('deploy:řez 05:1')
     if (d) {
       const e = d.schema.properties.kroky_po_nasazeni.items.properties.stav.enum
-      k.rovno(e, ['provedeno', 'selhalo', 'vynechano', 'pro-majitele'], 'DEPLOY.kroky_po_nasazeni.stav')
+      k.rovno(e, ['provedeno', 'selhalo', 'nevztahuje-se', 'vynechano', 'pro-majitele'], 'DEPLOY.kroky_po_nasazeni.stav')
       k.obsahuje(d, 'pro-majitele'); k.obsahuje(d, 'merge-base HEAD main', 'bázi bez zápisu nasazení')
       k.ok(/předchůdce/.test(d.schema.properties.predavka.description || ''), `PREDAVKA: ${d.schema.properties.predavka.description}`)
     }

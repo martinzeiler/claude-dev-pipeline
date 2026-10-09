@@ -1,7 +1,7 @@
 ---
 name: reserse
 description: Rešeršní agent vize session - dokumentace cizích API a knihoven (context7, web), jak problém řeší svět venku, právní a produktová rešerše, proveditelnost a cena variant. Vrací podklad pro rozhodnutí s odkazy, ne návrh mechanismů. Spouští ho skill vize; když uživatel chce rešerši od Fable, skill ji zavolá s model fable v parametru volání.
-tools: WebSearch, WebFetch, Read, Grep, Glob, Bash, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs
+tools: WebSearch, WebFetch, Read, Grep, Glob, Bash, Skill, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs
 model: opus
 effort: high
 ---

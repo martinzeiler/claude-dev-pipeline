@@ -39,16 +39,17 @@ sid=$(jq -r '.session_id // empty' "$sess_file" 2>/dev/null)
 claude_args=$(jq -r '.claude_args // empty' "$sess_file" 2>/dev/null)
 
 # 2. čistý strom (vize, .gitignore, markery a stavové soubory běhu smí být rozpracované), pak gitignore a vize do indexu
-dirty=$(git status --porcelain --untracked-files=all | grep -v -E ' docs/(\.orchestrator-session|\.orchestrator-run|\.vize-done|\.review-passed|\.deploy-unlocked|\.verify-passed|\.kontext\.jsonl|\.run-args\.json|\.stavba-[^/]*\.json|\.prd-[^/]*\.json|\.kolecko\.json|\.vysledek-stavba-[^/]*\.json|reviews/)' \
+dirty=$(git status --porcelain --untracked-files=all | grep -v -E ' docs/(\.orchestrator-session|\.orchestrator-run|\.vize-done|\.review-passed|\.deploy-unlocked|\.verify-passed|\.kontext\.jsonl|\.run-args\.json|\.stavba-[^/]*\.json|\.prd-[^/]*\.json|\.kolecko\.json|\.vysledek-stavba-[^/]*\.json|\.vysledek-kolecko\.json|reviews/)' \
   | grep -v -E '^.. \.gitignore$' | grep -v -F -- " $vize_rel" | grep -v -F -- " docs/vize/$slug/" || true)
 [ -z "$dirty" ] || die "pracovní strom není čistý, běh startuje z čistého stavu:
 $dirty"
 obsah=""
 gi_changed=0
-# docs/.kontext.jsonl píše hlídač kontextu (a pre-compact compacty orchestrátora), docs/.run-args.json a args bloků
+# docs/.kontext.jsonl píše hlídač kontextu (a session-start-handoff compacty orchestrátora), docs/.run-args.json a args bloků
 # (docs/.stavba-*.json, docs/.prd-*.json, docs/.kolecko.json) orchestrátor přes scripts/args-bloku.py; bloky je čtou
-# načítacím agentem a po compactu z nich orchestrátor navazuje. docs/.vysledek-stavba-*.json píše uzavření řezu.
-for e in docs/.orchestrator-run docs/.orchestrator-session docs/.deploy-unlocked docs/.vize-done docs/.review-passed docs/.verify-passed docs/reviews/ docs/.kontext.jsonl docs/.run-args.json "docs/.stavba-*.json" "docs/.prd-*.json" docs/.kolecko.json "docs/.vysledek-stavba-*.json" "CLAUDE-SECURITY-*/"; do
+# načítacím agentem a po compactu z nich orchestrátor navazuje. docs/.vysledek-stavba-*.json píše uzavření řezu (i seznamy
+# zastaveného bloku, -zastaveno.json), docs/.vysledek-kolecko.json závěr kolečka.
+for e in docs/.orchestrator-run docs/.orchestrator-session docs/.deploy-unlocked docs/.vize-done docs/.review-passed docs/.verify-passed docs/reviews/ docs/.kontext.jsonl docs/.run-args.json "docs/.stavba-*.json" "docs/.prd-*.json" docs/.kolecko.json "docs/.vysledek-stavba-*.json" docs/.vysledek-kolecko.json "CLAUDE-SECURITY-*/"; do
   grep -qxF -- "$e" .gitignore 2>/dev/null || { echo "$e" >> .gitignore; gi_changed=1; }
 done
 if [ "$gi_changed" = 1 ] || [ -n "$(git status --porcelain -- .gitignore)" ]; then git add .gitignore; obsah="$obsah gitignore"; fi
@@ -125,7 +126,7 @@ if [ -n "$stare" ]; then
     fi
     # měření kontextu a args bloků předchozí vize (gitignorované) tamtéž: souhrn kontextu v co-dela i args po compactu
     # patří jen k běžící vizi
-    for f in docs/.kontext.jsonl docs/.run-args.json docs/.stavba-*.json docs/.prd-*.json docs/.kolecko.json docs/.vysledek-stavba-*.json; do
+    for f in docs/.kontext.jsonl docs/.run-args.json docs/.stavba-*.json docs/.prd-*.json docs/.kolecko.json docs/.vysledek-stavba-*.json docs/.vysledek-kolecko.json; do
       [ -f "$f" ] || continue
       mkdir -p "docs/reviews/_archiv/$old_slug"; mv "$f" "docs/reviews/_archiv/$old_slug/${f#docs/.}"
     done

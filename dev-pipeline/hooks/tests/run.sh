@@ -102,6 +102,8 @@ run read-kolecko-args guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/.ko
 run bash-cat-vysledek-stavby guard-run.sh "$(pre $SID '' Bash command "cat docs/.vysledek-stavba-05.json")" allow
 run bash-tail-kontext guard-run.sh "$(pre $SID '' Bash command "tail -5 docs/.kontext.jsonl")" allow
 run bash-args-bloku guard-run.sh "$(pre $SID '' Bash command "python3 -I $hooks/../scripts/args-bloku.py stavba $proj 05 --prd-run wf_abc-123 --doplnit '{\"prd_stale\":[],\"hypotezy\":{\"text\":[\"x; pnpm test\"]}}'")" allow
+# 1.7.0: rozhodnutí majitele zapisuje orchestrátor do .run-args.json podpříkazem skriptu (citace s uvozovkami a středníkem)
+run bash-args-bloku-rozhodnuti guard-run.sh "$(pre $SID '' Bash command "python3 -I $hooks/../scripts/args-bloku.py rozhodnuti $proj --text 've vizi jsme žádné čekání neměli; spouštěj „ručně“ podle P2'")" allow
 run bash-zbytek-rezu guard-run.sh "$(pre $SID '' Bash command "bash $hooks/../scripts/zbytek-rezu.sh $proj 12")" allow
 # záložní cesta args stavby: plný výsledek bloku PRD ze souboru .output runtime (useknutá notifikace) mimo projekt
 run bash-args-bloku-output guard-run.sh "$(pre $SID '' Bash command "python3 -I $hooks/../scripts/args-bloku.py stavba $proj 05 --prd-vysledek /private/tmp/claude-501/-Users-x-proj/sess/tasks/wf1wa23ij.output --doplnit '{\"prd_stale\":[]}'")" allow
@@ -349,13 +351,27 @@ bash "$tmp/ps-sirotek.sh" "$(ps $OTHER '/orchestrate')" "$proj" "$hooks/prompt-s
 [ "$(jq -r '.session_id + "|" + (.claude_args | type)' "$proj/docs/.orchestrator-session" 2>/dev/null)" = "$OTHER|string" ] && ok || ko "ps-sirotek: $(cat "$proj/docs/.orchestrator-session")"
 # --- PreCompact
 pc() { jq -n --arg s "$1" --arg c "$proj" '{session_id:$s, cwd:$c, hook_event_name:"PreCompact", trigger:"manual"}'; }
+rm -f "$proj/docs/.kontext.jsonl"   # compacty ze SessionStart výše (zkouška injekce) se nepočítají
+mkdir -p "$tmp/tmpdir"
 head -c 6000 /dev/zero | tr '\0' 'a' > "$proj/docs/handoff.md"
 out=$(pc $SID | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/pre-compact.sh"); printf '%s' "$out" | grep -q systemMessage && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-warn: $out"; }
 printf 'x\n' > "$proj/docs/handoff.md"; out=$(pc $SID | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/pre-compact.sh"); [ -z "$out" ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-quiet: $out"; }
 out=$(pc $OTHER | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/pre-compact.sh"); [ -z "$out" ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-other: $out"; }
-# 1.6.0: každý compact orchestrátorské session jeden záznam v docs/.kontext.jsonl (co-dela.sh a zpráva ho počítají), cizí session žádný
+# 1.7.0: PreCompact compact nezapisuje (proběhne i bez compactu: falešný záznam ve 20:14:52 v běhu sonnet-5-5); záznam
+# píše SessionStart při source=compact v orchestrátorské session s triggerem, který mu PreCompact nechal (TMPDIR)
+[ ! -e "$proj/docs/.kontext.jsonl" ] && ok || ko "pc-bez-zaznamu: $(cat "$proj/docs/.kontext.jsonl")"
+printf 'x\n' > "$proj/docs/handoff.md"
+pcs() { printf '%s' "$2" | TMPDIR="$tmp/tmpdir" CLAUDE_PROJECT_DIR="$proj" bash "$hooks/$1" > /dev/null 2>&1; }
+pcs pre-compact.sh "$(pc $SID)"; pcs session-start-handoff.sh "$(ss $SID compact)"   # compact s triggerem manual
+pcs session-start-handoff.sh "$(ss $SID resume)"                                    # resume není compact
+pcs pre-compact.sh "$(pc $OTHER)"; pcs session-start-handoff.sh "$(ss $OTHER compact)" # cizí session nic
+pcs pre-compact.sh "$(pc $SID)"                                                     # PreCompact bez compactu: nic
+pcs session-start-handoff.sh "$(ss $SID compact)"   # compact po falešném PreCompact: trigger z něj, soubor se smaže
+pcs session-start-handoff.sh "$(ss $SID compact)"   # compact bez PreCompact: prázdný trigger
 k=$(jq -sc '[.[] | select(.aid == "orchestrator") | [.udalost, .typ, .trigger, .rez]]' "$proj/docs/.kontext.jsonl" 2>/dev/null)
-[ "$k" = '[["compact","orchestrator","manual","-"],["compact","orchestrator","manual","-"]]' ] && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL pc-kontext-zaznam: $k"; }
+[ "$k" = '[["compact","orchestrator","manual","-"],["compact","orchestrator","manual","-"],["compact","orchestrator","","-"]]' ] && ok || ko "ss-compact-zaznam: $k"
+[ "$(jq -sc '[.[] | select(.aid != "orchestrator")] | length' "$proj/docs/.kontext.jsonl" 2>/dev/null)" = 0 ] && ok || ko "ss-compact-cizi"
+[ ! -e "$tmp/tmpdir/dev-pipeline-kontext/compact-trigger-$SID" ] && ok || ko "ss-compact-trigger-smazan"
 rm -f "$proj/docs/.kontext.jsonl"
 ok() { pass=$((pass+1)); }; ko() { fail=$((fail+1)); echo "FAIL $*"; }
 # --- hlídač kontextu: syntetický transkript subagenta pod DEV_PIPELINE_TRANSCRIPTS, stav hooku v dočasném TMPDIR
@@ -422,6 +438,22 @@ jq -cn '{type:"assistant", message:{usage:{input_tokens:10, cache_read_input_tok
            hl hl-kolecko hlidac-kontextu.sh "$(hk $SID $AID4 PostToolUse Bash command "git status")" allow
 k4=$(jq -sc --arg a "$AID4" '[.[] | select(.aid == $a) | .rez] | unique' "$proj/docs/.kontext.jsonl" 2>/dev/null)
 [ "$k4" = '["kolecko"]' ] && ok || ko "hl-kolecko-rez: $k4"
+# 1.7.0: PRD agent dostane jednou při ~170 k výzvu zapsat kostru (4 z 5 architektů v běhu sonnet-5-5 předávali před zápisem)
+hkp() { hk "$@" | jq -c '.agent_type = "dev-pipeline:prd"'; }
+ka() { jq -cn --argjson k "$2" '{type:"assistant", message:{usage:{input_tokens:10, cache_read_input_tokens:($k - 1110), cache_creation_input_tokens:1000, output_tokens:100}}}' >> "$1"; }
+AID5=agarch; T5="$tdir/agent-$AID5.jsonl"; head -1 "$T" > "$T5"
+ka "$T5" 160000; hl hl-arch-pod-prahem hlidac-kontextu.sh "$(hkp $SID $AID5 PostToolUse Bash command "rg x")" allow
+ka "$T5" 175000; hl hl-arch-vyzva hlidac-kontextu.sh "$(hkp $SID $AID5 PostToolUse Bash command "rg x")" ctx "zapiš ji teď, i neúplnou"
+                 hl hl-arch-pre-bez hlidac-kontextu.sh "$(hkp $SID $AID5 PreToolUse Bash command "rg x")" allow
+ka "$T5" 185000; hl hl-arch-jednou hlidac-kontextu.sh "$(hkp $SID $AID5 PostToolUse Bash command "rg x")" allow
+AID6=agarchskok; T6="$tdir/agent-$AID6.jsonl"; head -1 "$T" > "$T6"
+ka "$T6" 260000; hl hl-arch-s-predavkou hlidac-kontextu.sh "$(hkp $SID $AID6 PostToolUse Bash command "rg x")" ctx "zapiš ji teď, i neúplnou; zbytek doplníš. PŘEDÁVKA:"
+AID7=agarchnavrat; T7="$tdir/agent-$AID7.jsonl"; head -1 "$T" > "$T7"
+ka "$T7" 175000; hl hl-arch-navrat hlidac-kontextu.sh "$(hkp $SID $AID7 PostToolUse StructuredOutput stav hotovo)" allow
+AID8=agimpl170; T8="$tdir/agent-$AID8.jsonl"; head -1 "$T" > "$T8"
+ka "$T8" 175000; hl hl-arch-jen-prd hlidac-kontextu.sh "$(hk $SID $AID8 PostToolUse Bash command "rg x")" allow
+AID9=agarchprimy; T9="$tmp/transcripts/-proj/$SID/subagents/agent-$AID9.jsonl"; head -1 "$T" > "$T9"
+ka "$T9" 175000; hl hl-arch-mimo-workflow hlidac-kontextu.sh "$(hkp $SID $AID9 PostToolUse Bash command "rg x")" allow
 # --- fronta těžkých příkazů: váhy, obal přes updatedInput, E2E verifikátor
 fr() { # sid agent_id agent_type příkaz → vstup PreToolUse Bash
   jq -n --arg s "$1" --arg a "$2" --arg ty "$3" --arg c "$4" --arg p "$proj" \

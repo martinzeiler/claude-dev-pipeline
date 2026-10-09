@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Funkční testy scripts/args-bloku.py nad dočasnými soubory (1.6.0, oprava P1): pokračování bloku PRD přes skript (základ
 # z minulého volání, code-review N2), odmítnutí neschváleného výsledku PRD (N5), profil do stavby a záložní cesta přes
-# soubor .output z notifikace. Spusť: dev-pipeline/tests/skripty/args-bloku.sh
+# soubor .output z notifikace. 1.7.0: odmítnutí obnova v --doplnit, vynechání prázdných hodnot, _pole a podpříkaz
+# rozhodnuti. Spusť: dev-pipeline/tests/skripty/args-bloku.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); plugin=$(cd "$here/../.." && pwd)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/args-bloku-test.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
@@ -83,6 +84,47 @@ if [ -r "$real" ]; then
   o=$(ab stavba "$proj" "$rr" --prd-vysledek "$real"); rc=$?
   [ $rc -eq 0 ] && [ "$(j '.prd_path | length > 0' "$proj/docs/.stavba-$rr.json")" = 'true' ] && ok || ko "stavba-skutecny-output: rc=$rc $o"
 fi
+
+# 12. (1.7.0) obnova patří do volání bloku: --doplnit s ní skončí kódem 2 a soubor nevznikne ani nepřepíše starý
+rm -f "$proj/docs/.stavba-05.json"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{}}'); rc=$?
+[ $rc -eq 2 ] && printf '%s' "$o" | grep -q 'obnova patří do volání bloku' && [ ! -e "$proj/docs/.stavba-05.json" ] && ok || ko "obnova-odmitnuta: rc=$rc $o"
+o=$(ab kolecko "$proj" --doplnit '{"base":"main","obnova":{"od_faze":"deploy"}}'); [ $? -eq 2 ] && ok || ko "obnova-kolecko-odmitnuta: $o"
+
+# 13. (1.7.0) prázdné hodnoty (null, "", [], {}) se nepíšou, rez vždy; _pole = klíče souboru ∪ neprázdné klíče .run-args.json
+jq -n '{vize:"/p/docs/vize/v.md", produkt:"", ne_cile:"y", rozhodnuti_majitele:["2026-10-06 12:50 bez čekání"], rychle_kontroly:"pnpm verify:arch", _pole:["stare"]}' > "$proj/docs/.run-args.json"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"prd_stale":[],"mazane_pozdeji":null,"hypotezy":{"text":[]},"profil":"","max_pokusu":1,"runtime_dopad":false}'); rc=$?
+k=$(j '[has("prd_stale"), has("mazane_pozdeji"), .hypotezy.ids, .hypotezy.text, has("profil"), .max_pokusu, .runtime_dopad, .rez]' "$proj/docs/.stavba-05.json")
+# profil z výsledku PRD je "lehky", prázdný --doplnit ho přepíše na "" a prázdné pole se nepíše; hypotezy {ids, text:[]} zůstává objektem
+[ $rc -eq 0 ] && [ "$k" = '[false,false,["N1"],[],false,1,false,"05"]' ] && ok || ko "prazdne-hodnoty: rc=$rc $o $k"
+p=$(j '._pole' "$proj/docs/.stavba-05.json")
+ex=$(jq -c --argjson f "$(jq -c 'del(._pole) | keys' "$proj/docs/.stavba-05.json")" -n '$f + ["ne_cile","rozhodnuti_majitele","rychle_kontroly","vize"] | unique')
+[ "$p" = "$ex" ] && ! printf '%s' "$p" | grep -q -e '"produkt"' -e '"_pole"' -e '"stare"' && ok || ko "pole-sjednoceni: $p (čekáno $ex)"
+printf '%s' "$o" | grep -q '_pole' && ko "pole-ve-vypisu: $o" || ok
+# rozhodnutí majitele a rychlé kontroly jsou stálá pole: ze stavby z výsledku PRD se vynechají, blok je bere z .run-args.json
+jq -n "{status:\"completed\", workflowName:\"blok-prd\", result:{ok:true, rez:\"05\", stavba:{rez:\"05\", prd_path:\"/p/z.md\", rozhodnuti_majitele:[\"x\"], rychle_kontroly:\"y\", obnova:{}}}}" > "$wfd/wf_stala-7.json"
+o=$(ab stavba "$proj" 5 --prd-run wf_stala-7); rc=$?
+[ $rc -eq 0 ] && [ "$(j '[has("rozhodnuti_majitele"), has("rychle_kontroly"), has("obnova")]' "$proj/docs/.stavba-05.json")" = '[false,false,false]' ] && ok || ko "stala-ze-stavby: rc=$rc $o"
+# bez .run-args.json: _pole jen klíče souboru
+rm -f "$proj/docs/.run-args.json"
+o=$(ab kolecko "$proj" --doplnit '{"base":"main"}'); rc=$?
+[ $rc -eq 0 ] && [ "$(j '._pole == (del(._pole) | keys)' "$proj/docs/.kolecko.json")" = 'true' ] && ok || ko "pole-bez-run-args: rc=$rc $o"
+
+# 14. (1.7.0) podpříkaz rozhodnuti: připíše citaci s časem do .run-args.json, ostatní pole nechá, vypíše jen počet
+jq -n '{vize:"/p/v.md", ne_cile:"y"}' > "$proj/docs/.run-args.json"
+o=$(ab rozhodnuti "$proj" --text 've vizi jsme žádné   čekání neměli; "spouštěj ručně"'); rc=$?
+[ $rc -eq 0 ] && [ "$o" = 'docs/.run-args.json: rozhodnuti_majitele 1 položek' ] && ok || ko "rozhodnuti-prvni: rc=$rc $o"
+o=$(ab rozhodnuti "$proj" --text 'druhé'); rc=$?
+k=$(j '[.vize, .ne_cile, (.rozhodnuti_majitele | length), (.rozhodnuti_majitele[0] | test("^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} ve vizi jsme žádné čekání neměli; \"spouštěj ručně\"$")), (.rozhodnuti_majitele[1] | endswith(" druhé"))]' "$proj/docs/.run-args.json")
+[ $rc -eq 0 ] && [ "$k" = '["/p/v.md","y",2,true,true]' ] && ok || ko "rozhodnuti-druhe: rc=$rc $o $k"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2); [ $? -eq 0 ] && [ "$(j '._pole | index("rozhodnuti_majitele") != null' "$proj/docs/.stavba-05.json")" = 'true' ] && ok || ko "rozhodnuti-v-pole: $o"
+o=$(ab rozhodnuti "$proj" --text '   '); [ $? -eq 2 ] && ok || ko "rozhodnuti-prazdne: $o"
+o=$(ab rozhodnuti "$proj" 've vizi'); [ $? -eq 2 ] && ok || ko "rozhodnuti-bez-text: $o"
+echo '{neni' > "$proj/docs/.run-args.json"
+o=$(ab rozhodnuti "$proj" --text 'x'); [ $? -eq 2 ] && [ "$(cat "$proj/docs/.run-args.json")" = '{neni' ] && ok || ko "rozhodnuti-nevalidni-nepreps: $o"
+rm -f "$proj/docs/.run-args.json"
+o=$(ab rozhodnuti "$proj" --text 'bez souboru'); rc=$?
+[ $rc -eq 0 ] && printf '%s' "$o" | grep -q 'založen' && [ "$(j '.rozhodnuti_majitele | length' "$proj/docs/.run-args.json")" = 1 ] && ok || ko "rozhodnuti-bez-souboru: rc=$rc $o"
 
 echo "args-bloku: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

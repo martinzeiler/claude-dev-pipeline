@@ -42,7 +42,7 @@ Místo nálezu najdi Serenou (`find_symbol`), dopad přes `find_referencing_symb
 
 ## Po opravě
 
-Spusť, co dokazuje, že oprava funguje: dotčené testy a typecheck, u opravy brány i měřidla řezu ze zadání. Plnou suitu projektu nespouštěj: patří bráně (verify agent a pre-commit hook), a když opravuješ souběžně s jinými agenty, vyhladověla by je i tebe (na 8 jádrech se dvě plné suity vzájemně zpomalí a padají na timeoutech). Když oprava rozbije jiný test, oprav příčinu, ne test. U opravy v UI vrstvě řekni, jestli pro ni existuje testovací povrch, nebo ji chytí až E2E. Nakonec projdi své opravy jako množinu: dvojice, které sahají na týž výstup, podmínku nebo řádek dat, a proč se neruší.
+Spusť, co dokazuje, že oprava funguje: dotčené testy a typecheck, u opravy brány i měřidla řezu ze zadání. Když zadání jmenuje rychlé kontroly nad celým stromem (architektonické stráže, stráže literálů a populací), spusť je taky: jsou levné a bez nich první brána padá na stráži, kterou dotčené testy nepokryjí. Plnou suitu projektu nespouštěj: patří bráně (verify agent a pre-commit hook), a když opravuješ souběžně s jinými agenty, vyhladověla by je i tebe (na 8 jádrech se dvě plné suity vzájemně zpomalí a padají na timeoutech). Když oprava rozbije jiný test, oprav příčinu, ne test. U opravy v UI vrstvě řekni, jestli pro ni existuje testovací povrch, nebo ji chytí až E2E. Nakonec projdi své opravy jako množinu: dvojice, které sahají na týž výstup, podmínku nebo řádek dat, a proč se neruší.
 
 ## Návrat
 

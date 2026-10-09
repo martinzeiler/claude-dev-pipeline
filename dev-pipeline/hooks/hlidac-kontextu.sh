@@ -7,6 +7,8 @@
 # návratu; blok pak pustí nástupce se stejným zadáním (runSePredavkou). Proč: v běhu bez-dluhu mělo 117 compactů subagentů
 # (implementace protočila v mediánu ~970 k) a nad ~300 k agenti pracují hůř (analýza 6.7). Agenti o prahu nevědí:
 # pokyn přijde až touto zprávou, aby nad ním nepřemýšleli a nekončili předčasně.
+# PRD agent (dev-pipeline:prd) dostane navíc jednou při ~170 k výzvu zapsat kostru PRD hned, i neúplnou: v běhu sonnet-5-5
+# předávali 4 z 5 architektů dřív, než kostru zapsali, a nástupce ji psal znovu (věta v zadání nestačila; 1.7.0).
 # Stav agenta (transkript, řez, maximum, příznaky) drží ${TMPDIR:-/tmp}/dev-pipeline-kontext/<agent_id>; find nad
 # transkripty běží jen poprvé, pak tail + jq (~20 ms nad 15MB transkriptem). Fail-open: cokoli nejednoznačného projde.
 set -uo pipefail
@@ -26,18 +28,19 @@ EOF
 
 MEKKY="${DEV_PIPELINE_KONTEXT_MEKKY:-250000}"
 TVRDY="${DEV_PIPELINE_KONTEXT_TVRDY:-290000}"
+ARCHITEKT="${DEV_PIPELINE_KONTEXT_ARCHITEKT:-170000}"
 stdir="${TMPDIR:-/tmp}"; stdir="${stdir%/}/dev-pipeline-kontext"; st="$stdir/$aid"
 
-t=""; rez=""; max=0; zap=0; f100=0; fm=0; ft=0; comp=0; pz=0; zmena=0
+t=""; rez=""; max=0; zap=0; f100=0; fm=0; ft=0; fa=0; comp=0; pz=0; zmena=0
 if [ -f "$st" ]; then
   while IFS='=' read -r k v; do
-    case "$k" in t) t=$v ;; rez) rez=$v ;; max) max=$v ;; zap) zap=$v ;; f100) f100=$v ;; fm) fm=$v ;; ft) ft=$v ;; comp) comp=$v ;; pz) pz=$v ;; esac
+    case "$k" in t) t=$v ;; rez) rez=$v ;; max) max=$v ;; zap) zap=$v ;; f100) f100=$v ;; fm) fm=$v ;; ft) ft=$v ;; fa) fa=$v ;; comp) comp=$v ;; pz) pz=$v ;; esac
   done < "$st"
 fi
 uloz() {
   [ "$zmena" = 1 ] || return 0
   [ -d "$stdir" ] || mkdir -p "$stdir" 2>/dev/null
-  printf 't=%s\nrez=%s\nmax=%s\nzap=%s\nf100=%s\nfm=%s\nft=%s\ncomp=%s\npz=%s\n' "$t" "$rez" "$max" "$zap" "$f100" "$fm" "$ft" "$comp" "$pz" > "$st.$$" 2>/dev/null \
+  printf 't=%s\nrez=%s\nmax=%s\nzap=%s\nf100=%s\nfm=%s\nft=%s\nfa=%s\ncomp=%s\npz=%s\n' "$t" "$rez" "$max" "$zap" "$f100" "$fm" "$ft" "$fa" "$comp" "$pz" > "$st.$$" 2>/dev/null \
     && mv -f "$st.$$" "$st" 2>/dev/null
 }
 
@@ -64,7 +67,7 @@ case "$ctx" in ''|*[!0-9]*) uloz; exit 0 ;; esac
 # Compact: kontext spadl pod polovinu maxima nad 150 k. Maximum se resetuje, příznaky prahů platí zase od začátku.
 udalost=""
 if [ "$max" -gt 150000 ] && [ $((ctx * 2)) -lt "$max" ]; then
-  comp=$((comp + 1)); max=$ctx; f100=0; fm=0; ft=0; udalost=compact; zmena=1
+  comp=$((comp + 1)); max=$ctx; f100=0; fm=0; ft=0; fa=0; udalost=compact; zmena=1
 elif [ "$ctx" -gt "$max" ]; then
   max=$ctx; zmena=1
 fi
@@ -99,6 +102,15 @@ if [ "$pz" != 1 ] && [ "$ev" = PostToolUse ] && [ -f "$proj/docs/reviews/predavk
     '{ts:$ts, rez:$rez, aid:$aid, typ:(if $typ == "" then "-" else $typ end), kontext:$k, max:$m, compactu:$c, udalost:"predavka", soubor:$s}' \
     >> "$proj/docs/.kontext.jsonl" 2>/dev/null
 fi
+# Výzva PRD agentovi zapsat kostru (jednou, jako ostatní prahy; compact ji obnoví). Jen po nástroji a ne po návratu.
+arch=""
+if [ "$typ" = dev-pipeline:prd ] && [ "$fa" != 1 ] && [ "$ev" = PostToolUse ] && [ "$tool" != StructuredOutput ] \
+  && [ "$ctx" -ge "$ARCHITEKT" ]; then
+  case "$t" in */subagents/workflows/*)
+    fa=1; zmena=1
+    arch="Jestli jsi architekt a ještě jsi nezapsal kostru PRD (tabulka Části, Kontrakt, kritéria), zapiš ji teď, i neúplnou; zbytek doplníš." ;;
+  esac
+fi
 uloz
 
 # Výzvu k předávce dostávají jen agenti Workflow bloků (transkript pod subagents/workflows/): jen blok umí pustit nástupce
@@ -109,8 +121,11 @@ P="$proj/docs/reviews/predavka-$aid.md"
 BODY="1. zadání jednou větou; 2. co je hotové a čím je to ověřené (příkaz, test); 3. co zbývá, v pořadí, jak bys pokračoval; 4. zjištění, která nástupce potřebuje (soubory, symboly, pasti, užitečné příkazy); 5. rozdělané soubory a stav testů a typechecku; 6. všechno, co patří do tvého strukturovaného návratu (follow-upy, odchylky, nálezy, počty), aby ho nástupce mohl vrátit za celé zadání."
 if [ "$ev" = "PostToolUse" ] && [ "$ctx" -ge "$MEKKY" ] && [ "$tool" != StructuredOutput ]; then
   # Hotový agent nepředává: 6 předávek v běhu web-podzim neslo „nic nezbývá“ a nástupce jen vracel návrat (1.5.0).
-  jq -cn --arg z "PŘEDÁVKA: Když je celé zadání už hotové a zbývá jen návrat, vrať normální návrat bez předávky (pole predavka nevyplňuj). Jinak tuhle práci dokončí nástupce se stejným zadáním. Dokonči jen rozdělaný krok (dopiš rozepsanou změnu a nech projít její test; strom nenechávej rozbitý), nic nového nezačínej. Pak zapiš předávku do $P: $BODY Pak ukonči práci strukturovaným návratem: pole predavka = $P, ostatní povinná pole vyplň podle skutečného stavu (stav: castecne, když ho schéma má)." \
+  # Výzva architektovi (když přišla ve stejném kroku) jde před ni: kostra má být na disku dřív, než agent předá.
+  jq -cn --arg z "${arch:+$arch }PŘEDÁVKA: Když je celé zadání už hotové a zbývá jen návrat, vrať normální návrat bez předávky (pole predavka nevyplňuj). Jinak tuhle práci dokončí nástupce se stejným zadáním. Dokonči jen rozdělaný krok (dopiš rozepsanou změnu a nech projít její test; strom nenechávej rozbitý), nic nového nezačínej. Pak zapiš předávku do $P: $BODY Pak ukonči práci strukturovaným návratem: pole predavka = $P, ostatní povinná pole vyplň podle skutečného stavu (stav: castecne, když ho schéma má)." \
     '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$z}}'
+elif [ -n "$arch" ]; then
+  jq -cn --arg z "$arch" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$z}}'
 elif [ "$ev" = "PreToolUse" ] && [ "$ctx" -ge "$TVRDY" ]; then
   # Projde jen strukturovaný návrat a práce se souborem předávky (cesta i relativně: agent ji mohl zkrátit).
   case "$tool" in

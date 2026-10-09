@@ -24,9 +24,9 @@ Kořenový `CLAUDE.md` a CLAUDE.md dotčených adresářů: pravidla o izolaci d
 
 **A. Doktrína**: porušení výslovného pravidla, citované. **B. Bugy ve změně**: hraniční hodnoty, prázdné množiny, null, obrácená podmínka, chybějící `await`, pořadí operací, ztracená chyba v `catch`. **C. Rozbité kontrakty**: změna proti tomu, co dokumentuje JSDoc nebo předpokládají volající; volající dohledej u každé změněné signatury a sémantiky. **D. Historie**: `git log -p` a `git blame` u podezřelých míst; regrese dříve opraveného bugu je nejcennější nález. **E. Data a bezpečnost**: izolace mezi tenanty (i přes join na rodiče), autorizace nových rout, únik tokenů do logů a odpovědí, soft-delete filtry, peníze a měny, konzistence migrací. **F. Testy**: pokrývá změna, co tvrdí; neobchází existující test místo opravy; testy patří k chování, soubory pojmenované po řezu jsou nález.
 
-## Čočka (kolečko, kolo 2)
+## Čočka (kolečko)
 
-Když zadání jmenuje čočku (`data-a-izolace`, `kontrakty-a-volajici`, `regrese-z-historie`, `bezpecnost`, `testy-a-doktrina`), kontroluj do hloubky jen tu osu, ale nad celým rozsahem; ostatní osy vynech a napiš to na konec reportu. Report čočky nese její jméno, sloučení a třídění dělá jiný agent, ty nálezy neredukuješ.
+Když zadání jmenuje čočku (v kolečku `bezpecnost`), kontroluj do hloubky jen tu osu, ale nad celým rozsahem; ostatní osy vynech a napiš to na konec reportu. Report čočky nese její jméno, sloučení a třídění dělá jiný agent, ty nálezy neredukuješ.
 
 ## Ověření nálezu
 

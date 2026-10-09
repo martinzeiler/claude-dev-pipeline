@@ -1,15 +1,14 @@
 export const meta = {
   name: 'blok-kolecko',
-  description: 'dev-pipeline závěrečné review kolečko vize jako Workflow: thermo → code-review kolo 1 → kolo 2 fan-outem pěti čoček s triáží → bezpečnost (čočka + security-review) → deploy a E2E kolečka → závěr. Po každé opravné vlně verify a commit; bezpečnostní opravy commitne krok commitu po zelené bráně samostatně. Bez opakování fází; neúspěch vrací fázi, detail a fázi pro obnovu.',
-  whenToUse: 'Spouští orchestrátor /dev-pipeline:orchestrate ve finální fázi vize (skill dev-pipeline:review-kolecko), nebo uživatel výslovně nad větší sérií změn. args: {cwd, plugin_root, args_file} (args_file = docs/.kolecko.json, zbytek doplní docs/.run-args.json; načte je první agent bloku), nebo celé args {cwd, plugin_root, vize, produkt, base, ne_cile, runbook, deploy_mode, deploy_okno, app_pristup}; obnova po selhání navíc obnova: {od_faze, znacka} spolu s resumeFromRunId. Bez args nic nedělá. Ne na jeden řez.',
+  description: 'dev-pipeline závěrečné review kolečko vize jako Workflow: thermo → code-review kolo 1 → bezpečnost (čočka + security-review) → deploy a E2E kolečka → závěr. Po každé opravné vlně verify a commit; bezpečnostní opravy commitne krok commitu po zelené bráně samostatně. Bez opakování fází; neúspěch vrací fázi, detail a fázi pro obnovu, odklad nasazení zastaví s časem nejdriv.',
+  whenToUse: 'Spouští orchestrátor /dev-pipeline:orchestrate ve finální fázi vize (skill dev-pipeline:review-kolecko), nebo uživatel výslovně nad větší sérií změn. args: {cwd, plugin_root, args_file} (args_file = docs/.kolecko.json, zbytek doplní docs/.run-args.json; načte je první agent bloku), nebo celé args {cwd, plugin_root, vize, produkt, base, ne_cile, runbook, deploy_mode, deploy_okno, app_pristup, rozhodnuti_majitele, rychle_kontroly}; obnova po selhání nebo zastavení navíc obnova: {od_faze, znacka} ve volání spolu s resumeFromRunId (bez od_faze se ignoruje). Bez args nic nedělá. Ne na jeden řez.',
   phases: [
     { title: 'Vstup', detail: 'jen s args_file: agent načte args ze souboru' },
     { title: 'Thermo', detail: 'strukturální audit větve, oprava jen BLOCKER/HIGH, brána, commit' },
     { title: 'Code-review 1', detail: 'korektnost celé větve, opravy po balíčcích souběžně, brána, commit' },
-    { title: 'Code-review 2', detail: 'pět čoček souběžně nad celým rozsahem, triáž (opravit teď / follow-up / odmítnout), opravy, brána, commit' },
     { title: 'Bezpečnost', detail: 'bezpečnostní čočka s checklistem ∥ security-review, opravy bez commitu, brána, samostatný commit fix(security)' },
-    { title: 'Deploy a E2E', detail: 'brána, nasazení se zápisem nasazení, E2E scénáře kolečka a verifikace, jedna oprava (oprava kódu přes bránu)' },
-    { title: 'Závěr', detail: 'journal, follow-ups, docs/.review-passed, commit docs' },
+    { title: 'Deploy a E2E', detail: 'brána (jen když se strom od poslední zelené brány změnil), nasazení se zápisem nasazení, E2E scénáře kolečka a verifikace, jedna oprava (oprava kódu přes bránu)' },
+    { title: 'Závěr', detail: 'journal, follow-ups, plné seznamy do docs/.vysledek-kolecko.json, docs/.review-passed, commit docs' },
   ],
 }
 
@@ -27,19 +26,64 @@ if (a && typeof a === 'object' && S(a.args_file).trim()) {
   const t = (type, d) => ({ type, description: d || 'hodnota opsaná ze souboru beze změny' })
   const ARGS = { type: 'object', properties: {
     chyba: t('string', 'jen když soubor args chybí nebo není platný JSON: důvod; jinak nevyplňuj'),
-    ...Object.fromEntries(['cwd', 'plugin_root', 'vize', 'produkt', 'rez', 'base', 'ne_cile', 'runbook', 'deploy_mode', 'deploy_okno', 'app_pristup'].map(k => [k, t('string')])),
-    obnova: t('object', 'celý objekt beze změny'),
+    ...Object.fromEntries(['cwd', 'plugin_root', 'vize', 'produkt', 'rez', 'base', 'ne_cile', 'runbook', 'deploy_mode', 'deploy_okno', 'app_pristup', 'rychle_kontroly'].map(k => [k, t('string')])),
+    // Obnova do souboru nepatří (1.7.0, jako ve stavbě): přichází jen z volání orchestrátora.
+    rozhodnuti_majitele: { type: 'array', items: { type: 'string' }, description: 'celé pole beze změny' },
+    _pole: { type: 'array', items: { type: 'string' }, description: 'seznam polí souboru (_pole) opsaný přesně' },
   } }
   phase('Vstup')
-  let nactene = null
-  for (let i = 0; i < 3 && !nactene; i++) {
-    try {
-      nactene = await agent(`Závěrečné kolečko: načtení args bloku. Přečti ${soubor} a ${S(volani.cwd)}/docs/.run-args.json (když existuje). Vrať jejich sloučení, pole souboru kolečka mají přednost. Hodnoty opiš přesně, nic nezkracuj ani nedoplňuj. Když soubor kolečka chybí nebo není platný JSON, vrať jen pole chyba s důvodem.`,
-        { label: 'args:kolečko', phase: 'Vstup', agentType: 'dev-pipeline:nacteni-args', schema: ARGS, model: 'sonnet', effort: 'low' })
-    } catch (e) { log(`args:kolečko: spuštění selhalo (${S(e && e.message || e).slice(0, 120)})`) }
+  const nacti = async doplnek => {
+    let r = null
+    for (let i = 0; i < 3 && !r; i++) {
+      try {
+        r = await agent(`Závěrečné kolečko: načtení args bloku. Přečti ${soubor} a ${S(volani.cwd)}/docs/.run-args.json (když existuje). Vrať jejich sloučení, pole souboru kolečka mají přednost. Hodnoty opiš přesně, nic nezkracuj ani nedoplňuj. Když soubor kolečka chybí nebo není platný JSON, vrať jen pole chyba s důvodem.${doplnek}`,
+          { label: 'args:kolečko', phase: 'Vstup', agentType: 'dev-pipeline:nacteni-args', schema: ARGS, model: 'sonnet', effort: 'low' })
+      } catch (e) { log(`args:kolečko: spuštění selhalo (${S(e && e.message || e).slice(0, 120)})`) }
+    }
+    return r
   }
+  let nactene = await nacti('')
   if (!nactene) return { ok: false, duvod: `args_file: načítací agent nevrátil výsledek (${soubor})` }
   if (S(nactene.chyba).trim()) { log(`blok-kolecko: args_file ${soubor}: ${S(nactene.chyba).slice(0, 200)}`); return { ok: false, duvod: `args_file: ${S(nactene.chyba).trim().slice(0, 400)}` } }
+  // Kontrola opisu proti _pole souboru (1.7.0, jako ve stavbě): chybí = pole ze _pole, které schéma bloku zná a návrat nemá
+  // (nebo má prázdné).
+  // Stálá pole jdou z docs/.run-args.json, které orchestrátor smí změnit po složení souboru bloku (rozhodnutí majitele, změna
+  // pokynů k prostředí): _pole souboru je pak nezná. Navíc se proto nepočítají (revize 1.7.0: rozhodnutí zapsané po složení
+  // souboru by blok zastavilo, nebo by ho druhé načtení „podle _pole“ vypustilo). Pole volání mají přednost, jejich opis se
+  // nekontroluje. Navíc vrácené pole s prázdnou hodnotou se zahodí: soubor ho nemá a blok chybějící pole bere jako prázdné.
+  // Stejná sémantika platí ve všech třech blocích.
+  const VOLANI_POLE = ['cwd', 'plugin_root', 'rez', 'args_file']
+  const STALA_POLE = ['app_pristup', 'runbook', 'deploy_mode', 'deploy_okno', 'ne_cile', 'mapa_vize', 'vize', 'produkt', 'rozhodnuti_majitele', 'rychle_kontroly']
+  const prazdne = v => v == null || v === '' || (Array.isArray(v) && !v.length) || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length)
+  const poleVolani = k => VOLANI_POLE.includes(k) || k in volani
+  const seznamZ = r => Array.isArray(r._pole) ? r._pole.map(x => S(x).trim()).filter(Boolean) : null
+  const opis = (r, seznam) => {
+    for (const k of Object.keys(r)) if (k !== '_pole' && k !== 'chyba' && !seznam.includes(k) && prazdne(r[k])) delete r[k]
+    const chybi = seznam.filter(k => k in ARGS.properties && !poleVolani(k) && (!(k in r) || prazdne(r[k])))
+    const navic = Object.keys(r).filter(k => k !== '_pole' && k !== 'chyba' && !poleVolani(k) && !STALA_POLE.includes(k) && !seznam.includes(k))
+    return { chybi, navic }
+  }
+  const textRozdilu = d => `chybí: ${d.chybi.join(', ') || 'nic'}; navíc: ${d.navic.join(', ') || 'nic'}`
+  // Druhé načtení se porovná se _pole z prvního: návrat bez _pole by jinak rozdíl tiše propustil (code-review 1.7.0, N1:
+  // s chybějícími hypotézami blok doběhl jako hotovo).
+  const seznam = seznamZ(nactene)
+  if (!seznam) log(`blok-kolecko: args_file ${soubor} bez _pole (starší skript), opis se nekontroluje`)
+  else {
+    let rozdil = opis(nactene, seznam)
+    if (rozdil.chybi.length || rozdil.navic.length) {
+      log(`blok-kolecko: opis args nesedí se _pole (${textRozdilu(rozdil)}), načítám znovu`)
+      nactene = await nacti(` Opis nesedí se seznamem _pole souboru; minule chybělo: ${rozdil.chybi.join(', ') || 'nic'}, navíc bylo: ${rozdil.navic.join(', ') || 'nic'}. Vrať všechna pole obou souborů s neprázdnou hodnotou přesně opsaná; pole, které žádný ze souborů nemá, nevymýšlej.`)
+      if (!nactene) return { ok: false, duvod: `args_file: načítací agent nevrátil výsledek (${soubor})` }
+      if (S(nactene.chyba).trim()) return { ok: false, duvod: `args_file: ${S(nactene.chyba).trim().slice(0, 400)}` }
+      rozdil = opis(nactene, seznam)
+      if (rozdil.chybi.length || rozdil.navic.length) {
+        log(`blok-kolecko: args_file ${soubor}: opis nesedí ani napodruhé (${textRozdilu(rozdil)}) – nic se nespustilo`)
+        return { ok: false, duvod: `args_file: opis nesedí (${textRozdilu(rozdil)})` }
+      }
+    }
+  }
+  delete nactene._pole
+  delete nactene.obnova
   const rezSouboru = S(nactene.rez).trim()
   if ((rezSouboru && rezSouboru !== 'kolecko') || (S(volani.rez).trim() && S(volani.rez).trim() !== 'kolecko')) {
     log(`blok-kolecko: args_file ${soubor} patří řezu ${rezSouboru || '?'}, ne kolečku – nic se nespustilo`)
@@ -66,20 +110,33 @@ const appPristup = a.app_pristup ? S(a.app_pristup) : null
 // Zakázané okno nasazení z runbooku projektu (text), deploy čeká s rezervou.
 const deployOkno = a.deploy_okno ? S(a.deploy_okno).slice(0, 300) : ''
 const e2ePath = `${cwd}/docs/e2e/kolecko.md`
+// Rozhodnutí majitele, která mění provoz běhu (1.7.0, docs/.run-args.json): v běhu sonnet-5-5 autor scénářů kolečka „bez čekání“
+// nedostal a kritéria nad populací běhů napsal jako neměřitelná. Jdou do rámce každého agenta kolečka.
+const rozhodnutiMajitele = (Array.isArray(a.rozhodnuti_majitele) ? a.rozhodnuti_majitele : (a.rozhodnuti_majitele ? [a.rozhodnuti_majitele] : []))
+  .map(x => S(x).trim()).filter(Boolean).join(' | ').slice(0, 2000)
+// Rychlé kontroly nad celým stromem z projektových fakt (1.7.0, jako ve stavbě): fix agenti je pouštějí s dotčenými testy.
+const rychleKontroly = a.rychle_kontroly ? S(a.rychle_kontroly).trim().slice(0, 600) : ''
+const rychleText = rychleKontroly ? ` a rychlé kontroly nad celým stromem: ${rychleKontroly}` : ''
 const rep = (...casti) => `${cwd}/docs/reviews/kolecko-${casti.filter(Boolean).join('-')}.md`
 const rozsah = `git diff ${base}...HEAD plus pracovní strom (opravy předchozích kol kolečka, včetně netrackovaných souborů)`
 // Obnova po zastavení (bod 20): orchestrátor obnovuje blok přes resumeFromRunId a nezměněný prompt se vrátí z cache,
 // v běhu bez-dluhu i s červenou bránou (třída B1). Značka od dané fáze změní zadání brány, commitu, deploye a E2E,
-// takže se přeměří nad dnešním stromem; review, čočky a opravy se vrátí z cache (jejich práce už je ve stromu).
-const FAZE = [['Thermo', 'thermo'], ['Code-review 1', 'kolo 1'], ['Code-review 2', 'kolo 2'], ['Bezpečnost', 'bezpecnost'], ['Deploy a E2E', 'deploy'], ['Závěr', 'zaver']]
+// takže se přeměří nad dnešním stromem; review a opravy se vrátí z cache (jejich práce už je ve stromu).
+// Kolo 2 (pět čoček a triáž) se v 1.7.0 ruší: dva běhy po sobě mělo nejnižší výnos ($21 a 25 min za jednu opravu dokumentace v běhu
+// sonnet-5-5, $23 za opravený nález v běhu web-rijen). Obnova od „kolo 2“ (starší orchestrátor) jde od bezpečnosti, další fáze.
+const FAZE = [['Thermo', 'thermo'], ['Code-review 1', 'kolo 1'], ['Bezpečnost', 'bezpecnost'], ['Deploy a E2E', 'deploy'], ['Závěr', 'zaver']]
 const bezDiakritiky = v => S(v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase()
-const obnovaOd = a.obnova && typeof a.obnova === 'object' ? FAZE.findIndex(([, k]) => k === bezDiakritiky(a.obnova.od_faze)) : -1
+// Obnova platí jen s neprázdným od_faze (1.7.0, jako ve stavbě: prázdný objekt obnovy z načítacího agenta zmařil cache obnovy).
+const obnovaIn = a.obnova && typeof a.obnova === 'object' && S(a.obnova.od_faze).trim() ? a.obnova : null
+const odFazeIn = obnovaIn ? bezDiakritiky(obnovaIn.od_faze) : ''
+const odFaze = odFazeIn === 'kolo 2' ? 'bezpecnost' : odFazeIn
+const obnovaOd = obnovaIn ? FAZE.findIndex(([, k]) => k === odFaze) : -1
 // Neznámá fáze přeměří brány od thermo: brána navíc stojí minuty, červená brána z cache zmaří celou obnovu.
-const obnova = a.obnova && typeof a.obnova === 'object' ? { od: Math.max(0, obnovaOd), znacka: S(a.obnova.znacka).trim() || 'bez značky' } : null
+const obnova = obnovaIn ? { od: Math.max(0, obnovaOd), znacka: S(obnovaIn.znacka).trim() || 'bez značky' } : null
 // Commit a deploy po obnově mohou najít commit a fix(security) z přerušeného běhu (pád po commitu): bez věty je commitnou podruhé.
 const obnovaVeta = (ph, commitu) => obnova && FAZE.findIndex(([t]) => t === ph) >= obnova.od ? `\nObnova běhu (${obnova.znacka}): výsledek této fáze z přerušeného běhu neplatí; změř a proveď ji znovu nad dnešním stavem.${commitu ? ' Commit kolečka nebo fix(security) z přerušeného běhu může už existovat (git log --grep): nový nedělej, vrať jejich hashe; změny pracovního stromu, které v nich nejsou, commitni dalším commitem.' : ''}` : ''
 // Fáze selhání → od_faze obnovy (návrat obnova_od): orchestrátor ji nemusí odvozovat.
-const OBNOVA_OD = { thermo: 'thermo', 'code-review kolo 1': 'kolo 1', 'code-review kolo 2': 'kolo 2', 'bezpečnost': 'bezpecnost', deploy: 'deploy', 'deploy-infra': 'deploy', e2e: 'deploy' }
+const OBNOVA_OD = { thermo: 'thermo', 'code-review kolo 1': 'kolo 1', 'bezpečnost': 'bezpecnost', deploy: 'deploy', 'deploy-infra': 'deploy', 'deploy-odklad': 'deploy', e2e: 'deploy' }
 
 // ---------- pomocné ----------
 const cekej = ms => (ms > 0 && typeof setTimeout === 'function') ? new Promise(r => setTimeout(r, ms)) : Promise.resolve()
@@ -131,6 +188,7 @@ const ramec = [
   `Projekt: ${cwd} (absolutní cesty; commity jen na vize větvi, nikdy na ${base}).`,
   `Závěrečné kolečko vize ${a.vize}${produkt ? ` · severka ${produkt}` : ''}${pravidlaBehu ? ` · pravidla běhu (soubory, frontmatter PRD, vize-spory): ${pravidlaBehu}` : ''}. Rozsah: ${rozsah}.`,
   neCile ? `Ne-cíle vize platí pro každou fázi včetně oprav: ${neCile}` : '',
+  rozhodnutiMajitele ? `Rozhodnutí majitele pro tento běh (závazná, mají přednost před vlastním výkladem vize): ${rozhodnutiMajitele}` : '',
   'Běh je autonomní: uživatele se neptáš. Rozpor s vizí zapiš do docs/vize-spory.md, rozhodni konzervativně a pokračuj. Vykonáváš jen svou fázi; následné a kontrolní fáze spouští workflow.',
   'docs/handoff.md je stav orchestrátora, ne tvůj vstup: nečti ho; co máš vědět, je v tomto zadání.',
   // Pomocný skript v docs/reviews/ shodil v běhu web-rijen bránu mini-řezu 12 (eslint lintuje i gitignorované soubory).
@@ -174,15 +232,6 @@ const REVIEW = { type: 'object', required: ['nalezu', 'blokujicich', 'balicky', 
   balicky: BALICKY, follow_up_ids: arr('nálezy FOLLOW-UP'), metodika: str('jen bezpečnostní fáze: security-review | vlastní průchod | obojí'),
   predavka: PREDAVKA,
 } }
-const TRIAZ = { type: 'object', required: ['nalezu', 'opravit_ted', 'follow_up', 'odmitnuto', 'balicky', 'report_path'], properties: {
-  nalezu: { type: 'integer', description: 'nálezů po sloučení duplicit' },
-  opravit_ted: { type: 'integer' }, follow_up: { type: 'integer' }, odmitnuto: { type: 'integer' },
-  balicky: BALICKY, report_path: str('absolutní cesta ke sloučenému reportu'),
-  follow_ups: arr('follow-up položky jednou větou s kontextem (kandidáti na řez)'),
-  odmitnute: idDuvod('odmítnuté nálezy s důvodem'),
-  sporne: arr('nálezy, o kterých má rozhodnout uživatel, jednou větou s navrženou odpovědí'),
-  predavka: PREDAVKA,
-} }
 // Brána (bod 5): exit kód a kontroly pre-commitu jsou povinné, zelenou rozhoduje zelena(); měřidla kritérií kolečko nemá.
 const VERIFY = { type: 'object', required: ['typecheck', 'proslo', 'selhalo', 'exit_kod', 'kontroly_ok'], properties: {
   typecheck: { type: 'boolean' }, proslo: { type: 'integer' }, selhalo: { type: 'integer' },
@@ -193,7 +242,11 @@ const VERIFY = { type: 'object', required: ['typecheck', 'proslo', 'selhalo', 'e
   predavka: PREDAVKA,
 } }
 const DEPLOY = { type: 'object', required: ['stav', 'commit'], properties: {
-  stav: { type: 'string', enum: ['success', 'failed', 'commit-only'] },
+  // Odklad nasazení (1.7.0, jako ve stavbě): okno nebo podmínka brání víc než ~30 min, kolečko zastaví s časem nejdriv.
+  stav: { type: 'string', enum: ['success', 'failed', 'commit-only', 'odlozeno'] },
+  nejdriv: str('jen při odlozeno: nejdřívější čas, kdy nasazení smí proběhnout, ISO 8601 s časovou zónou'),
+  duvod: str('při failed nebo odlozeno: přesná chyba nebo důvod odkladu'),
+  security_radkem: str('hash commitu, do jehož zprávy jsi dal řádek fix(security) (bezpečnostní oprava bez samostatného commitu); jinak prázdné'),
   commit: str('40 znaků: git rev-parse HEAD hned po vytvoření commitu (při stromu beze změn hash HEAD); nikdy dopočítaný ani zkrácený'),
   infra: { type: 'boolean', description: 'true = selhání mimo kód: přihlášení nebo účet CLI, oprávnění, výpadek platformy; opakování bez zásahu člověka nepomůže' },
   security_commity: arr('hashe samostatných commitů fix(security) z git rev-parse, nikdy dopočítané'),
@@ -201,15 +254,17 @@ const DEPLOY = { type: 'object', required: ['stav', 'commit'], properties: {
   health: str('první řádek „aplikace: <app>@<verze nebo deployment id> nasazeno | <app> nenasazeno (<důvod z diffu>) | …“ za každou aplikaci, které se diff od báze dotkl; pak doklad, že běží: status platformy + behaviorální doklad'), url: str(''), duvod: str('při failed: přesná chyba; při commit-only beze změn: „beze změn“'),
   predavka: PREDAVKA,
 } }
-const SESTAV = { type: 'object', required: ['e2e_path', 'kriterii'], properties: { e2e_path: str('absolutní cesta k docs/e2e/kolecko.md'), kriterii: { type: 'integer' }, plochy: arr('plochy a toky, které scénáře pokrývají'), poznamka: str('co se nedalo pokrýt a proč'), predavka: PREDAVKA } }
+const SESTAV = { type: 'object', required: ['e2e_path', 'kriterii'], properties: { e2e_path: str('absolutní cesta k docs/e2e/kolecko.md'), kriterii: { type: 'integer' }, plochy: arr('plochy a toky, které scénáře pokrývají'), poznamka: str('co se nedalo pokrýt a proč'),
+  rozhodnuti: arr('kritéria, která jsi nenapsal, protože Povolení vize výrobu jejich dat nepokrývá: co by měřila, co by bylo potřeba spustit, odhad hodin čekání na organická data (otázka pro majitele: rozšířit Povolení, nebo čekat)'), predavka: PREDAVKA } }
 const E2E = { type: 'object', required: ['vysledek', 'celkem', 'pass', 'castecne', 'fail', 'report_path'], properties: {
   vysledek: { type: 'string', enum: ['pass', 'pass-castecne', 'fail', 'vada-kriteria'] }, celkem: { type: 'integer' }, pass: { type: 'integer' }, castecne: { type: 'integer' }, fail: { type: 'integer' },
-  fail_kriteria: arr('identifikátory a jednou větou co selhalo'), castecna_kriteria: arr('co se ověřilo jen zčásti a čím je nesena druhá půlka'),
-  vadna_kriteria: arr('kritéria, která nejde poctivě vyhodnotit, s dokladem druhu: nesplnitelné v prostředí E2E / koliduje s jiným kritériem nebo Ne-cílem vize / nález je předřezový a mimo rozsah; do fail se nepočítají'),
+  fail_kriteria: arr('značka kritéria s názvem („AK3 Export bez prázdných řádků“) a jednou větou co selhalo'), castecna_kriteria: arr('co se ověřilo jen zčásti a čím je nesena druhá půlka'),
+  vadna_kriteria: arr('kritéria (značka s názvem), která nejde poctivě vyhodnotit, s dokladem druhu: nesplnitelné v prostředí E2E / koliduje s jiným kritériem nebo Ne-cílem vize / nález je předřezový a mimo rozsah; do fail se nepočítají'),
   zavazne_mimo_ak: arr('bezpečnostní a datové nálezy mimo kritéria'), kosmeticke: arr('kosmetické regresní postřehy'), report_path: str('absolutní cesta k reportu'),
   predavka: PREDAVKA,
 } }
 const CLOSE = { type: 'object', required: ['ok', 'review_passed'], properties: {
+  vysledek_soubor: str('cesta k docs/.vysledek-kolecko.json, když jsi ho zapsal; jinak prázdné'),
   ok: { type: 'boolean' }, review_passed: { type: 'boolean', description: 'docs/.review-passed existuje' }, poznamka: str('co se nepodařilo zapsat'),
   chybejici_commity: arr('bezpečnostní commity ze zadání, u kterých git cat-file -t nevrátil commit'),
   predavka: PREDAVKA,
@@ -217,22 +272,27 @@ const CLOSE = { type: 'object', required: ['ok', 'review_passed'], properties: {
 
 // ---------- stav ----------
 const st = {
-  thermo: null, review: { kolo1: null, kolo2: null }, security: { nalezu: 0, blokujicich: 0, commity: [] }, verify: null, deploy: null, e2e: null,
-  commity: [], rozhodnuti: [], follow_ups: [], spory: [], odmitnute: [], jinak: [], chybejici: [], reports: [], review_passed: false,
+  thermo: null, review: { kolo1: null }, security: { nalezu: 0, blokujicich: 0, commity: [], radkem: [] }, verify: null, deploy: null, e2e: null,
+  commity: [], rozhodnuti: [], follow_ups: [], spory: [], odmitnute: [], jinak: [], chybejici: [], reports: [], review_passed: false, vysledekSoubor: '',
 }
 // Odmítnutý nález BLOKUJE nese značku, ať ho journal odliší od pohodlného odmítnutí drobnosti (třída H).
 const sber = r => { if (!r) return; st.follow_ups.push(...(r.follow_ups || [])); st.spory.push(...(r.spory || [])); st.odmitnute.push(...(r.odmitnuto || []).map(o => `${S(o.id)}${o.blokuje ? ' [BLOKUJE]' : ''}: ${S(o.duvod)}`)); st.jinak.push(...(r.jinak_nez_nalez || [])) }
 // Commit krok i deploy vracejí hlavní commit a samostatné bezpečnostní commity (bod 19: fix agenti už necommitují).
-const sberCommit = c => { if (!c) return; if (c.commit && c.duvod !== 'beze změn') st.commity.push(c.commit); if (S(c.commit_zapisu).trim()) st.commity.push(S(c.commit_zapisu).trim()); st.security.commity.push(...(c.security_commity || [])) }
+// Bezpečnostní oprava řádkem fix(security) v commitu kolečka (soubory nesou i jinou změnu): hash jde do návratu (1.7.0, jako ve stavbě).
+const sberRadkem = c => { const h = S(c && c.security_radkem).trim(); if (h && !st.security.radkem.includes(h)) st.security.radkem.push(h) }
+const sberCommit = c => { if (!c) return; if (c.commit && c.duvod !== 'beze změn') st.commity.push(c.commit); if (S(c.commit_zapisu).trim()) st.commity.push(S(c.commit_zapisu).trim()); st.security.commity.push(...(c.security_commity || [])); sberRadkem(c) }
 // Commit nebo deploy, který skončil failed, mohl před pádem vytvořit fix(security) commity: hashe jdou do návratu i z neúspěšného
 // kroku, jinak je obnova commitne podruhé (revize 1.4.0). Hlavní commit ne: u failed je to jen HEAD, ne commit kolečka.
-const sberSecurity = c => { if (c) st.security.commity.push(...cisty(c.security_commity)) }
+const sberSecurity = c => { if (c) { st.security.commity.push(...cisty(c.security_commity)); sberRadkem(c) } }
 const zmenilo = f => !!f && (f.opraveno > 0 || (f.zmenena_mista || []).length > 0)
 // Kam oprava sáhla: 'kod' (apps, packages, nebo cesty nejdou určit), 'mimo' (jen jiné soubory), 'nic' (bez změny nebo bez výsledku).
 // 'kod' (apps, packages, nebo cesty nejdou určit) bránou a nasazením, 'mimo' (jiný kód mimo docs/) bránou a commitem, 'docs' commitem.
+// Gitignorovaný report v docs/reviews/ není změna stromu (1.7.0, jako ve stavbě).
 const zasahOpravy = f => {
   if (!zmenilo(f)) return 'nic'
-  const c = cestyZ(f.zmenena_mista)
+  const vse = cestyZ(f.zmenena_mista)
+  const c = vse.filter(x => !/^docs\/reviews\//.test(x))
+  if (vse.length && !c.length) return 'nic'
   if (!c.length || c.some(x => /^(apps|packages)\//.test(x))) return 'kod'
   return c.every(x => /^docs\//.test(x)) ? 'docs' : 'mimo'
 }
@@ -257,20 +317,69 @@ const followZOprav = (dvojice, fu) => {
     }
   }
 }
-const navrat = (vysledek, faze, detail) => ({
+// Výsledek pod 6 000 znaků (1.7.0): v běhu sonnet-5-5 měl výsledek kolečka 8,3 k, runtime ho usekl a orchestrátor dočítal .output.
+// Po závěru jdou seznamy jen počtem a cestou (plné znění zapsal závěr do docs/.vysledek-kolecko.json); před závěrem celé, a když se
+// nevejdou, zkrátí je doLimitu s logem.
+const LIMIT_NAVRATU = 5800
+// Zkracují se i texty kritérií E2E (vadná a částečná, revize 1.7.0 code-review N5): dlouhé doklady vadných kritérií by jinak nechaly
+// návrat nad limitem bez logu. Vadná kritéria E2E se ubírají dřív než rozhodnutí, která nesou totéž s návrhem odpovědi.
+const doLimitu = r => {
+  const delka = () => JSON.stringify(r).length
+  if (delka() <= LIMIT_NAVRATU) return r
+  const e2eSez = k => ({ get: () => r.e2e && Array.isArray(r.e2e[k]) ? r.e2e[k] : null, set: v => { r.e2e = { ...r.e2e, [k]: v } } })
+  const SEZ = [
+    ...['reports', 'odmitnute', 'spory'].map(k => [k, { get: () => Array.isArray(r[k]) ? r[k] : null, set: v => { r[k] = v } }]),
+    ['e2e.castecna_kriteria', e2eSez('castecna_kriteria')], ['e2e.vadna_kriteria', e2eSez('vadna_kriteria')],
+    ...['follow_ups', 'rozhodnuti'].map(k => [k, { get: () => Array.isArray(r[k]) ? r[k] : null, set: v => { r[k] = v } }]),
+  ]
+  for (const [, x] of SEZ) { const xs = x.get(); if (xs) x.set(xs.map(y => typeof y === 'string' && y.length > 240 ? `${y.slice(0, 239)}…` : y)) }
+  const ubrano = {}
+  for (const [k, x] of SEZ) {
+    if (delka() <= LIMIT_NAVRATU) break
+    const xs = x.get()
+    if (!xs || !xs.length) continue
+    const zbyva = [...xs], pryc = []
+    while (zbyva.length && (x.set(zbyva), delka() > LIMIT_NAVRATU - 80)) pryc.unshift(zbyva.pop())
+    x.set(zbyva)
+    if (pryc.length) { ubrano[k] = pryc.length; log(`návrat nad limitem: ${k} bez ${pryc.length} položek: ${pryc.join(' | ').slice(0, 1500)}`) }
+  }
+  if (delka() > LIMIT_NAVRATU && S(r.detail).length > 600) { log(`návrat nad limitem: detail zkrácen na 600 znaků: ${S(r.detail).slice(0, 1500)}`); r.detail = `${S(r.detail).slice(0, 599)}…`; ubrano.detail = 1 }
+  if (Object.keys(ubrano).length) r.zkraceno = ubrano
+  if (delka() > LIMIT_NAVRATU) log(`návrat kolečka zůstal nad limitem (${delka()} znaků > ${LIMIT_NAVRATU}): runtime ho může useknout, plné seznamy jsou v docs/.vysledek-kolecko.json, když závěr proběhl`)
+  return r
+}
+const navrat = (vysledek, faze, detail, x = {}) => doLimitu({
   ok: true, vysledek, faze: faze || '', detail: S(detail).slice(0, 1500),
-  ...(vysledek === 'selhalo' ? { obnova_od: OBNOVA_OD[faze] || 'thermo' } : {}),
+  ...(vysledek !== 'hotovo' ? { obnova_od: OBNOVA_OD[faze] || 'thermo' } : {}),
   ...(faze === 'deploy-infra' ? { infra: true } : {}),
+  ...x,
   thermo: st.thermo, review: st.review,
   security: { nalezu: st.security.nalezu, blokujicich: st.security.blokujicich, commity: cisty(st.security.commity).filter(h => !st.chybejici.includes(h)) },
+  ...(st.security.radkem.length ? { security_radkem: cisty(st.security.radkem) } : {}),
   verify: st.verify, deploy: st.deploy, e2e: st.e2e,
   commity: cisty([...st.commity, ...st.security.commity]).filter(h => !st.chybejici.includes(h)), chybejici_commity: cisty(st.chybejici),
-  rozhodnuti: cisty(st.rozhodnuti), follow_ups: cisty(st.follow_ups), spory: cisty(st.spory),
-  odmitnute: cisty(st.odmitnute), reports: cisty(st.reports), review_passed: st.review_passed, predavky: predavekCelkem,
+  rozhodnuti: cisty(st.rozhodnuti), spory: cisty(st.spory), review_passed: st.review_passed, predavky: predavekCelkem,
+  ...(st.vysledekSoubor
+    ? { follow_ups_pocet: cisty(st.follow_ups).length, odmitnute_pocet: cisty(st.odmitnute).length, reports_pocet: cisty(st.reports).length, vysledek_soubor: st.vysledekSoubor }
+    : { follow_ups: cisty(st.follow_ups), odmitnute: cisty(st.odmitnute), reports: cisty(st.reports) }),
 })
 const selhani = (faze, detail) => { log(`kolečko selhalo ve fázi ${faze}: ${S(detail).slice(0, 200)}`); return navrat('selhalo', faze, detail) }
 // Selhání deploye mimo kód (přihlášení CLI, oprávnění, výpadek platformy) zastaví běh jako deploy-infra: oprava kódu nepomůže, čeká se na člověka.
-const selhaniDeploye = (d, k, pred = '') => { sberSecurity(d); return selhani(d && d.infra ? 'deploy-infra' : 'deploy', `${pred}${d ? S(d.duvod) : nic(`deploy:kolečko:${k}`, 'deploy agent')}`) }
+// Odklad nasazení (1.7.0) není selhání: kolečko zastaví s časem nejdriv a orchestrátor ho na nejdriv obnoví od fáze deploy.
+const selhaniDeploye = (d, k, pred = '') => {
+  sberSecurity(d)
+  // Odklad bez platného času nejdriv (revize 1.7.0, jako ve stavbě) nemá na kdy naplánovat obnovu: zastaví jako infra selhání.
+  if (d && d.stav === 'odlozeno' && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(S(d.nejdriv).trim())) {
+    log(`deploy kolečka vrátil odklad bez platného nejdriv („${S(d.nejdriv).trim()}“): zastaví jako infra selhání, obnovu nemá na kdy naplánovat`)
+    return selhani('deploy-infra', `${pred}odklad bez platného nejdriv (${S(d.nejdriv).trim() || 'prázdné'}): ${S(d.duvod) || 'bez důvodu'}`)
+  }
+  if (d && d.stav === 'odlozeno') {
+    const nejdriv = S(d.nejdriv).trim()
+    log(`kolečko zastaveno: nasazení odloženo${nejdriv ? ` do ${nejdriv}` : ''} (${S(d.duvod).slice(0, 160)}); čeká na obnovu od fáze deploy`)
+    return navrat('zastaveno', 'deploy-odklad', `${pred}${S(d.duvod) || 'odklad nasazení'}`, { nejdriv })
+  }
+  return selhani(d && d.infra ? 'deploy-infra' : 'deploy', `${pred}${d ? S(d.duvod) : nic(`deploy:kolečko:${k}`, 'deploy agent')}`)
+}
 
 // ---------- kroky ----------
 const thermo = () => runSePredavkou(`${ramec}
@@ -282,31 +391,13 @@ const thermo = () => runSePredavkou(`${ramec}
 const thermoSoubory = th => cisty([...(th.soubory || []), ...(th.napravy || []).flatMap(x => (x && x.soubory) || [])].map(norm))
 const fixThermo = th => runSePredavkou(`${ramec}
 
-Úkol: oprav strukturální nálezy thermo review kolečka: ${th.report_path}. Meze: jen nálezy BLOCKER a HIGH, jen soubory ${thermoSoubory(th).join(', ') || 'z reportu'} (soubory s nálezy a soubory jejich náprav); NOTE a plošné přestavby nech jako follow-up. Nezaváděj nové plošné mechanismy. Spouštěj jen dotčené testy a typecheck; plnou suitu nespouštěj, patří bráně. Každý nález je hypotéza: ověř proti kódu. Necommituj.`,
+Úkol: oprav strukturální nálezy thermo review kolečka: ${th.report_path}. Meze: jen nálezy BLOCKER a HIGH, jen soubory ${thermoSoubory(th).join(', ') || 'z reportu'} (soubory s nálezy a soubory jejich náprav); NOTE a plošné přestavby nech jako follow-up. Nezaváděj nové plošné mechanismy. Spouštěj jen dotčené testy a typecheck${rychleText}; plnou suitu nespouštěj, patří bráně. Každý nález je hypotéza: ověř proti kódu. Necommituj.`,
   { label: 'fix-thermo:kolečko', phase: 'Thermo', agentType: 'dev-pipeline:fix', schema: FIX, ...M.opusM })
 
 const review1 = () => runSePredavkou(`${ramec}
 
 Úkol: code-review kolečka, kolo 1, rozsah větev (base ${base}), všechny osy. Report do ${rep('code-review', 'kolo-1')}. Vrať počty, disjunktní balíčky po souborech s identifikátory nálezů a cestu; nálezy samotné nevracej. Každý nález v reportu nese BLOKUJE NASAZENÍ nebo FOLLOW-UP a CONFIRMED nebo PLAUSIBLE.`,
   { label: 'review:kolečko:1', phase: 'Code-review 1', agentType: 'dev-pipeline:code-review', schema: REVIEW, ...M.opusH })
-
-const COCKY = [
-  ['data-a-izolace', 'izolace mezi tenanty i přes join na rodiče, soft-delete filtry, konzistence migrací, peníze a měny'],
-  ['kontrakty-a-volajici', 'změněné signatury a sémantika, JSDoc proti chování, každý volající změněného symbolu dohledaný Serenou'],
-  ['regrese-z-historie', 'git log -p a git blame nad změněnými místy, dříve opravené bugy, které změna vrací'],
-  ['bezpecnost', 'autorizace nových i dotčených rout, tokeny v logu nebo URL, vstupní hranice, secrets v kódu a konfiguraci'],
-  ['testy-a-doktrina', 'pokrývá změna, co tvrdí; obcházení nebo zúžení existujících testů; porušení výslovných pravidel CLAUDE.md'],
-]
-const reviewCocka = (cocka, popis, r1) => runSePredavkou(`${ramec}
-
-Úkol: code-review kolečka, kolo 2, čočka „${cocka}“ (${popis}). Nad celým rozsahem kontroluj do hloubky jen tuto osu; ostatní osy přeskoč, mají vlastní čočky. Kolo 1 už proběhlo${r1 && r1.report_path ? ` (report ${r1.report_path}: přečti jen identifikátory a místa, ty neopakuj)` : ''}; opravy kola 1 jsou v pracovním stromě a patří do rozsahu. Report do ${rep('code-review', 'kolo-2', cocka)}. Vrať počty, disjunktní balíčky po souborech s identifikátory a cestu; nálezy nevracej.`,
-  { label: `review:kolečko:2:${cocka}`, phase: 'Code-review 2', agentType: 'dev-pipeline:code-review', schema: REVIEW, ...M.opusH })
-
-const triaz = cocky => runSePredavkou(`${ramec}
-
-Úkol: triáž nálezů kola 2 code-review kolečka. Reporty čoček: ${cocky.map(c => `${c.cocka} → ${c.report_path || 'bez nálezu'} (${c.nalezu} nálezů, ${c.blokujicich} blokujících)`).join(' | ')}.
-Postup: (1) přečti reporty a slouč duplicity (stejné místo a mechanismus = jeden nález s vyšší závažností; identifikátor nového nálezu drž ve tvaru <čočka>/<původní id>). (2) Každý nález roztřiď: „opravit teď“ = dopad na uživatele nebo data v nasazené aplikaci; „follow-up“ = kandidát na řez příští vize (změna datového modelu, širší refaktor, plošný mechanismus); „odmítnuto“ = po ověření proti kódu neplatí nebo je to vědomé rozhodnutí vize, s důvodem. Nález, o kterém nejde rozhodnout bez uživatele (mění mantinel nebo Cíl vize), dej do sporné s navrženou odpovědí a zároveň ho neopravuj. (3) Zapiš sloučený report do ${rep('code-review', 'kolo-2')}: sekce Opravit teď (nálezy s místem, selháním a původní čočkou), Follow-up, Odmítnuto (důvody), Sporné. (4) Vrať počty, disjunktní balíčky po souborech jen pro „opravit teď“ (identifikátory ze sloučeného reportu, security příznak u bezpečnostních), follow-upy jednou větou s kontextem, odmítnuté s důvodem, sporné s návrhem. Kód needituješ, podagenty nespouštíš.`,
-  { label: 'triáž:kolečko:2', phase: 'Code-review 2', agentType: 'general-purpose', schema: TRIAZ, ...M.opusH })
 
 const secCocka = () => runSePredavkou(`${ramec}
 
@@ -322,8 +413,8 @@ const secSkill = () => runSePredavkou(`${ramec}
 const POSLEDNI_VARKA = 'Poslední várka, po ní už review není. Oprav zúžením. Nový mechanismus ani změnu rozhodovací logiky nedělej, nahlas je jako follow-up nebo rozhodnutí. Odložení je plnohodnotný výsledek.'
 const fixBalicek = (faze, zdroje, b, i) => runSePredavkou(`${ramec}
 
-Úkol: oprav nálezy kolečka (${faze}). ${zdroje.map(z => `Report ${z.report}: nálezy ${z.ids.join(', ') || 'všechny ve tvých souborech'}`).join(' · ')}. Sahej jen do souborů: ${b.soubory.join(', ')}; jiné soubory mohou souběžně opravovat jiní agenti. Root brána může být červená na cizích souborech, ověř svůj balíček. Spouštěj jen dotčené testy a typecheck; plnou suitu nespouštěj, patří bráně a souběžné agenty by vyhladověla. ${b.security ? 'Jde o bezpečnostní balíček: oprav celý hned, i pre-existing. Necommituj; bezpečnostní opravu commitne krok commitu po zelené bráně samostatně.' : 'Necommituj.'} Každý nález je hypotéza: ověř proti kódu; co míří vedle, oprav skutečnou příčinu a rozdíl uveď v jinak_nez_nalez; co neplatí, odmítni s důvodem. Identifikátory nálezů, které jsi opravil, vrať v opravene_ids. Žádné plošné přestavby na konci vize. Nahlas rozšířený zásah, když překročí nálezy. ${POSLEDNI_VARKA}`,
-  { label: `fix:kolečko:${faze}:${i + 1}`, phase: faze === 'thermo' ? 'Thermo' : faze === 'kolo 1' ? 'Code-review 1' : faze === 'kolo 2' ? 'Code-review 2' : 'Bezpečnost', agentType: 'dev-pipeline:fix', schema: FIX, ...M.opusM })
+Úkol: oprav nálezy kolečka (${faze}). ${zdroje.map(z => `Report ${z.report}: nálezy ${z.ids.join(', ') || 'všechny ve tvých souborech'}`).join(' · ')}. Sahej jen do souborů: ${b.soubory.join(', ')}; jiné soubory mohou souběžně opravovat jiní agenti. Root brána může být červená na cizích souborech, ověř svůj balíček. Spouštěj jen dotčené testy a typecheck${rychleText}; plnou suitu nespouštěj, patří bráně a souběžné agenty by vyhladověla. ${b.security ? 'Jde o bezpečnostní balíček: oprav celý hned, i pre-existing. Necommituj; bezpečnostní opravu commitne krok commitu po zelené bráně samostatně.' : 'Necommituj.'} Každý nález je hypotéza: ověř proti kódu; co míří vedle, oprav skutečnou příčinu a rozdíl uveď v jinak_nez_nalez; co neplatí, odmítni s důvodem. Identifikátory nálezů, které jsi opravil, vrať v opravene_ids. Žádné plošné přestavby na konci vize. Nahlas rozšířený zásah, když překročí nálezy. ${POSLEDNI_VARKA}`,
+  { label: `fix:kolečko:${faze}:${i + 1}`, phase: faze === 'thermo' ? 'Thermo' : faze === 'kolo 1' ? 'Code-review 1' : 'Bezpečnost', agentType: 'dev-pipeline:fix', schema: FIX, ...M.opusM })
 
 // Zelená jen nad doloženým měřením: exit kód testů 0, aspoň jeden prošlý test, nic z cache a kontroly pre-commitu (v běhu bez-dluhu
 // pustila brána zelenou nad neproběhlou suitou a commit pak padl na kontrolu pre-commitu, kterou brána nespustila). Měřidla kolečko nemá.
@@ -347,12 +438,12 @@ const verify = (faze, k, ph) => { const vystup = rep('verify', faze.replace(/\s+
 // ve sdíleném eslint.config.js. Kolečko smí jen soubory, které změnila vize nebo kolečko.
 const fixBrana = (faze, v, ph) => runSePredavkou(`${ramec}
 
-Úkol: brána kolečka po fázi „${faze}“ je červená (${proc(v)}). Selhává: ${(v.selhavajici || []).slice(0, 20).join(' | ') || 'viz výstup'}${v.kontroly_ok === false ? ` · kontroly pre-commitu: ${(v.kontroly || []).slice(0, 10).join(' | ') || 'viz výstup'}` : ''}${v.vystup_path ? ` · plný výstup: ${v.vystup_path}` : ''}. Hranice opravy: soubory, které změnila vize nebo kolečko (git diff --name-only ${base}...HEAD a pracovní strom), a jejich testy; změnu mimo ni udělej jen tehdy, když bez ní brána nejde opravit, a nahlas ji jako rozšířený zásah. Selhání na gitignorovaném souboru mimo diff vize není vada kolečka: soubor odstav (přejmenuj mimo dosah kontroly nebo smaž, když je to tvůj pomocný soubor), sdílenou konfiguraci (eslint, tsconfig, prettier, CI) neměň. Oprav příčinu (ne test, pokud test není špatně); když suita neproběhla (žádný prošlý test nebo nenulový exit kód bez selhaného testu), hledej příčinu v jejím spuštění, ne v testech. Po opravě spusť dotčené testy a typecheck, plnou suitu pustí znovu brána. Necommituj.${obnovaVeta(ph)}`,
+Úkol: brána kolečka po fázi „${faze}“ je červená (${proc(v)}). Selhává: ${(v.selhavajici || []).slice(0, 20).join(' | ') || 'viz výstup'}${v.kontroly_ok === false ? ` · kontroly pre-commitu: ${(v.kontroly || []).slice(0, 10).join(' | ') || 'viz výstup'}` : ''}${v.vystup_path ? ` · plný výstup: ${v.vystup_path}` : ''}. Hranice opravy: soubory, které změnila vize nebo kolečko (git diff --name-only ${base}...HEAD a pracovní strom), a jejich testy; změnu mimo ni udělej jen tehdy, když bez ní brána nejde opravit, a nahlas ji jako rozšířený zásah. Selhání na gitignorovaném souboru mimo diff vize není vada kolečka: soubor odstav (přejmenuj mimo dosah kontroly nebo smaž, když je to tvůj pomocný soubor), sdílenou konfiguraci (eslint, tsconfig, prettier, CI) neměň. Oprav příčinu (ne test, pokud test není špatně); když suita neproběhla (žádný prošlý test nebo nenulový exit kód bez selhaného testu), hledej příčinu v jejím spuštění, ne v testech. Po opravě spusť dotčené testy a typecheck${rychleText}, plnou suitu pustí znovu brána. Necommituj.${obnovaVeta(ph)}`,
   { label: `fix-brana:kolečko:${faze}`, phase: ph, agentType: 'dev-pipeline:fix', schema: FIX, ...M.opusM })
 
 // Bod 19 (třída D1): bezpečnostní opravy commitne až krok commitu po zelené bráně, samostatně a před ostatními změnami.
 // Fix agent, který commitoval uprostřed souběžné vlny, narazil v bez-dluhu dvakrát na pre-commit nad rozdělanou prací ostatních.
-const bezpecnostniOpravy = xs => (xs || []).length ? ` Bezpečnostní opravy: ${xs.map(o => `${o.popis}${o.soubory.length ? ` (${o.soubory.join(', ')})` : ''}`).join(' · ').slice(0, 2000)}. Před commitem ostatních změn je commitni samostatně zprávou fix(security): …, když jejich soubory nenesou jinou změnu (git diff souboru ukáže jen opravu); jinak přidej do zprávy commitu kolečka řádek fix(security): …. Hashe samostatných bezpečnostních commitů vrať v security_commity.` : ''
+const bezpecnostniOpravy = xs => (xs || []).length ? ` Bezpečnostní opravy: ${xs.map(o => `${o.popis}${o.soubory.length ? ` (${o.soubory.join(', ')})` : ''}`).join(' · ').slice(0, 2000)}. Před commitem ostatních změn je commitni samostatně zprávou fix(security): …, když jejich soubory nenesou jinou změnu (git diff souboru ukáže jen opravu); jinak přidej do zprávy commitu kolečka řádek fix(security): … a hash toho commitu vrať v security_radkem. Hashe samostatných bezpečnostních commitů vrať v security_commity.` : ''
 const commit = (faze, zprava, ph, secOpravy) => runSePredavkou(`${ramec}
 
 Úkol: commit změn kolečka po fázi „${faze}“, režim commit-only.${bezpecnostniOpravy(secOpravy)} Jeden commit na vize větvi se zprávou „${zprava}“ se zbylými změnami kolečka (kód, testy, docs/e2e/kolecko.md, docs/journal.md, docs/follow-ups.md, docs/vize-spory.md). docs/reviews/ a markery jsou gitignorované. Když pracovní strom nemá co commitnout, necommituj a vrať stav commit-only, hash HEAD a duvod „beze změn“. Nenasazuj. Po commitu zkontroluj git status a netrackované soubory kolečka jmenuj v návratu.${obnovaVeta(ph, true)}`,
@@ -361,14 +452,19 @@ const commit = (faze, zprava, ph, secOpravy) => runSePredavkou(`${ramec}
 // Kolečko zapisuje nasazení jako stavba (1.6.0): bez zápisu bral další deploy bázi diffu z posledního zápisu řezu a řez 11 v běhu
 // web-rijen nasadil API a admin znovu.
 const zapisNasazeni = `${cwd}/docs/e2e/kolecko-nasazeni.md`
+// Odklad nasazení (1.7.0, shodně s blokem stavby a deploy.md): stav odlozeno s časem nejdriv místo čekání přes noc nebo infra selhání.
+const ODKLAD = 'Když nasazení podle zakázaného okna, runbooku nebo pokynů majitele nesmí proběhnout dřív než za ~30 minut (včetně rezervy okna), dál nic nenasazuj a vrať stav odlozeno s nejdriv (ISO 8601 s časovou zónou) a duvod; commit kolečka smí proběhnout (vrať ho v commit). Odklad není infra selhání; kratší čekání počkej.'
 const deploy = (k, pozn, secOpravy) => runSePredavkou(`${ramec}
 
-Úkol: nasazení kolečka (běh ${k}).${bezpecnostniOpravy(secOpravy)} Nejdřív commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, čekej smyčkou s pevným počtem iterací (žádné nekonečné while; jedno čekací volání nejvýš 4,5 minuty, cache agenta žije 5 minut a delší pauza zapíše celý kontext znovu, dlouhý stav kontroluj opakovaně kratšími voláními), na každém terminálním stavu skonči (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. Co nasadit, urči podle git diff --stat <báze>..HEAD -- apps packages a importů změněných balíčků, nikdy podle diffu jednoho commitu: báze je poslední commit se zprávou „zápis nasazení“ (git log --grep 'zápis nasazení' -1 --format=%H), když žádný není, git merge-base HEAD ${base}; nasaď každou aplikaci, které se diff dotkl (i tu, kterou řez nenasadil), a pole health začni řádkem „aplikace: <app>@<verze nebo deployment id> nasazeno | <app> nenasazeno (<důvod z diffu>) | …“. Zápis nasazení kolečka (čas, commit, co se nasadilo, doklady; další nasazení kolečka připiš pod předchozí) zapiš do ${zapisNasazeni} a commitni ho samostatně zprávou „kolecko: zápis nasazení“ až po commitu kolečka; vrať report_path a commit_zapisu. Pole commit je commit kolečka, ne commit zápisu. ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy.` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'}${appPristup ? ` Pokyny majitele k prostředí a nasazení jsou závazné a mají přednost před skripty repa (skript, který nasazuje jinam nebo jinak, než pokyny říkají, nepoužij nebo doplň o správné parametry): ${appPristup.slice(0, 1200)}.` : ''}`} Necháváš na pokoji vše, co jsi sám nezměnil: žádné git checkout --, git restore, git stash ani git clean nad cizími nebo necommitnutými soubory (guard je během běhu blokuje); formátovací kontrolu pouštěj jen nad soubory, které commituješ. Nikdy si nedomýšlej postup, který projekt nedokumentuje.${obnovaVeta('Deploy a E2E', true)}`,
+Úkol: nasazení kolečka (běh ${k}).${bezpecnostniOpravy(secOpravy)} Nejdřív commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, čekej smyčkou s pevným počtem iterací (žádné nekonečné while; jedno čekací volání nejvýš 4,5 minuty, cache agenta žije 5 minut a delší pauza zapíše celý kontext znovu, dlouhý stav kontroluj opakovaně kratšími voláními), na každém terminálním stavu skonči (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. Co nasadit, urči podle git diff --stat <báze>..HEAD -- apps packages a importů změněných balíčků, nikdy podle diffu jednoho commitu: báze je poslední commit se zprávou „zápis nasazení“ (git log --grep 'zápis nasazení' -1 --format=%H), když žádný není, git merge-base HEAD ${base}; nasaď každou aplikaci, které se diff dotkl (i tu, kterou řez nenasadil), a pole health začni řádkem „aplikace: <app>@<verze nebo deployment id> nasazeno | <app> nenasazeno (<důvod z diffu>) | …“. Zápis nasazení kolečka (čas, commit, co se nasadilo, doklady; další nasazení kolečka připiš pod předchozí) zapiš do ${zapisNasazeni} a commitni ho samostatně zprávou „kolecko: zápis nasazení“ až po commitu kolečka; vrať report_path a commit_zapisu. Pole commit je commit kolečka, ne commit zápisu. ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy, jen když to celé trvá nejvýš ~30 minut; jinak odklad (níže).` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'} ${ODKLAD}${appPristup ? ` Pokyny majitele k prostředí a nasazení jsou závazné a mají přednost před skripty repa (skript, který nasazuje jinam nebo jinak, než pokyny říkají, nepoužij nebo doplň o správné parametry): ${appPristup.slice(0, 1200)}.` : ''}`} Necháváš na pokoji vše, co jsi sám nezměnil: žádné git checkout --, git restore, git stash ani git clean nad cizími nebo necommitnutými soubory (guard je během běhu blokuje); formátovací kontrolu pouštěj jen nad soubory, které commituješ. Nikdy si nedomýšlej postup, který projekt nedokumentuje.${obnovaVeta('Deploy a E2E', true)}`,
   { label: `deploy:kolečko:${k}`, phase: 'Deploy a E2E', agentType: 'dev-pipeline:deploy', schema: DEPLOY, ...M.sonM })
 
+// Sdílené pravidlo čekání na čas (spec 1.7.0 § 1.1, doslova): v běhu sonnet-5-5 napsal autor scénářů kolečka K16 a K17 vědomě jako
+// neměřitelná („spustit běh zakazuje Ne-cíl“), ačkoli majitel povolil ruční běhy, aby se nečekalo.
+const CEKANI_NA_CAS = '**Čekání na čas.** Kritérium, krok nebo scénář, který potřebuje data vznikající časem (provoz, plánované úlohy, činnost uživatelů, den, noc), změří běh nad daty, která sám vyrobí podle Povolení vize (ruční spuštění, testovací data, kratší okno), hned po nasazení. Na organický čas běh čeká jen tam, kde to vize výslovně vede jako rozhodnutí majitele s odhadem, o kolik hodin se běh prodlouží. Když Povolení výrobu dat nepokrývá, kritérium není „nesplnitelné v prostředí E2E“: je to otázka pro majitele (rozšířit Povolení, nebo čekat).'
 const sestavE2E = () => runSePredavkou(`${ramec}
 
-Úkol: sestav E2E scénáře kolečka do ${e2ePath}. Zdroje: commity kolečka (\`git log ${base}..HEAD --oneline\`, commity se zprávou „kolecko:“ a „fix(security):“ od začátku kolečka) s jejich \`--stat\`, reporty ${cisty(st.reports).slice(-8).join(', ') || 'kolečka'} (jen sekce opravených nálezů) a tail docs/journal.md. Pravidla kritérií podle ${a.plugin_root ? `${a.plugin_root}/agents/prd.md` : 'agenta prd pluginu dev-pipeline'} (sekce Akceptační kritéria a E2E scénáře): každé kritérium na viditelném chování, záporné kritérium jmenuje šev, u čísel dotaz k přepočtu místo holé hodnoty, žádné výčty jmen souborů ani opsaná čísla, žádné kritérium závislé na commitu. Pokryj: každou opravu kolečka s dopadem na uživatele nebo data (regrese) a smoke průchod ploch, kterých se vize dotkla (z journalu), nejvýš 20 kritérií. Když kolečko nezměnilo kód, napiš jen smoke průchod do 5 kritérií. Nic jiného needituj.`,
+Úkol: sestav E2E scénáře kolečka do ${e2ePath}. Zdroje: commity kolečka (\`git log ${base}..HEAD --oneline\`, commity se zprávou „kolecko:“ a „fix(security):“ od začátku kolečka) s jejich \`--stat\`, reporty ${cisty(st.reports).slice(-8).join(', ') || 'kolečka'} (jen sekce opravených nálezů) a tail docs/journal.md. Pravidla kritérií podle ${a.plugin_root ? `${a.plugin_root}/agents/prd.md` : 'agenta prd pluginu dev-pipeline'} (sekce Akceptační kritéria a E2E scénáře): každé kritérium na viditelném chování, záporné kritérium jmenuje šev, u čísel dotaz k přepočtu místo holé hodnoty, žádné výčty jmen souborů ani opsaná čísla, žádné kritérium závislé na commitu. Pokryj: každou opravu kolečka s dopadem na uživatele nebo data (regrese) a smoke průchod ploch, kterých se vize dotkla (z journalu), nejvýš 20 kritérií. Když kolečko nezměnilo kód, napiš jen smoke průchod do 5 kritérií. Kritéria čísluj AK1, AK2 … (nikdy K: K jsou části řezu) a každé začni názvem do 6 slov: „**AKn Název.** …“. ${CEKANI_NA_CAS} Povolení si přečti ze sekce „Mantinely a Povolení“ vize ${a.vize}. Kritérium nad populací, která vzniká časem (běhy plánovaných úloh, provoz, činnost uživatelů), buď vyrobí ve scénáři přípravný krok po nasazení kolečka ručním během podle Povolení (citace Povolení, počet běhů, odhad doby), nebo ho nenapiš a vrať v rozhodnuti s důvodem; za neměřitelné ho nikdy nepiš. Nic jiného needituj.`,
   { label: 'e2e-scénáře:kolečko', phase: 'Deploy a E2E', agentType: 'general-purpose', schema: SESTAV, ...M.opusM })
 
 const e2e = (k, failKola1) => runtimeDopad
@@ -397,7 +493,7 @@ const celySeznam = xs => JSON.stringify((xs || []).map(x => { const t = typeof x
 // Závěr ověří hashe bezpečnostních commitů: v bez-dluhu fix agent hlásil commit, který nevznikl, a blok to nepoznal (řez 23).
 const close = souhrn => runSePredavkou(`${ramec}
 
-Úkol: závěr kolečka.${souhrn.security.length ? ` (0) Ověř bezpečnostní commity kolečka ${souhrn.security.join(', ')}: git cat-file -t <hash> musí vrátit commit; který ho nevrátí, vrať v chybejici_commity a v journalu ho uveď jako chybějící; hash nikdy nedopočítávej.` : ''} (1) Připoj do docs/journal.md heredocem záznam „Review kolečko“: datum, nálezy per kolo (${souhrn.kola}), co zásadního se změnilo (commity ${souhrn.commity.join(', ') || 'žádné'}), kolik přinesla která bezpečnostní metodika (${souhrn.metodiky}), odmítnuté nálezy s důvodem: ${celySeznam(souhrn.odmitnute)}${souhrn.jinak.length ? `, opravy jinak, než nález tvrdil: ${celySeznam(souhrn.jinak)}` : ''}, sporné položky a vadná kritéria k rozhodnutí uživatele: ${celySeznam(souhrn.rozhodnuti)}, E2E ${souhrn.e2e}. (2) Připoj do docs/follow-ups.md tyto položky (jedna odrážka = jedna, s kontextem, bez duplicit proti existujícím): ${celySeznam(souhrn.follow_ups)}. (3) Pusť formátovač projektu na dotčené docs/*.md, když ho projekt má. (4) Vytvoř marker \`touch ${cwd}/docs/.review-passed\` a ověř, že existuje. (5) Smaž docs/.deploy-unlocked, když existuje. Necommituj (commituje další krok), do kódu nesahej.`,
+Úkol: závěr kolečka.${souhrn.security.length ? ` (0) Ověř bezpečnostní commity kolečka ${souhrn.security.join(', ')}: git cat-file -t <hash> musí vrátit commit; který ho nevrátí, vrať v chybejici_commity a v journalu ho uveď jako chybějící; hash nikdy nedopočítávej.` : ''} (1) Připoj do docs/journal.md heredocem záznam „Review kolečko“: datum, nálezy per kolo (${souhrn.kola}), co zásadního se změnilo (commity ${souhrn.commity.join(', ') || 'žádné'}), kolik přinesla která bezpečnostní metodika (${souhrn.metodiky}), odmítnuté nálezy s důvodem: ${celySeznam(souhrn.odmitnute)}${souhrn.jinak.length ? `, opravy jinak, než nález tvrdil: ${celySeznam(souhrn.jinak)}` : ''}, sporné položky a vadná kritéria k rozhodnutí uživatele: ${celySeznam(souhrn.rozhodnuti)}, E2E ${souhrn.e2e}. (2) Připoj do docs/follow-ups.md tyto položky (jedna odrážka = jedna, s kontextem, bez duplicit proti existujícím): ${celySeznam(souhrn.follow_ups)}. (3) Pusť formátovač projektu na dotčené docs/*.md, když ho projekt má. (4) Vytvoř marker \`touch ${cwd}/docs/.review-passed\` a ověř, že existuje. (5) Smaž docs/.deploy-unlocked, když existuje. (6) Zapiš do ${cwd}/docs/.vysledek-kolecko.json (soubor celý přepiš) přesně tento JSON, beze změny a bez zkracování: ${JSON.stringify({ follow_ups: souhrn.follow_ups, odmitnute: souhrn.odmitnute, reports: souhrn.reports })}; cestu vrať ve vysledek_soubor (když zápis selže, nech pole prázdné). Necommituj (commituje další krok), do kódu nesahej.`,
   { label: 'závěr:kolečko', phase: 'Závěr', agentType: 'general-purpose', schema: CLOSE, ...M.sonM })
 
 // ---------- opravná vlna: opravy → brána → commit ----------
@@ -419,6 +515,7 @@ async function vlna(faze, ph, zprava, balicky, fu = new Map()) {
   if (!balicky.length) { log(`${faze}: žádný balíček k opravě, brána a commit se vynechávají`); return { ok: true, fixAgentu: 0 } }
   // Nejdelší balíček první: při stropu souběhu Workflow se dlouhý fix agent nesmí řadit na konec dávky (běh web-podzim).
   balicky = [...balicky].sort((x, y) => y.soubory.length - x.soubory.length)
+  zelenaBrana = null
   const vysledky = await parallel(balicky.map((b, i) => () => fixBalicek(faze, b.zdroje, b, i)))
   followZOprav(balicky.map((b, i) => ({ f: vysledky[i], b })), fu)
   const opravy = vysledky.filter(Boolean)
@@ -439,7 +536,10 @@ async function vlna(faze, ph, zprava, balicky, fu = new Map()) {
   return { ok: true, fixAgentu: opravy.length }
 }
 const zapisVerify = v => ({ typecheck: v.typecheck, proslo: v.proslo, selhalo: v.selhalo, exit_kod: v.exit_kod, kontroly_ok: v.kontroly_ok })
+// Fáze poslední zelené brány, po které žádný fix agent nesahal do stromu (brána před nasazením se pak nepouští).
+let zelenaBrana = null
 async function brana(faze, ph) {
+  zelenaBrana = null
   let v = await verify(faze, 1, ph)
   if (!v) return { ok: false, detail: nic(`verify:kolečko:${faze}:1`, 'verify agent') }
   if (!zelena(v)) {
@@ -449,6 +549,7 @@ async function brana(faze, ph) {
     if (!zelena(v)) { st.verify = v ? zapisVerify(v) : st.verify; return { ok: false, detail: v ? `brána červená po opravě: ${proc(v)}: ${(v.selhavajici || []).slice(0, 10).join(' | ')}` : nic(`verify:kolečko:${faze}:2`, 'verify agent') } }
   }
   st.verify = zapisVerify(v)
+  zelenaBrana = ph
   log(`brána po ${faze} zelená: ${v.proslo} testů`)
   return { ok: true }
 }
@@ -456,10 +557,12 @@ async function brana(faze, ph) {
 // ---------- 1. thermo ----------
 phase('Thermo')
 log(`kolečko vize ${S(a.vize)} nad ${base}...HEAD`)
+if (a.obnova && typeof a.obnova === 'object' && !obnovaIn) log('obnova bez od_faze ignorována: kolečko běží jako nové, bez značky obnovy')
 if (obnova) {
+  if (odFazeIn === 'kolo 2') log('obnova: fáze kolo 2 od 1.7.0 neexistuje (kolo pěti čoček zrušeno), obnova jde od bezpečnosti')
   if (obnovaOd < 0) log(`obnova: neznámá fáze „${S(a.obnova.od_faze)}“ (platí ${FAZE.map(([, k]) => k).join(', ')}), přeměří se všechno od thermo`)
   if (obnova.znacka === 'bez značky') log('obnova: chybí značka; další obnova bez nové značky vrátí brány této obnovy z cache')
-  log(`obnova od fáze ${FAZE[obnova.od][1]} (značka ${obnova.znacka}): brána, commit, deploy a E2E od ní se přeměří, review a čočky se vrátí z cache`)
+  log(`obnova od fáze ${FAZE[obnova.od][1]} (značka ${obnova.znacka}): brána, commit, deploy a E2E od ní se přeměří, review se vrátí z cache`)
 }
 const th = await thermo()
 if (!th) return selhani('thermo', nic('thermo:kolečko', 'thermo agent'))
@@ -467,6 +570,7 @@ st.reports.push(th.report_path)
 st.thermo = { nalezu: th.nalezu, blokeru: th.blokeru, opraveno: 0 }
 log(`thermo: ${th.nalezu} nálezů, ${th.blokeru} blokujících, soubory BLOCKER/HIGH a jejich náprav: ${thermoSoubory(th).length}`)
 if (thermoSoubory(th).length) {
+  zelenaBrana = null
   const f = await fixThermo(th); sber(f)
   if (f) {
     st.thermo.opraveno = f.opraveno
@@ -491,26 +595,7 @@ const v1 = await vlna('kolo 1', 'Code-review 1', 'kolecko: code-review kolo 1', 
 st.review.kolo1 = { nalezu: r1.nalezu, blokujicich: r1.blokujicich, fix_agentu: v1.fixAgentu }
 if (!v1.ok) return selhani('code-review kolo 1', v1.detail)
 
-// ---------- 3. code-review kolo 2: čočky + triáž ----------
-phase('Code-review 2')
-const cocky = (await parallel(COCKY.map(([cocka, popis]) => () => reviewCocka(cocka, popis, r1).then(r => r && { ...r, cocka })))).filter(Boolean)
-cocky.forEach(c => { if (c.report_path) st.reports.push(c.report_path) })
-const nalezuCocek = cocky.reduce((n, c) => n + (c.nalezu || 0), 0)
-log(`review 2: ${cocky.length}/${COCKY.length} čoček vrátilo výsledek, ${nalezuCocek} nálezů před triáží`)
-st.review.kolo2 = { cocek: cocky.length, nalezu: nalezuCocek, opravit_ted: 0, follow_up: 0, odmitnuto: 0, fix_agentu: 0 }
-if (nalezuCocek > 0) {
-  const t = await triaz(cocky)
-  if (!t) return selhani('code-review kolo 2', nic('triáž:kolečko:2', 'agent triáže'))
-  st.reports.push(t.report_path)
-  st.follow_ups.push(...(t.follow_ups || [])); st.odmitnute.push(...(t.odmitnute || []).map(o => `${S(o.id)}: ${S(o.duvod)}`)); st.rozhodnuti.push(...(t.sporne || []))
-  const b2 = sluc(balickyZ(t))
-  log(`triáž: ${t.nalezu} nálezů po sloučení → opravit teď ${t.opravit_ted}, follow-up ${t.follow_up}, odmítnuto ${t.odmitnuto}, sporné ${(t.sporne || []).length}; ${b2.length} balíčků`)
-  const v2 = await vlna('kolo 2', 'Code-review 2', 'kolecko: code-review kolo 2', b2)
-  st.review.kolo2 = { cocek: cocky.length, nalezu: t.nalezu, opravit_ted: t.opravit_ted, follow_up: t.follow_up, odmitnuto: t.odmitnuto, fix_agentu: v2.fixAgentu }
-  if (!v2.ok) return selhani('code-review kolo 2', v2.detail)
-} else log('review 2: žádný nález, triáž se nekoná')
-
-// ---------- 4. bezpečnost ----------
+// ---------- 3. bezpečnost ----------
 phase('Bezpečnost')
 const [sc, ss] = await parallel([() => secCocka(), () => secSkill()])
 for (const r of [sc, ss]) if (r && r.report_path) st.reports.push(r.report_path)
@@ -524,18 +609,25 @@ followMimoBalicky([sc, ss])
 const vs = await vlna('bezpečnost', 'Bezpečnost', 'kolecko: bezpečnost', bs, fuMapa([sc, ss]))
 if (!vs.ok) return selhani('bezpečnost', vs.detail)
 
-// ---------- 5. deploy a E2E ----------
+// ---------- 4. deploy a E2E ----------
 phase('Deploy a E2E')
-const bd = await brana('před nasazením', 'Deploy a E2E'); if (!bd.ok) return selhani('deploy', bd.detail)
+// Brána před nasazením jen nad změněným stromem (1.7.0): v běhu sonnet-5-5 běžela minutu po zelené bráně bezpečnosti nad týmž stromem
+// (4,7 min). Zelená brána platí, když po ní žádný fix agent nesahal do stromu a při obnově byla přeměřená v tomto běhu (fáze
+// od od_faze dál); brána z cache přerušeného běhu strom po zásahu člověka nezná.
+const branaPlati = zelenaBrana && (!obnova || FAZE.findIndex(([t]) => t === zelenaBrana) >= obnova.od)
+if (branaPlati) log(`brána před nasazením: poslední brána (po fázi ${zelenaBrana}) je zelená a od ní žádná oprava nesahala do stromu, znovu se nepouští`)
+else { const bd = await brana('před nasazením', 'Deploy a E2E'); if (!bd.ok) return selhani('deploy', bd.detail) }
 let d = await deploy(1, 'nasazení oprav')
 if (!d) return selhaniDeploye(d, 1)
-if (d.stav === 'failed') { st.deploy = zapisDeploy(d); return selhaniDeploye(d, 1) }
+if (d.stav === 'failed' || d.stav === 'odlozeno') { st.deploy = zapisDeploy(d); return selhaniDeploye(d, 1) }
 sberCommit(d)
 st.deploy = zapisDeploy(d)
 log(`deploy: ${d.stav}, commit ${d.commit}`)
 const se = await sestavE2E()
 if (!se) return selhani('e2e', nic('e2e-scénáře:kolečko', 'agent E2E scénářů kolečka'))
 log(`E2E scénáře kolečka: ${se.kriterii} kritérií${se.poznamka ? ` (${S(se.poznamka).slice(0, 120)})` : ''}`)
+// Kritérium, které nejde změřit bez rozšíření Povolení, jde majiteli jako otázka (1.7.0), ne jako vadné kritérium po E2E.
+for (const x of cisty(se.rozhodnuti)) st.rozhodnuti.push(`[E2E kolečka · Povolení] ${x} · otázka: rozšířit Povolení, nebo čekat`)
 const verdikt = e => (e.fail > 0 || (e.fail_kriteria || []).length) ? 'fail' : (e.vadna_kriteria || []).length ? 'vada-kriteria' : e.castecne > 0 ? 'pass-castecne' : 'pass'
 const zapisE2E = e => { st.e2e = { vysledek: verdikt(e), celkem: e.celkem, pass: e.pass, castecne: e.castecne, fail: e.fail, castecna_kriteria: e.castecna_kriteria || [], vadna_kriteria: e.vadna_kriteria || [] } }
 const e2eLabel = k => `${runtimeDopad ? 'e2e' : 'kriteria'}:kolečko:${k}`
@@ -550,7 +642,7 @@ if (verdikt(e) === 'fail') {
   const zasah = zasahOpravy(fe)
   if (zasah === 'kod') {
     const bo = await brana('oprava po E2E', 'Deploy a E2E'); if (!bo.ok) return selhani('e2e', `oprava po E2E neprošla bránou: ${bo.detail}`)
-    const d2 = await deploy(2, 'oprava po E2E'); if (!d2 || d2.stav === 'failed') return selhaniDeploye(d2, 2)
+    const d2 = await deploy(2, 'oprava po E2E'); if (!d2 || d2.stav === 'failed' || d2.stav === 'odlozeno') return selhaniDeploye(d2, 2)
     sberCommit(d2)
     d = d2; st.deploy = zapisDeploy(d)
   } else if (zasah === 'mimo' || zasah === 'docs') {
@@ -605,16 +697,18 @@ if ((e.zavazne_mimo_ak || []).length) {
     const d3 = await deploy(3, 'bezpečnostní oprava po E2E', [{ soubory: cestyZ(fs.zmenena_mista), popis: `závažné nálezy E2E mimo kritéria: ${e.zavazne_mimo_ak.join(' | ').slice(0, 600)}; oprava: ${cisty(fs.zmenena_mista).join('; ').slice(0, 400)}` }])
     // Selhaný deploy bezpečnostní opravy je selhání kolečka i mimo infra: review_passed nesmí vzniknout a commit závěru by opravu
     // smetl do „kolecko: závěr“ bez fix(security) a bez nasazení (revize 1.4.0).
-    if (!d3 || d3.stav === 'failed') { neopraveno('oprava je v pracovním stromě necommitnutá a nenasazená'); return selhaniDeploye(d3, 3, 'deploy bezpečnostní opravy po E2E: ') }
+    if (!d3 || d3.stav === 'failed' || d3.stav === 'odlozeno') { neopraveno(d3 && d3.stav === 'odlozeno' ? `nasazení opravy odloženo${S(d3.nejdriv).trim() ? ` do ${S(d3.nejdriv).trim()}` : ''}` : 'oprava je v pracovním stromě necommitnutá a nenasazená'); return selhaniDeploye(d3, 3, 'deploy bezpečnostní opravy po E2E: ') }
     sberCommit(d3); d = d3; st.deploy = zapisDeploy(d)
   } else log('E2E: bezpečnostní oprava nic nezměnila, nálezy zůstávají jako follow-up')
 }
 
-// ---------- 6. závěr ----------
+// ---------- 5. závěr ----------
 phase('Závěr')
-const kola = `thermo ${st.thermo.nalezu}/${st.thermo.blokeru} (opraveno ${st.thermo.opraveno}); kolo 1 ${st.review.kolo1.nalezu} nálezů, ${st.review.kolo1.blokujicich} blokujících, ${st.review.kolo1.fix_agentu} fix agentů; kolo 2 ${st.review.kolo2.cocek} čoček, ${st.review.kolo2.nalezu} nálezů → opravit ${st.review.kolo2.opravit_ted}, follow-up ${st.review.kolo2.follow_up}, odmítnuto ${st.review.kolo2.odmitnuto}; bezpečnost ${st.security.nalezu} nálezů, ${st.security.blokujicich} blokujících, commity ${cisty(st.security.commity).length}`
-const c = await close({ kola, commity: cisty([...st.commity, ...st.security.commity]), security: cisty(st.security.commity), metodiky, odmitnute: cisty(st.odmitnute), jinak: cisty(st.jinak), rozhodnuti: cisty(st.rozhodnuti), follow_ups: cisty(st.follow_ups), e2e: `${st.e2e.vysledek} ${st.e2e.pass}/${st.e2e.celkem}${st.e2e.castecne ? ` (částečně ${st.e2e.castecne})` : ''}` })
+const kola = `thermo ${st.thermo.nalezu}/${st.thermo.blokeru} (opraveno ${st.thermo.opraveno}); kolo 1 ${st.review.kolo1.nalezu} nálezů, ${st.review.kolo1.blokujicich} blokujících, ${st.review.kolo1.fix_agentu} fix agentů; bezpečnost ${st.security.nalezu} nálezů, ${st.security.blokujicich} blokujících, commity ${cisty(st.security.commity).length}`
+const c = await close({ kola, commity: cisty([...st.commity, ...st.security.commity]), security: cisty(st.security.commity), metodiky, odmitnute: cisty(st.odmitnute), jinak: cisty(st.jinak), rozhodnuti: cisty(st.rozhodnuti), follow_ups: cisty(st.follow_ups), reports: cisty(st.reports), e2e: `${st.e2e.vysledek} ${st.e2e.pass}/${st.e2e.celkem}${st.e2e.castecne ? ` (částečně ${st.e2e.castecne})` : ''}` })
 st.review_passed = !!(c && c.ok && c.review_passed)
+st.vysledekSoubor = c && c.ok ? S(c.vysledek_soubor).trim() : ''
+if (!st.vysledekSoubor) log('závěr: plné seznamy do docs/.vysledek-kolecko.json nezapsal, návrat je nese celé')
 if (!st.review_passed) log(`závěr: marker docs/.review-passed nevznikl${c && c.poznamka ? ` (${S(c.poznamka).slice(0, 120)})` : ''}`)
 st.chybejici.push(...cisty(c && c.chybejici_commity))
 if (st.chybejici.length) log(`závěr: bezpečnostní commity neexistují: ${st.chybejici.join(', ')} (hlášené, ale git cat-file je neuznal)`)
