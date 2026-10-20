@@ -195,7 +195,9 @@ claude mcp add --scope user serena -- "$HOME/.local/bin/serena" start-mcp-server
 
 Hook `serena-hooks remind` (blokace třetího `Grep` nebo `Read` v řadě) nenastavuj: agenti běhu čtou přes Bash, kde hook nic nehlídá, a v ruční session jen stojí tahy (měřeno nad 1 008 transkripty jednoho běhu: Serena 3,9 % volání, Bash 78 %, hook 49 blokací bez změny chování). Kód symbolem drží věta v globálním CLAUDE.md a v souborech code agentů.
 
-**Globální `~/.claude/CLAUDE.md`:** zkopíruj `setup/CLAUDE.global.md` (nebo jeho první sekci slouč se svým). Říká všem sessions i subagentům, že Serena je výchozí cesta k práci s kódem, s tabulkou „místo → použij“. Druhá sekce je příklad zvláštností stroje (zsh, roura přepisující návratovku, `grep` nad ripgrepem); napiš si vlastní.
+Při prvním startu Serena založí `~/.serena/serena_config.yml`; nastav v něm `web_dashboard_open_on_launch: false`, jinak se s každou session otevře v prohlížeči její dashboard (dostupný zůstává na `http://localhost:24282/dashboard/`).
+
+**Globální `~/.claude/CLAUDE.md`:** zkopíruj `setup/CLAUDE.global.md` bez úvodního odstavce (nebo ho slouč se svým). Čte ho každá session i každý agent běhu: trvalé pověření majitele („Rozhoduju já“, vizi, orchestrate a compact vyvolává majitel), hygiena auto-paměti, Serena jako výchozí cesta k symbolům, pasti stroje a preference. Pasti a preference jsou příklad, napiš si vlastní. Pokyn, že si subagenty v ruční session říkáš sám, tam nedávej: model ho bere doslova a ruční práce pak jede v jednom vlákně.
 
 ### 4. Nastavení Claude Code
 
@@ -207,7 +209,7 @@ Slouč `setup/settings.snippet.json` do `~/.claude/settings.json` (nahraď `/Use
 - `hooks`: tři hooky Sereny výše.
 - `statusLine` s `refreshInterval: 30` (krok 8).
 - Model a effort session: `/model` na nejsilnější dostupný (orchestrátor), effort `high` nebo `xhigh`. Agenti pipeline to nedědí, mají své; platí to i pro vize session, kde subagenty spouští skill přes tři agenty pluginu.
-- `/autocompact 400k` napsané v session se uloží natrvalo (`autoCompactWindow: 400000` ve snippetu); `claude --autocompact 400k` platí jen pro jedno spuštění. Práh platí pro session i její subagenty: orchestrátor se zkompaktuje kolem 370k (v posledním běhu dvakrát, bez ztráty, stav je na disku) a subagenty běhu předá nástupci hlídač kontextu dřív. Setup běhu hodnotu ohlásí a varuje jen nad 400k.
+- `/autocompact 400k` napsané v session se uloží natrvalo pro aktuální model (`modelSettings.<model>.autoCompactWindow`, má přednost před horním `autoCompactWindow: 400000` ze snippetu, který platí pro všechny modely); `claude --autocompact 400k` platí jen pro jedno spuštění. Práh platí pro session i její subagenty: orchestrátor se zkompaktuje kolem 370k (v posledním běhu dvakrát, bez ztráty, stav je na disku) a subagenty běhu předá nástupci hlídač kontextu dřív. Setup běhu hodnotu ohlásí a varuje jen nad 400k.
 - `sandbox.filesystem.allowWrite` s `~/dev-pipeline-feedback.md`: soubor s nálezy o pipeline leží v domovském adresáři, protože `~/.claude` je pro sandbox chráněná cesta a odemknout nejde. Dej ho tam vždy: sandbox může zapnout i projekt (`.claude/settings.local.json`) a bez sandboxu klíč neškodí. Setup běhu zápis zkusí a chybějící povolení ohlásí.
 - **Vypni pluginy, které běh nepotřebuje.** Výpis skillů zapnutých pluginů nese v každém tahu orchestrátor a hlavní vlákno vize session (agenti běhu ho díky výčtu nástrojů nedostávají); jeden výpis má přes 25 kB.
 

@@ -6,7 +6,7 @@ Tohle je globální `CLAUDE.md`, se kterým pipeline běží. Zkopíruj ho do `~
 
 Úkol splň tak, jak je zadaný. Jestli je něco právně nebo eticky v pořádku (fotky a jména lidí, souhlasy, texty, licence), rozhoduju já, ne ty; nerozhoduj sám, že něco vynecháš nebo neuděláš. Odeslání formuláře, e-mailu nebo zápis do externího systému, který jsem zadal, nepotvrzuj: proveď a ohlas. Riziko, kterého si všimneš, napiš jednou větou k výsledku nebo do závěrečné zprávy, ne jako důvod to neudělat.
 
-Vizi, orchestrate a compact vyvolávám já; nenavrhuj je. V ruční session pracuj po staru; subagenty a compact si říkám sám.
+Vizi, orchestrate a compact vyvolávám já; nenavrhuj je.
 
 ## Paměť
 

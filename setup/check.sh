@@ -46,6 +46,10 @@ if [ -f "$settings" ]; then
   done
 fi
 [ -f "$HOME/.claude/CLAUDE.md" ] && grep -q 'mcp__serena__' "$HOME/.claude/CLAUDE.md" && OK "~/.claude/CLAUDE.md má sekci o Sereně" || WARN "~/.claude/CLAUDE.md nemá sekci o Sereně (setup/CLAUDE.global.md)"
+serena_cfg="$HOME/.serena/serena_config.yml"
+if [ ! -f "$serena_cfg" ]; then WARN "~/.serena/serena_config.yml zatím není (vznikne při prvním startu Sereny); pak v něm nastav web_dashboard_open_on_launch: false"
+elif grep -qiE '^web_dashboard_open_on_launch:[[:space:]]*false' "$serena_cfg"; then OK "Serena neotevírá dashboard při startu"
+else WARN "Serena otevře s každou session dashboard v prohlížeči (web_dashboard_open_on_launch: false v ~/.serena/serena_config.yml)"; fi
 [ -n "${MCP_TIMEOUT:-}" ] && OK "MCP_TIMEOUT=$MCP_TIMEOUT" || WARN "MCP_TIMEOUT není nastaven (export MCP_TIMEOUT=60000 v profilu shellu; start language serveru u velkého repa trvá)"
 
 echo "== Claude Code nastavení"
@@ -54,8 +58,9 @@ if [ -f "$settings" ]; then
   [ "$(jq -r '.enabledPlugins["dev-pipeline@claude-dev-pipeline"]' "$settings")" = "true" ] && OK "plugin dev-pipeline zapnutý" || FAIL "plugin dev-pipeline není zapnutý (claude plugin install dev-pipeline@claude-dev-pipeline)"
   [ "$(jq -r '.autoContinueAtUsageLimit' "$settings")" = "true" ] && OK "autoContinueAtUsageLimit: true" || FAIL "autoContinueAtUsageLimit není true (Workflow po usage limitu nepokračuje)"
   # Doporučeno 400k: compact orchestrátora kolem 370 k proběhl v běhu bez ztráty, stav je na disku; subagenty běhu
-  # předá nástupci hlídač kontextu dřív. Varuje se jen nad 400k nebo bez hodnoty.
-  acw=$(jq -r '.autoCompactWindow // empty' "$settings")
+  # předá nástupci hlídač kontextu dřív. Varuje se jen nad 400k nebo bez hodnoty. /autocompact ukládá práh per model
+  # pod modelSettings (má přednost před horním klíčem); hodnotí se nejvyšší nalezená.
+  acw=$(jq -r '[.autoCompactWindow // empty, ((.modelSettings // {})[] | .autoCompactWindow? // empty)] | map(numbers) | max // empty' "$settings")
   if [ -z "$acw" ]; then WARN "autoCompactWindow chybí (doporučeno 400k: orchestrátor spouštěj s claude --autocompact 400k, nebo natrvalo /autocompact 400k v session)"
   elif [ "$acw" -gt 400000 ] 2>/dev/null; then WARN "autoCompactWindow: $acw, doporučeno nejvýš 400000 (/autocompact 400k)"
   else OK "autoCompactWindow: $acw"; fi
