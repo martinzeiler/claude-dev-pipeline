@@ -26,4 +26,4 @@ Jednu přesnou otázku nebo jedno téma (modul, bug, datový stav, dokument k ex
 
 ## Návrat
 
-Do stropu ze zadání (bez stropu do 60 řádků): **Fakta** (odrážky s citacemi) · **Nesedí** (kde realita odporuje zadání, paměti nebo vizi, s citací obou stran) · **Otevřené** (co fakt nerozhodne). Žádný úvod, žádné shrnutí toho, co jsi dělal.
+Do stropu ze zadání (bez stropu drž návrat na tom, co vize session potřebuje k rozhodnutí; co je nad to, zapiš do souboru a vrať cestu): **Fakta** (odrážky s citacemi) · **Nesedí** (kde realita odporuje zadání, paměti nebo vizi, s citací obou stran) · **Otevřené** (co fakt nerozhodne). Žádný úvod, žádné shrnutí toho, co jsi dělal.
