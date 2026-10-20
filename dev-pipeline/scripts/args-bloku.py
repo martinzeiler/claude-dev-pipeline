@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Args bloků dev-pipeline do souboru (1.6.0): orchestrátor předá bloku jen {cwd, plugin_root, rez, args_file} a první agent
+"""Args bloků dev-pipeline do souboru: orchestrátor předá bloku jen {cwd, plugin_root, rez, args_file} a první agent
 bloku (dev-pipeline:nacteni-args) soubor načte a sloučí s docs/.run-args.json. Workflow skript soubory číst neumí.
 
-Proč: v běhu web-rijen orchestrátor args 26× přepisoval ručně (159 k znaků výstupu, args stavby prošly kontextem
-třikrát) a stavba 8 dostala mapu kostry řezu 7. Skript skládá soubor deterministicky; výsledek bloku PRD čte sám ze souboru
-běhu Workflow, orchestrátor ho neopisuje.
+Proč: args přepisované rukou procházejí kontextem orchestrátora opakovaně a přenášejí chyby mezi řezy. Skript skládá
+soubor deterministicky; výsledek bloku PRD čte sám ze souboru běhu Workflow, orchestrátor ho neopisuje.
 
 Použití:
   args-bloku.py stavba  <cwd> <NN> --prd-run <runId> [--doplnit '<json>' | --doplnit @soubor.json]
@@ -23,8 +22,10 @@ neskončil na „chybí plan_row“; pole režimu z minula (rezim, nalezy, prd_p
 Stálá pole běhu (STALA, včetně vize a produkt) patří do docs/.run-args.json: skript je ze stavby z výsledku PRD vynechá
 a sám je nedoplňuje (vize z docs/.orchestrator-run jen tehdy, když ji .run-args.json nemá); --doplnit je smí přepsat výslovně.
 
-1.7.0: pole `obnova` patří do volání bloku, ne do souboru (--doplnit s ním skončí kódem 2): v běhu sonnet-5-5 si načítací
-agent vymyslel `obnova: {}` a obnova pak přehrála celou stavbu řezu 03. Pole s prázdnou hodnotou (null, "", [], {}) se do
+Pole `obnova` patří do volání bloku, ne do souboru (--doplnit s ním skončí kódem 2): načítací agent by si ho mohl vymyslet
+a obnova by přehrála celou stavbu. Obnova musí nést `pokus` ≥ 1 = číslo PŘERUŠENÉHO pokusu (`pokusy` z návratu
+zastaveného bloku; bez návratu číslo z labelu posledního agenta), nikdy +1: blok ten pokus dokončí a od něj čísluje
+pokusy, labely a reporty, aby nepřepsal reporty dřívějších pokusů. Pole s prázdnou hodnotou (null, "", [], {}) se do
 souboru nepíšou (kromě rez); `_pole` je seřazený seznam klíčů souboru sjednocený s klíči docs/.run-args.json (bez prázdných
 hodnot): blok podle něj pozná, že načítací agent pole vynechal nebo přidal.
 
@@ -46,7 +47,7 @@ STALA = ("app_pristup", "runbook", "deploy_mode", "deploy_okno", "ne_cile", "map
          "rozhodnuti_majitele", "rychle_kontroly")
 # Pole args stavby, která dává blok PRD (výsledek bez pole `stavba` = blok před 1.6.0).
 ZE_STAVBY = ("prd_path", "e2e_path", "casti", "kontrakt_potreba", "e2e_sekce", "doklad_pred", "kriteria",
-             "runtime_dopad", "oblasti", "casti_nad_stropem", "profil")
+             "runtime_dopad", "oblasti", "casti_nad_stropem", "profil", "nove_pojmy")
 # Pole volání bloku PRD, která pokračování (zapracování, od_faze "autori") přebírá z minulého volání téhož řezu. Šablony
 # skillu je neopakují; bez plan_row blok skončí „chybí args“ (code-review 1.6.0, N2).
 VOLANI_PRD = ("plan_row", "stav_po_minulem", "hypotezy", "follow_ups", "profil", "prd_lehke", "kontrakt_prd", "kontrakt_rez")
@@ -140,7 +141,7 @@ def stavba_z_vysledku(r, NN):
     s = {k: r[k] for k in ZE_STAVBY if k in r}
     if isinstance(r.get("hypotezy_pro_stavbu"), dict):
         s["hypotezy"] = r["hypotezy_pro_stavbu"]
-    return s, " (stavba sestavena z polí výsledku: blok PRD před 1.6.0)"
+    return s, " (stavba sestavena z polí výsledku: starší tvar výsledku bloku PRD bez pole stavba)"
 
 
 ZALOHA_PUVODNI = ("záložní cesta: --puvodni-vysledek <cesta .output z notifikace toho bloku PRD> (soubor s celým výsledkem)")
@@ -248,7 +249,10 @@ def rozhodnuti(argv):
 
 
 def main(argv):
-    if argv and argv[0] == "rozhodnuti":
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    if argv[0] == "rozhodnuti":
         return rozhodnuti(argv[1:])
     if len(argv) < 2 or argv[0] not in ("stavba", "prd", "kolecko"):
         chyba(2, "použití: args-bloku.py stavba|prd <cwd> <NN> … | kolecko <cwd> … | rozhodnuti <cwd> --text … (viz hlavička skriptu)")
@@ -281,7 +285,7 @@ def main(argv):
             data, pozn = stavba_z_vysledku(v if celek else {"stavba": v, "rez": v.get("rez")}, NN)
         else:
             chyba(2, "stavba: chybí --prd-run <runId> (nebo záložní --prd-vysledek <soubor>)")
-        data.pop("mapa_kostry", None)  # 1.6.0: agenti si mapu kostry dělají sami
+        data.pop("mapa_kostry", None)  # agenti si mapu kostry dělají sami
         for k in STALA:
             data.pop(k, None)
     elif "--prd-run" in opt or "--prd-vysledek" in opt:
@@ -292,7 +296,19 @@ def main(argv):
         if not isinstance(d, dict):
             chyba(2, "--doplnit musí být JSON objekt")
         if "obnova" in d:
-            chyba(2, "obnova patří do volání bloku, ne do souboru (Workflow args: {cwd, plugin_root, rez, args_file, obnova})")
+            ob = d["obnova"]
+            pokus = ob.get("pokus") if isinstance(ob, dict) else None
+            try:
+                pokus_ok = pokus is not None and not isinstance(pokus, bool) and int(pokus) >= 1 and float(pokus) == int(pokus)
+            except (TypeError, ValueError):
+                pokus_ok = False
+            if not pokus_ok:
+                chyba(2, "obnova bez pokus ≥ 1: do volání bloku dej obnova: {od_faze, znacka, pokus: N}, kde N je číslo "
+                         "přerušeného pokusu (pokusy z návratu zastaveného bloku, bez návratu číslo z labelu posledního "
+                         "agenta; nikdy +1); blok ten pokus dokončí a od N čísluje pokusy, labely a reporty. Obnova patří "
+                         "do volání bloku, ne do souboru args.")
+            chyba(2, "obnova patří do volání bloku, ne do souboru (Workflow args: {cwd, plugin_root, rez, args_file, obnova: "
+                     + json.dumps(ob, ensure_ascii=False) + "})")
         dr = d.get("rez")
         if dr is not None and druh != "kolecko" and nn(dr) != NN:
             chyba(4, f"--doplnit nese rez {nn(dr)}, ne {NN}")

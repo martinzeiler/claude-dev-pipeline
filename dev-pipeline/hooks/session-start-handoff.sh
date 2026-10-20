@@ -7,9 +7,10 @@
 # projektu dostane jednu větu, že orchestrace běží jinde a ona jí není. Bez markeru hook
 # mlčí. Důvod: v minulém běhu hook injektoval 246 kB handoffu po každém compactu a ruční
 # sessions dostávaly orchestrátorský blok kvůli zapomenutému markeru.
-# Compact orchestrátora zapíše do docs/.kontext.jsonl (aid orchestrator, udalost compact) až tady při source=compact:
-# PreCompact proběhne i bez compactu a v běhu sonnet-5-5 tak zpráva psala 2 compacty, byl 1 (1.7.0). Trigger nechává
-# pre-compact.sh v dočasném souboru session. co-dela.sh a závěrečná zpráva počítají compacty orchestrátora odtud.
+# Compact orchestrátora zapíše do docs/.kontext.jsonl (aid orchestrator, udalost compact) až tady při source=compact
+# a jen pro session s session_id z markeru: PreCompact proběhne i bez compactu a cizí session v projektu není
+# orchestrátor. Trigger (manual, auto) nechává pre-compact.sh v dočasném souboru session. co-dela.sh a závěrečná
+# zpráva počítají compacty orchestrátora odtud.
 set -uo pipefail
 
 input=$(cat)

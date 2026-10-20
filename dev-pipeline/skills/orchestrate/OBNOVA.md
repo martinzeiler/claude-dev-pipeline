@@ -1,0 +1,14 @@
+# Obnova bloku (čti, až ji potřebuješ)
+
+Obnova je nové volání bloku se stejným `args_file`, `resumeFromRunId` z jeho původního výsledku a `obnova: { od_faze, znacka: "<datum čas>", pokus }`. Hotové kroky se vrátí z cache; značka přinutí fáze od `od_faze` dál běžet znovu nad dnešním stavem. `pokus` je povinný (`args-bloku.py` obnovu bez něj odmítne) a je to číslo **přerušeného** pokusu (`pokusy` z návratu zastaveného bloku; u zhroucení bez návratu z labelů v `co-dela.sh`), nikdy o jedna víc: dřívější pokusy i fáze před `od_faze` se vrátí z cache a reporty patří témuž pokusu; `pokus` nad `max_pokusu` blok odmítne. Stavba si stav sama zjistí agentem deploy v režimu `obnova-stav` a přes zelený kód znovu nejede; ty nic nepřehráváš ručně.
+
+## Kdy a jak
+
+- **Zastavení (g), `faze: deploy-infra`:** po nápravě člověkem (přihlášení, účet, oprávnění) obnov blok s `od_faze: "deploy"`. Seznamy přerušeného běhu zapsal blok do `zastaveno_soubor`; uzavření obnovy je připojí. Jen když návrat `zastaveno_soubor` nemá, zapiš jeho seznamy heredocem do `docs/.vysledek-stavba-NN-zastaveno.json` jako `{rez, follow_ups, odchylky, pasti_opravene}`.
+- **Odklad, `faze: deploy-odklad` s `nejdriv`:** do Poznámek pro navázání run ID, `pokusy` a `args_file`; `stav běhu: zastaveno: odklad řez NN do <nejdriv> (obnova cronem)`; jednorázový `CronCreate` na `nejdriv` s promptem `dev-pipeline: odklad nasazení řezu NN skončil: obnov blok podle Poznámek pro navázání`; obnova s `od_faze: "deploy"`. Uživateli jedna věta a push.
+- **Workflow se zhroutil bez výsledku** (API chyby, vypršelé přihlášení, restart): spusť ho znovu se stejnými args a `resumeFromRunId`; `obnova` (s `pokus`) přidej jen tehdy, když se mezitím změnil strom nebo prostředí, s první fází, kterou změna zneplatnila.
+- **Blok PRD `ok: false`** (autor části bez výsledku, strop předávek, cyklus v částech): jednou znovu se stejnými args a `resumeFromRunId`; podruhé záznam do `~/dev-pipeline-feedback.md` a zastavení (c) s důvodem z `duvod`.
+- **Kolečko** ve dvou krocích: (1) když selhání potřebuje opravu kódu, agent `dev-pipeline:fix` bez commitu dostane fázi, `detail` a report selhané fáze a pustí jen dotčené testy; u `deploy-infra` krok vynech; (2) obnova s `od_faze: "<obnova_od z návratu>"` a značkou; review se vrátí z cache, brána, commit, deploy a E2E od dané fáze se přeměří. Oprava z E2E, která zůstala necommitnutá (`faze: deploy`), půjde do běžného commitu obnovy; jmenuj ji uživateli.
+- **Když ani obnova nejde:** záznam do `~/dev-pipeline-feedback.md` a blok spusť znovu od začátku jako nový běh.
+
+Po obnově zpracuj výsledek jako po každém bloku; obnova, která commitnula kód, není ve zprávě „bez zásahu do kódu“.

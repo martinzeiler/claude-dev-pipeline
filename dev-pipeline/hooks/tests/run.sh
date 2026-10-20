@@ -57,7 +57,7 @@ run bash-date guard-run.sh "$(pre $SID '' Bash command "date -u +%Y-%m-%dT%H:%M:
 run write-src-deny guard-run.sh "$(pre $SID '' Write file_path "$proj/src/a.ts" content "x")" deny "needituje"
 run edit-config-deny guard-run.sh "$(pre $SID '' Edit file_path "$proj/package.json" old_string "a" new_string "b")" deny
 run write-handoff guard-run.sh "$(pre $SID '' Write file_path "$proj/docs/handoff.md" content "x")" allow
-run write-memory guard-run.sh "$(pre $SID '' Write file_path "$HOME/.claude/projects/x/memory/a.md" content "x")" allow
+run write-memory-deny guard-run.sh "$(pre $SID '' Write file_path "$HOME/.claude/projects/x/memory/a.md" content "x")" deny "Auto-paměť"
 run read-produkt guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/produkt.md")" allow
 run bash-cat-produkt guard-run.sh "$(pre $SID '' Bash command "cat docs/produkt.md")" allow
 # --- orchestrátor a deník vad ~/dev-pipeline-feedback.md (dočasný HOME, ať soubory existují a skutečný domov zůstane netknutý)
@@ -122,7 +122,7 @@ k=$(jq -c '[.rez, .cwd == $p, .casti[0].id, .hypotezy.blokujici, .hypotezy.text,
 [ $rc -eq 0 ] && [ "$k" = '["05",true,"K1",["N1"],["věta"],"04",false,false,false]' ] && printf '%s' "$o" | grep -q '^docs/.stavba-05.json: ' && ok || ko "ab-stavba: rc=$rc $o $k"
 o=$(ab stavba "$proj" 5 --prd-run bbb-222); rc=$?
 k=$(jq -c '[.hypotezy.ids, .kriteria]' "$proj/docs/.stavba-05.json" 2>/dev/null)
-[ $rc -eq 0 ] && [ "$k" = '[["N3"],7]' ] && printf '%s' "$o" | grep -q 'před 1.6.0' && ok || ko "ab-stavba-stary-blok: rc=$rc $o $k"
+[ $rc -eq 0 ] && [ "$k" = '[["N3"],7]' ] && printf '%s' "$o" | grep -q 'starší tvar' && ok || ko "ab-stavba-stary-blok: rc=$rc $o $k"
 o=$(ab stavba "$proj" 6 --prd-run wf_aaa-111); [ $? -eq 4 ] && printf '%s' "$o" | grep -q 'patří řezu 05' && ok || ko "ab-jiny-rez: $o"
 o=$(ab stavba "$proj" 5 --prd-run wf_ccc-333); [ $? -eq 3 ] && printf '%s' "$o" | grep -q 'záložní cesta' && ok || ko "ab-nedokonceny: $o"
 o=$(ab stavba "$proj" 5 --prd-run wf_nic-000); [ $? -eq 3 ] && ok || ko "ab-nenalezen: $o"
@@ -205,6 +205,51 @@ run rv-log-ok guard-run.sh "$(pre $SID ag1 Bash command "pnpm vitest run > docs/
 run rv-cp-md-do-adresare-ok guard-run.sh "$(pre $SID ag1 Bash command "cp /tmp/r.md docs/reviews/")" allow
 run rv-jina-session-ok guard-run.sh "$(pre $OTHER ag1 Write file_path "$proj/docs/reviews/x.mjs" content "x")" allow
 run sub-write-src guard-run.sh "$(pre $SID ag1 Write file_path "$proj/src/a.ts" content "x")" allow
+# --- auto-paměť Claude Code se v běhu nepíše (orchestrátor i subagenti; Write, Edit i zápis z Bash); čtení projde
+MEM="$HOME/.claude/projects/-Users-x-proj/memory"
+run mem-orch-write-deny guard-run.sh "$(pre $SID '' Write file_path "$MEM/a.md" content "x")" deny "Auto-paměť"
+run mem-sub-write-deny guard-run.sh "$(pre $SID ag1 Write file_path "$MEM/a.md" content "x")" deny "vize-spory"
+run mem-sub-edit-deny guard-run.sh "$(pre $SID ag1 Edit file_path "$MEM/MEMORY.md" old_string "a" new_string "b")" deny
+run mem-bash-heredoc-deny guard-run.sh "$(pre $SID '' Bash command $'cat > '"$MEM"$'/b.md <<\'EOF\'\n# x\nEOF')" deny "Auto-paměť"
+run mem-bash-append-tilde-deny guard-run.sh "$(pre $SID ag1 Bash command "echo '- x' >> ~/.claude/projects/-Users-x-proj/memory/MEMORY.md")" deny
+run mem-bash-tee-deny guard-run.sh "$(pre $SID ag1 Bash command "printf x | tee -a $MEM/a.md")" deny
+run mem-bash-cp-deny guard-run.sh "$(pre $SID ag1 Bash command "cp /tmp/a.md $MEM/")" deny
+run mem-bash-sed-i-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -i '' 's/a/b/' $MEM/a.md")" deny
+run mem-bash-python-deny guard-run.sh "$(pre $SID ag1 Bash command $'python3 - <<\'EOF\'\nopen(\'/Users/x/.claude/projects/p/memory/a.md\',\'w\').write(\'x\')\nEOF')" deny
+run mem-bash-cat-ok guard-run.sh "$(pre $SID ag1 Bash command "cat $MEM/MEMORY.md")" allow
+run mem-bash-ls-ok guard-run.sh "$(pre $SID '' Bash command "ls $MEM/")" allow
+run mem-bash-grep-ok guard-run.sh "$(pre $SID ag1 Bash command "grep -n x $MEM/MEMORY.md")" allow
+run mem-orch-read-ok guard-run.sh "$(pre $SID '' Read file_path "$MEM/MEMORY.md")" allow
+run mem-other-session-ok guard-run.sh "$(pre $OTHER '' Write file_path "$MEM/a.md" content "x")" allow
+CLAUDE_CONFIG_DIR="$tmp/cfg" run mem-config-dir-deny guard-run.sh "$(pre $SID ag1 Write file_path "$tmp/cfg/projects/p/memory/a.md" content "x")" deny "Auto-paměť"
+run mem-jina-cesta-memory-ok guard-run.sh "$(pre $SID ag1 Write file_path "$proj/src/memory/a.ts" content "x")" allow
+# literály $HOME, ${CLAUDE_CONFIG_DIR}, ~ a relativní zápis po cd do paměti; projektový src/memory/ projde (i v heredocu)
+run mem-home-literal-deny guard-run.sh "$(pre $SID ag1 Bash command 'echo x >> "$HOME/.claude/projects/-a/memory/MEMORY.md"')" deny "Auto-paměť"
+run mem-config-literal-deny guard-run.sh "$(pre $SID ag1 Bash command 'printf x | tee -a ${CLAUDE_CONFIG_DIR}/projects/-a/memory/a.md')" deny
+run mem-cd-relativni-deny guard-run.sh "$(pre $SID ag1 Bash command 'cd ~/.claude/projects/-a/memory && echo x > m.md')" deny "Auto-paměť"
+run mem-cd-home-tee-deny guard-run.sh "$(pre $SID '' Bash command 'cd "$HOME/.claude/projects/-a/memory"; printf x | tee MEMORY.md')" deny
+run mem-cd-pamet-cteni-ok guard-run.sh "$(pre $SID ag1 Bash command 'cd ~/.claude/projects/-a/memory && cat MEMORY.md')" allow
+run mem-cd-jinam-zapis-ok guard-run.sh "$(pre $SID ag1 Bash command 'cd /tmp && echo x > m.md')" allow
+run mem-cd-pamet-pak-jinam-ok guard-run.sh "$(pre $SID ag1 Bash command 'cd ~/.claude/projects/-a/memory; cd /tmp; echo x > m.md')" allow
+run mem-redirect-projekt-ok guard-run.sh "$(pre $SID ag1 Bash command "echo x > src/memory/a.ts")" allow
+run mem-heredoc-projekt-ok guard-run.sh "$(pre $SID ag1 Bash command $'python3 - <<\'PY\'\nfrom pathlib import Path\nPath(\'apps/api/src/memory/store.ts\').write_text(\'x\')\nPY')" allow
+run mem-heredoc-home-literal-deny guard-run.sh "$(pre $SID ag1 Bash command $'node - <<\'JS\'\nrequire(\'fs\').writeFileSync(process.env.HOME + \'/x\', \'\'); const p = \'$HOME/.claude/projects/-a/memory/MEMORY.md\'; require(\'fs\').appendFileSync(p, \'y\')\nJS')" deny
+# --- obrázky: subagent nečte celý obrázek nad 400 kB (snímky srovnává skriptem, čte náhled do 1 000 px); malý projde
+head -c 500000 /dev/zero > "$proj/src/big.png"; head -c 10000 /dev/zero > "$proj/src/small.png"; cp "$proj/src/big.png" "$proj/src/foto.JPG"
+run img-sub-big-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.png")" deny "1 000 px"
+run img-sub-big-offset-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.png" offset "1" limit "10")" deny
+run img-sub-upper-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/foto.JPG")" deny
+run img-sub-small-ok guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/small.png")" allow
+DEV_PIPELINE_IMAGE_MAX_BYTES=600000 run img-sub-prah-ok guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.png")" allow
+run img-other-session-ok guard-run.sh "$(pre $OTHER ag1 Read file_path "$proj/src/big.png")" allow
+# --- orchestrátor čte pojmy, rozhodnutí a závěrečnou zprávu (kostru skládá scripts/zprava.py), zprávu píše
+for f in pojmy.md rozhodnuti.md zaverecna-zprava.md; do echo "# $f" > "$proj/docs/$f"; done
+run read-pojmy guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/pojmy.md")" allow
+run bash-cat-rozhodnuti guard-run.sh "$(pre $SID '' Bash command "cat docs/rozhodnuti.md")" allow
+run read-zprava guard-run.sh "$(pre $SID '' Read file_path "$proj/docs/zaverecna-zprava.md")" allow
+run write-zprava guard-run.sh "$(pre $SID '' Write file_path "$proj/docs/zaverecna-zprava.md" content "x")" allow
+run bash-zprava-py guard-run.sh "$(pre $SID '' Bash command "python3 -I $hooks/../scripts/zprava.py $proj --plugin-root $hooks/..")" allow
+run bash-follow-ups-py guard-run.sh "$(pre $SID '' Bash command "python3 -I $hooks/../scripts/follow-ups.py $proj --osud rozhodnutí")" allow
 # --- docs/.verify-passed: jen verify-marker.sh
 run vm-sub-write-deny guard-run.sh "$(pre $SID ag1 Write file_path "$proj/docs/.verify-passed" content "{}")" deny "verify-marker"
 run vm-sub-edit-deny guard-run.sh "$(pre $SID ag1 Edit file_path "$proj/docs/.verify-passed" old_string "a" new_string "b")" deny
@@ -374,6 +419,13 @@ k=$(jq -sc '[.[] | select(.aid == "orchestrator") | [.udalost, .typ, .trigger, .
 [ ! -e "$tmp/tmpdir/dev-pipeline-kontext/compact-trigger-$SID" ] && ok || ko "ss-compact-trigger-smazan"
 rm -f "$proj/docs/.kontext.jsonl"
 ok() { pass=$((pass+1)); }; ko() { fail=$((fail+1)); echo "FAIL $*"; }
+# compact s triggerem auto se počítá, cizí session v projektu záznam nezapíše (orchestrátor je jen session z markeru)
+pca() { jq -n --arg s "$1" --arg c "$proj" '{session_id:$s, cwd:$c, hook_event_name:"PreCompact", trigger:"auto"}'; }
+pcs pre-compact.sh "$(pca $SID)"; pcs session-start-handoff.sh "$(ss $SID compact)"
+pcs pre-compact.sh "$(pca $OTHER)"; pcs session-start-handoff.sh "$(ss $OTHER compact)"
+k=$(jq -sc '[.[] | [.aid, .udalost, .trigger]]' "$proj/docs/.kontext.jsonl" 2>/dev/null)
+[ "$k" = '[["orchestrator","compact","auto"]]' ] && ok || ko "ss-compact-auto-jen-orchestrator: $k"
+rm -f "$proj/docs/.kontext.jsonl"
 # --- hlídač kontextu: syntetický transkript subagenta pod DEV_PIPELINE_TRANSCRIPTS, stav hooku v dočasném TMPDIR
 AID=agtest1; tdir="$tmp/transcripts/-proj/$SID/subagents/workflows/wf_1"; mkdir -p "$tdir" "$tmp/tmpdir"; T="$tdir/agent-$AID.jsonl"
 PRED="$proj/docs/reviews/predavka-$AID.md"
@@ -443,11 +495,11 @@ hkp() { hk "$@" | jq -c '.agent_type = "dev-pipeline:prd"'; }
 ka() { jq -cn --argjson k "$2" '{type:"assistant", message:{usage:{input_tokens:10, cache_read_input_tokens:($k - 1110), cache_creation_input_tokens:1000, output_tokens:100}}}' >> "$1"; }
 AID5=agarch; T5="$tdir/agent-$AID5.jsonl"; head -1 "$T" > "$T5"
 ka "$T5" 160000; hl hl-arch-pod-prahem hlidac-kontextu.sh "$(hkp $SID $AID5 PostToolUse Bash command "rg x")" allow
-ka "$T5" 175000; hl hl-arch-vyzva hlidac-kontextu.sh "$(hkp $SID $AID5 PostToolUse Bash command "rg x")" ctx "zapiš ji teď, i neúplnou"
+ka "$T5" 175000; hl hl-arch-vyzva hlidac-kontextu.sh "$(hkp $SID $AID5 PostToolUse Bash command "rg x")" ctx "zapiš ji teď (tabulka Části, Kontrakt, kritéria), i neúplnou"
                  hl hl-arch-pre-bez hlidac-kontextu.sh "$(hkp $SID $AID5 PreToolUse Bash command "rg x")" allow
 ka "$T5" 185000; hl hl-arch-jednou hlidac-kontextu.sh "$(hkp $SID $AID5 PostToolUse Bash command "rg x")" allow
 AID6=agarchskok; T6="$tdir/agent-$AID6.jsonl"; head -1 "$T" > "$T6"
-ka "$T6" 260000; hl hl-arch-s-predavkou hlidac-kontextu.sh "$(hkp $SID $AID6 PostToolUse Bash command "rg x")" ctx "zapiš ji teď, i neúplnou; zbytek doplníš. PŘEDÁVKA:"
+ka "$T6" 260000; hl hl-arch-s-predavkou hlidac-kontextu.sh "$(hkp $SID $AID6 PostToolUse Bash command "rg x")" ctx "i neúplnou; E2E scénáře nech nástupci. PŘEDÁVKA:"
 AID7=agarchnavrat; T7="$tdir/agent-$AID7.jsonl"; head -1 "$T" > "$T7"
 ka "$T7" 175000; hl hl-arch-navrat hlidac-kontextu.sh "$(hkp $SID $AID7 PostToolUse StructuredOutput stav hotovo)" allow
 AID8=agimpl170; T8="$tdir/agent-$AID8.jsonl"; head -1 "$T" > "$T8"

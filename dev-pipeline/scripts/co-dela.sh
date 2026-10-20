@@ -8,10 +8,14 @@
 #                              fáze i/N s trváním a hotové fáze, živí agenti bez šumu argumentů, hotové a selhané bloky za 30 min
 #   co-dela.sh --status        segment pro status line; JSON status line na stdin (transcript_path), bez nového řádku;
 #                              za časem „· fronta N“, jen když ve frontě těžkých příkazů něco čeká
+#   co-dela.sh --zprava        čísla běhu pro závěrečnou zprávu jako JSON (scripts/zprava.py je vkládá do kostry): cena a
+#                              tokeny z transkriptů orchestrátora i agentů (usage z posledního záznamu každé zprávy, ceník
+#                              podle rodiny modelu), od–do a délka, počet agentů, restarty, compacty orchestrátora i agentů,
+#                              předávky, hotové a selhané bloky, výsledek a pokusy per řez, výsledek kolečka
 #   co-dela.sh --session <dir>       ruční použití: adresář session ~/.claude/projects/<slug>/<session_id>
 #   co-dela.sh --transcript <p.jsonl> ruční použití: transkript session (adresář = cesta bez .jsonl)
 #
-# Jak se pozná stav (ověřeno na Claude Code 2.1.274):
+# Jak se pozná stav:
 #   Workflow: <session>/subagents/workflows/<wf>/journal.jsonl (launched / started {agentId,label,phase} / result / failed);
 #     stavový soubor <session>/workflows/<wf>.json vzniká až při doběhnutí (status completed|failed|killed),
 #     takže Workflow bez stavového souboru běží; živý agent = POSLEDNÍ started daného key bez result/failed
@@ -19,11 +23,12 @@
 #     Restarty (po stallu a po usage limitu) se ukazují u běžícího i doběhlého bloku s odhadem ztraceného času.
 #     Obnova přes resumeFromRunId píše do téhož journalu a stavový soubor přerušeného běhu přepíše až při doběhnutí:
 #     journal o víc než 5 s novější než stavový soubor = obnovený běh, který běží.
-#   Labely agentů podle spec 1.4.0 § 1.1 (části, kontrakt, integrace, oprava, nástupce po předávce :nN) se vypisují
-#     čitelně (implement řez 05 · část K2 (název části) · pokus 1 · nástupce 2); název části z docs/.stavba-NN.json.
+#   Labely agentů (části, kontrakt, integrace, oprava, nástupce po předávce :nN; dluh:kolečko, obnova-stav:řez NN,
+#     thermo:báze, krok na pozadí) se vypisují čitelně (implement řez 05 · část K2 (název části) · pokus 1 · nástupce 2);
+#     název části z docs/.stavba-NN.json.
 #   Předávky jen z docs/.kontext.jsonl (záznamy udalost predavka, hook hlídač kontextu): za běh a za řez přes všechny
-#     bloky (PRD, stavba, obnova). Součet výsledků bloků dával v běhu sonnet-5-5 32 místo 46, obnova přepsala výsledek
-#     stavby 03 (1.7.0). Bez logu (ruční --session mimo projekt) labely nástupců a pole predavky výsledků.
+#     bloky (PRD, stavba, obnova); součet výsledků bloků předávky obnovy nevidí. Bez logu (ruční --session mimo projekt)
+#     labely nástupců a pole predavky výsledků.
 #   Kontext agentů z docs/.kontext.jsonl v cwd (hook hlídač kontextu): u živého agenta poslední záznam jeho agent_id,
 #     v souhrnu nejvyšší kontext podle typu agenta a compacty, jen za agenty této session; compacty orchestrátora
 #     zvlášť ze záznamů hooku session-start při compactu (aid orchestrator), z nich je bere i závěrečná zpráva.
@@ -42,6 +47,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --kratce) mode=kratce ;;
     --status) mode=status ;;
+    --zprava) mode=zprava ;;
     --session) shift; sess="${1:-}" ;;
     --transcript) shift; sess="${1%.jsonl}" ;;
     -h|--help) awk 'NR > 1 && /^set /{exit} NR > 1' "$0"; exit 0 ;;
@@ -96,9 +102,8 @@ TERMINAL = {"completed", "failed", "killed", "cancelled"}
 TICHO_VAROVANI = 20 * 60      # ⚠ pro agenty mlčící déle
 OPUSTENY = 3 * 3600           # samostatný agent bez konce a s takovým tichem se nepočítá za živého
 HOTOVO_OKNO = 30 * 60         # dokončené Workflow, které --kratce ještě připomene (jeden cron tah)
-# Journal o víc sekund novější než stavový soubor = Workflow obnovený pod stejným ID a běží. V běhu bez-dluhu ležel
-# stavový soubor přerušeného kolečka (10:12) do konce obnoveného běhu (11:50) a co-dela 3× hlásil „nic neběží“;
-# u doběhlých Workflow končí journal i stavový soubor do 1 s (78 Workflow ze dvou běhů Surya).
+# Journal o víc sekund novější než stavový soubor = Workflow obnovený pod stejným ID a běží (stavový soubor přerušeného
+# běhu leží do konce obnoveného); u doběhlých Workflow končí journal i stavový soubor do 1 s.
 OBNOVA = 5
 def _tezky_tmp():
     # Stejný adresář jako tezky.py: cron nemá TMPDIR, na macOS je uživatelský temp z getconf, jinak by fronta vypadala prázdná.
@@ -240,11 +245,11 @@ def cislo(x):
 def tisice(n):
     return f"{round(cislo(n) / 1000)}k"
 
-# ---------- labely (spec 1.4.0 § 1.1) ----------
+# ---------- labely ----------
 # typ:řez NN[:část K|:kontrakt|:integrace|:oprava][:číslo][:písmeno]; nástupce po předávce má na konci :n2 až :n4.
 # Holé číslo znamená podle typu pokus, kolo review, běh nebo balíček oprav; za „oprava“ je to vždy pokus.
 CISLO_JAKO = {"implement": "pokus", "review": "kolo", "prd-check": "kolo", "verify": "běh", "deploy": "běh", "e2e": "běh",
-              "kriteria": "běh", "fix-e2e": "běh", "fix": "balíček"}
+              "kriteria": "běh", "fix-e2e": "běh", "fix": "balíček", "dluh": "balíček", "fix-dluh": "balíček", "obnova-stav": "běh"}
 NASTUPCE = re.compile(r":n\d+$")
 POKUS = re.compile(r"implement:řez\s*[0-9a-z]+:(?:[^:]+:)?(\d+)(?::n\d+)?$")
 
@@ -264,13 +269,13 @@ def nazvy_casti(rez):
 
 def citelny(label):
     """implement:řez 05:část K2:1:n2 → implement řez 05 · část K2 (název) · pokus 1 · nástupce 2 (neznámé kusy beze změny).
-    Holé „K2“ bez vize v ruce nikdo nepřečte (Martinova poznámka k běhu sonnet-5-5): název části je z args stavby."""
+    Holé „K2“ bez vize v ruce nikdo nepřečte: název části je z args stavby."""
     kusy = str(label or "").split(":")
     typ, hlava, dal, rez = kusy[0], kusy[0], [], None
     for i, k in enumerate(kusy[1:], 1):
         if i == len(kusy) - 1 and re.fullmatch(r"n\d+", k):
             dal.append(f"nástupce {k[1:]}")
-        elif i == 1 and re.fullmatch(r"řez\s*\S+|kolečko", k):
+        elif i == 1 and re.fullmatch(r"řez\s*\S+|kolečko|báze", k):
             hlava += " " + k
             rez = rez_int(k[3:].strip()) if k.startswith("řez") else None
         elif re.fullmatch(r"K\d+", k):
@@ -474,8 +479,11 @@ def od_ts(x):
 
 # ---------- Workflow ----------
 running, finished = [], []
-for d in sorted(glob.glob(os.path.join(sess, "subagents", "workflows", "wf_*"))):
-    wf = os.path.basename(d)
+# Workflow s journalem (subagents/workflows/wf_*) i Workflow známé jen stavovým souborem (workflows/wf_*.json).
+_wfs = {os.path.basename(d) for d in glob.glob(os.path.join(sess, "subagents", "workflows", "wf_*"))}
+_wfs |= {os.path.basename(p)[:-5] for p in glob.glob(os.path.join(sess, "workflows", "wf_*.json"))}
+for wf in sorted(_wfs):
+    d = os.path.join(sess, "subagents", "workflows", wf)
     state_path = os.path.join(sess, "workflows", wf + ".json")
     journal = os.path.join(d, "journal.jsonl")
     state_mt, journal_mt = mtime(state_path), mtime(journal)
@@ -577,6 +585,123 @@ for tp in glob.glob(os.path.join(sess, "subagents", "agent-*.jsonl")):
     })
 
 live_all = [a for w in running for a in w["live"]] + standalone
+
+# ---------- --zprava: čísla běhu pro závěrečnou zprávu (scripts/zprava.py je vkládá do kostry) ----------
+# Ceník za milion tokenů podle rodiny modelu: (vstup, výstup, čtení cache, zápis cache 5 min, zápis cache 1 h).
+CENIK = (("fable", (8, 40, 0.8, 10, 16)), ("opus", (4, 20, 0.2, 5, 8)), ("sonnet", (2, 10, 0.1, 2.5, 4)), ("haiku", (1, 5, 0.1, 1.25, 2)))
+
+def cenik_modelu(model):
+    m = (model or "").lower()
+    for k, c in CENIK:
+        if k in m:
+            return c
+    return CENIK[1][1]
+
+def usage_transkriptu(path):
+    """{model: [vstup, zápis cache, čtení cache, výstup, zápis cache 1 h]}; usage z POSLEDNÍHO záznamu každé zprávy
+    (message.id: agenti zapisují nejdřív blok thinking s průběžným usage), syntetické odpovědi (limit) se nepočítají."""
+    zpravy, poradi = {}, []
+    try:
+        fh = open(path, encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    with fh:
+        for line in fh:
+            if '"usage"' not in line or '"assistant"' not in line:
+                continue
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if d.get("type") != "assistant":
+                continue
+            m = d.get("message") or {}
+            u = m.get("usage") or {}
+            if not isinstance(u, dict) or not u:
+                continue
+            mid = m.get("id") or f"_{len(poradi)}"
+            if mid not in zpravy:
+                poradi.append(mid)
+            zpravy[mid] = (m.get("model"), u)
+    out = {}
+    for mid in poradi:
+        model, u = zpravy[mid]
+        if not model or model == "<synthetic>":
+            continue
+        cc = u.get("cache_creation") if isinstance(u.get("cache_creation"), dict) else {}
+        pm = out.setdefault(model, [0, 0, 0, 0, 0])
+        pm[0] += cislo(u.get("input_tokens")); pm[1] += cislo(u.get("cache_creation_input_tokens"))
+        pm[2] += cislo(u.get("cache_read_input_tokens")); pm[3] += cislo(u.get("output_tokens"))
+        pm[4] += cislo(cc.get("ephemeral_1h_input_tokens"))
+    return out
+
+def cena_usd(pm, model):
+    pi, po, pcr, p5, p1 = cenik_modelu(model)
+    i, cc, cr, o, c1h = pm
+    return (i * pi + o * po + cr * pcr + max(0, cc - c1h) * p5 + c1h * p1) / 1e6
+
+if mode == "zprava":
+    orch_t = sess + ".jsonl"
+    agenti_t = sorted(glob.glob(os.path.join(sess, "subagents", "agent-*.jsonl"))
+                      + glob.glob(os.path.join(sess, "subagents", "workflows", "wf_*", "agent-*.jsonl")))
+    modely = {}
+    for t in ([orch_t] if os.path.exists(orch_t) else []) + agenti_t:
+        for model, pm in usage_transkriptu(t).items():
+            m = modely.setdefault(model, [0, 0, 0, 0, 0])
+            for k in range(5):
+                m[k] += pm[k]
+    cena_modelu = {m: round(cena_usd(pm, m), 2) for m, pm in modely.items()}
+    marker = load_json(os.path.join(os.getcwd(), "docs", ".orchestrator-run")) or {}
+    od = od_ts(marker.get("started")) if isinstance(marker, dict) else None
+    casy = [t for t in (birth(p) for p in ([orch_t] if os.path.exists(orch_t) else []) + agenti_t) if t]
+    if od is None and casy:
+        od = min(casy)
+    konce = [t for t in (mtime(p) for p in ([orch_t] if os.path.exists(orch_t) else []) + agenti_t
+             + glob.glob(os.path.join(sess, "subagents", "workflows", "wf_*", "journal.jsonl"))) if t]
+    do = max(konce) if konce else None
+    restarty = {"stall": 0, "limit": 0, "ztrata": 0.0}
+    for w in running:
+        for k in restarty:
+            restarty[k] += w["restarty"][k]
+    for _, _, st in finished:
+        r = restarty_hotove(st)
+        for k in restarty:
+            restarty[k] += r[k]
+    _, _, compactu_ag = kontext_agentu()
+    lp = predavky_z_logu()
+    predavek_celkem = lp[0] if lp is not None else sum(w["predavky"] for w in running) + sum(predavky_bloku(st) for _, _, st in finished)
+    bloky = {"hotovo": 0, "selhalo": 0, "podle_bloku": {}}
+    rezy, kolecko = {}, None
+    for end, wf, st in sorted(finished):
+        args = st.get("args") if isinstance(st.get("args"), dict) else {}
+        res = st.get("result") if isinstance(st.get("result"), dict) else {}
+        jmeno = str(st.get("workflowName") or "workflow")
+        selhal = st.get("status") != "completed" or res.get("ok") is False or res.get("vysledek") == "selhalo"
+        bloky["selhalo" if selhal else "hotovo"] += 1
+        pb = bloky["podle_bloku"].setdefault(jmeno, {"hotovo": 0, "selhalo": 0})
+        pb["selhalo" if selhal else "hotovo"] += 1
+        rez = res.get("rez") or args.get("rez")
+        if "stavby" in jmeno and rez is not None:
+            rezy[str(rez).zfill(2) if str(rez).isdigit() else str(rez)] = {
+                "vysledek": res.get("vysledek") or ("selhalo" if selhal else "hotovo"), "pokusy": cislo(res.get("pokusy")) or None,
+                "faze": res.get("faze") or None, "dvere": res.get("dvere") or None, "dosah": res.get("dosah") or None,
+                "kriteria": cislo(res.get("kriteria")) or None}
+        if "kolecko" in jmeno:
+            kolecko = {"ok": not selhal, "faze": res.get("faze") or None, "detail": one_line(res.get("duvod") or res.get("detail") or "", 160) or None}
+    def iso(t):
+        return datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if t else None
+    print(json.dumps({
+        "session": os.path.basename(sess), "od": iso(od), "do": iso(do),
+        "delka_h": round((do - od) / 3600, 1) if od and do and do > od else None,
+        "cena_usd": round(sum(cena_modelu.values()), 2), "cena_podle_modelu": cena_modelu,
+        "tokeny": {"vstup": sum(m[0] for m in modely.values()), "cache_zapis": sum(m[1] for m in modely.values()),
+                   "cache_cteni": sum(m[2] for m in modely.values()), "vystup": sum(m[3] for m in modely.values())},
+        "agentu": len(agenti_t), "orchestrator_transkript": os.path.exists(orch_t),
+        "restartu_stall": restarty["stall"], "restartu_limit": restarty["limit"], "ztrata_restartu_min": round(restarty["ztrata"] / 60),
+        "compactu_orchestratora": compacty_orchestratoru(), "compactu_agentu": compactu_ag, "predavek": predavek_celkem,
+        "bloky": bloky, "rezy": rezy, "kolecko": kolecko,
+    }, ensure_ascii=False, indent=1))
+    sys.exit(0)
 
 # ---------- --status ----------
 if mode == "status":

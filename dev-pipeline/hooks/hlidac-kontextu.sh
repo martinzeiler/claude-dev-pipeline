@@ -4,11 +4,11 @@
 # Aktivní JEN pro subagenta (vstup s agent_id) session, jejíž session_id nese docs/.orchestrator-run; jinak exit 0 bez výstupu.
 # Kontext agenta měří z jeho transkriptu (usage poslední odpovědi) a vývoj zapisuje do docs/.kontext.jsonl (čte co-dela.sh).
 # Nad měkkým prahem vrací po každém nástroji výzvu PŘEDÁVKA, nad tvrdým zamítne vše kromě zápisu předávky a strukturovaného
-# návratu; blok pak pustí nástupce se stejným zadáním (runSePredavkou). Proč: v běhu bez-dluhu mělo 117 compactů subagentů
-# (implementace protočila v mediánu ~970 k) a nad ~300 k agenti pracují hůř (analýza 6.7). Agenti o prahu nevědí:
-# pokyn přijde až touto zprávou, aby nad ním nepřemýšleli a nekončili předčasně.
-# PRD agent (dev-pipeline:prd) dostane navíc jednou při ~170 k výzvu zapsat kostru PRD hned, i neúplnou: v běhu sonnet-5-5
-# předávali 4 z 5 architektů dřív, než kostru zapsali, a nástupce ji psal znovu (věta v zadání nestačila; 1.7.0).
+# návratu; blok pak pustí nástupce se stejným zadáním (runSePredavkou). Proč: nad ~300 k agenti pracují hůř a compact
+# subagenta ztrácí rozdělanou práci. Agenti o prahu nevědí: pokyn přijde až touto zprávou, aby nad ním nepřemýšleli
+# a nekončili předčasně.
+# PRD agent (dev-pipeline:prd) dostane navíc jednou při ~170 k výzvu zapsat kostru PRD hned, i neúplnou: architekt,
+# který předá bez kostry na disku, nechá nástupce psát ji znovu (věta v zadání nestačí).
 # Stav agenta (transkript, řez, maximum, příznaky) drží ${TMPDIR:-/tmp}/dev-pipeline-kontext/<agent_id>; find nad
 # transkripty běží jen poprvé, pak tail + jq (~20 ms nad 15MB transkriptem). Fail-open: cokoli nejednoznačného projde.
 set -uo pipefail
@@ -51,7 +51,7 @@ if [ -z "$t" ] || [ ! -f "$t" ]; then
   [ -n "$t" ] || exit 0
   # Řez jednou ze zadání na začátku transkriptu: rámec bloku PRD i stavby začíná „Řez NN:“; kolečko číslo řezu nemá.
   # Bez roury: grep -q/-m1 skončí po první shodě, head dostane SIGPIPE a pod pipefail vrátí roura 141, takže podmínka
-  # padla i při shodě (v běhu web-rijen mělo 65 záznamů kolečka rez "-"; 1.6.0).
+  # by padla i při shodě.
   rez=$(grep -m1 -o -E 'Řez [0-9]+' < <(head -c 200000 "$t"))
   rez=${rez%%$'\n'*}; rez=${rez##* }
   if [ -n "$rez" ]; then rez=$(printf '%02d' "$((10#$rez))")
@@ -79,7 +79,7 @@ if [ -z "$udalost" ]; then
   fi
 fi
 # Strukturovaný návrat je poslední krok agenta: práh překročený až jím není důvod k předávce ani událost prahu, jen měření
-# (v běhu web-podzim 5 falešných „mekky“, agent byl hotový; 1.5.0).
+# (hotový agent by dostal falešnou výzvu k předávce).
 if [ "$tool" = StructuredOutput ]; then
   case "$udalost" in tvrdy|mekky)
     if [ "$f100" != 1 ] || [ $((max - zap)) -ge 25000 ]; then udalost=mereni; else udalost=""; fi ;;
@@ -108,7 +108,7 @@ if [ "$typ" = dev-pipeline:prd ] && [ "$fa" != 1 ] && [ "$ev" = PostToolUse ] &&
   && [ "$ctx" -ge "$ARCHITEKT" ]; then
   case "$t" in */subagents/workflows/*)
     fa=1; zmena=1
-    arch="Jestli jsi architekt a ještě jsi nezapsal kostru PRD (tabulka Části, Kontrakt, kritéria), zapiš ji teď, i neúplnou; zbytek doplníš." ;;
+    arch="Jestli jsi architekt a ještě jsi nezapsal kostru PRD, zapiš ji teď (tabulka Části, Kontrakt, kritéria), i neúplnou; E2E scénáře nech nástupci." ;;
   esac
 fi
 uloz
@@ -120,7 +120,7 @@ case "$t" in */subagents/workflows/*) ;; *) exit 0 ;; esac
 P="$proj/docs/reviews/predavka-$aid.md"
 BODY="1. zadání jednou větou; 2. co je hotové a čím je to ověřené (příkaz, test); 3. co zbývá, v pořadí, jak bys pokračoval; 4. zjištění, která nástupce potřebuje (soubory, symboly, pasti, užitečné příkazy); 5. rozdělané soubory a stav testů a typechecku; 6. všechno, co patří do tvého strukturovaného návratu (follow-upy, odchylky, nálezy, počty), aby ho nástupce mohl vrátit za celé zadání."
 if [ "$ev" = "PostToolUse" ] && [ "$ctx" -ge "$MEKKY" ] && [ "$tool" != StructuredOutput ]; then
-  # Hotový agent nepředává: 6 předávek v běhu web-podzim neslo „nic nezbývá“ a nástupce jen vracel návrat (1.5.0).
+  # Hotový agent nepředává: předávka „nic nezbývá“ by jen pustila nástupce, který vrátí návrat.
   # Výzva architektovi (když přišla ve stejném kroku) jde před ni: kostra má být na disku dřív, než agent předá.
   jq -cn --arg z "${arch:+$arch }PŘEDÁVKA: Když je celé zadání už hotové a zbývá jen návrat, vrať normální návrat bez předávky (pole predavka nevyplňuj). Jinak tuhle práci dokončí nástupce se stejným zadáním. Dokonči jen rozdělaný krok (dopiš rozepsanou změnu a nech projít její test; strom nenechávej rozbitý), nic nového nezačínej. Pak zapiš předávku do $P: $BODY Pak ukonči práci strukturovaným návratem: pole predavka = $P, ostatní povinná pole vyplň podle skutečného stavu (stav: castecne, když ho schéma má)." \
     '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$z}}'

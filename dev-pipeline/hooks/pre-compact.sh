@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # dev-pipeline PreCompact hook: nikdy neblokuje.
-# Compact orchestrátora do docs/.kontext.jsonl nezapisuje: PreCompact proběhne i bez compactu (v běhu sonnet-5-5 záznam
-# ve 20:14:52 bez compactu, zpráva psala 2 compacty, byl 1; 1.7.0). Záznam píše až session-start-handoff.sh při
-# source=compact; trigger (manual/auto), který SessionStart nedostává, mu tento hook nechá v dočasném souboru session.
+# Compact orchestrátora do docs/.kontext.jsonl nezapisuje: PreCompact proběhne i bez compactu. Záznam píše až
+# session-start-handoff.sh při source=compact; trigger (manual/auto), který SessionStart nedostává, mu tento hook nechá
+# v dočasném souboru session.
 # Když je docs/handoff.md nad 4 kB, varuje uživatele: SessionStart hook po compactu injektuje jen prvních 4 096 B.
 set -uo pipefail
 

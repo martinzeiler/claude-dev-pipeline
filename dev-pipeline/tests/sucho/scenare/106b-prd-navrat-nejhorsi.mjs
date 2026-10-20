@@ -7,7 +7,7 @@ import { argsPrd, kontrola, stub, CWD } from '../stuby.mjs'
 const IDS = Array.from({ length: 10 }, (_, i) => `K${i + 1}`)
 const CASTI10 = IDS.map((id, i) => ({
   id, nazev: `Část ${id} s delším názvem modulu rozpočtů a exportů`, soubory: [`apps/web/src/rozpocty/${id.toLowerCase()}/**`],
-  kriteria: [`AK${3 * i + 1}`, `AK${3 * i + 2}`, `AK${3 * i + 3}`], odhad_radku: 1400, zavisi_na: i ? ['K1'] : [],
+  kriteria: [`AK${3 * i + 1}`, `AK${3 * i + 2}`, `AK${3 * i + 3}`], odhad_radku: 500, zavisi_na: i ? ['K1'] : [],
 }))
 const dlouhe = (n, z) => z.repeat(Math.ceil(n / z.length)).slice(0, n)
 const BODY = Array.from({ length: 25 }, (_, i) => `F${i + 1}.${i + 2}`)
@@ -18,7 +18,7 @@ export default {
   args: argsPrd(),
   odpoved(label) {
     if (label === 'prd:řez 05') return stub(label, {
-      kriteria: 30, casti: CASTI10, odhad_radku: 14000, kontrakt_potreba: true,
+      kriteria: 30, casti: CASTI10, odhad_radku: 5000, kontrakt_potreba: true,
       souhrn: dlouhe(4000, 'souhrn řezu '), cil: dlouhe(1000, 'cíl '), lesen: true, lesen_popis: dlouhe(1000, 'lešení '),
       zapis_do_ziveho: true, zapis_popis: dlouhe(1000, 'zápis '), doklad_pred: true, doklad_popis: dlouhe(1000, 'doklad '),
       odchylky_od_planu: dlouhe(2000, 'odchylka '),

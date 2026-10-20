@@ -76,9 +76,10 @@ export const zelenaBrana = (extra = {}) => ({
   meridla: ['AK3 · node scripts/pocet.mjs · 7 · ok'], meridla_ok: true, marker: hash('strom'), ...extra,
 })
 
+// E2E od 1.8.0: prostredi je pole kritérií, která nejde změřit kvůli prostředí; vada nasazení je prostredi_nasazeni (text).
 export const e2ePass = (celkem, extra = {}) => ({
   vysledek: 'pass', celkem, pass: celkem, castecne: 0, fail: 0, fail_kriteria: [], castecna_kriteria: [], vadna_kriteria: [],
-  zavazne_mimo_ak: [], kosmeticke: [], report_path: `${CWD}/docs/reviews/sucho-e2e.md`, prostredi: '', ...extra,
+  zavazne_mimo_ak: [], kosmeticke: [], report_path: `${CWD}/docs/reviews/sucho-e2e.md`, prostredi: [], prostredi_nasazeni: '', ...extra,
 })
 
 export const oprava = (extra = {}) => ({
@@ -134,7 +135,12 @@ export function vychozi(label, prompt, opts, stav) {
     case 'deploy': return {
       stav: 'success', commit: hash(`${label}#${stav ? stav.pocty[label] : 0}`), commit_zapisu: hash(`zápis ${label}`), kroky_po_nasazeni: [],
       infra: false, report_path: `${cwd}/docs/e2e/rez-${nn}-nasazeni.md`, security_commity: [], health: 'SUCCESS + /api/health build', url: 'https://sucho.example',
+      dvere: 'obousměrné', dosah: 'web',
     }
+    // Stav obnovy (1.8.0, § 2.3): výchozí stub nic nedokládá, blok běží celý pokus (obnova scénáře 14, 37, 42–44, 111 to předpokládají).
+    case 'obnova-stav': return { commit_rezu: '', head_shodny: false, nasazeni_dolozeno: false, provedene_kroky: [] }
+    // Sběr dluhu kolečka (1.8.0, § 2.6): bez položek se vlna nekoná.
+    case 'dluh': return { balicky: [], celkem: 0 }
     case 'commit': return { stav: 'commit-only', commit: hash(`${label}#${stav ? stav.pocty[label] : 0}`), security_commity: [], duvod: '' }
     case 'e2e': case 'kriteria': return e2ePass(l.pismeno ? 4 : (Number(a.kriteria) || 8), { report_path })
     case 'e2e-scénáře': return { e2e_path: `${cwd}/docs/e2e/kolecko.md`, kriterii: 5, plochy: ['sucho'] }
@@ -187,10 +193,13 @@ export function kontrola(volani) {
 }
 
 // Společné kontroly rozhraní § 0.13, § 1.2 a § 1.8, které platí pro každé volání každého bloku.
+// Od 1.8.0 (spec § 2.1, § 3 A1): rámec odkazuje na TVAR-DOKUMENTU.md a nese větu o obsahových, právních a etických rozhodnutích;
+// pojmenování souborů a čekání na proces jsou v TVAR-DOKUMENTU, ne v rámci.
 export const RAMEC = {
-  K: 'docs/handoff.md je stav orchestrátora, ne tvůj vstup',
-  C1: 'Tah končí jen strukturovaným návratem',
-  J12: 'summary, findings, analysis',
+  K: /docs\/handoff\.md je stav orchestrátora/,
+  C1: /Tah končí jen strukturovaným návratem/,
+  V: /obsahová, právní a etická rozhodnutí nejsou tvoje/i,
+  T: /TVAR-DOKUMENTU\.md/,
 }
 // Porušení se sčítají po pravidlech (jedna chyba = pravidlo + labely), aby výpis nezahltil stejný nedostatek u každého volání.
 export function rozhrani(k, volani, { vyjimky = /^(uzavření|závěr):/ } = {}) {
@@ -200,7 +209,7 @@ export function rozhrani(k, volani, { vyjimky = /^(uzavření|závěr):/ } = {})
     // Načítací agent args (1.6.0) běží před rámcem bloku a předávku nedělá: jen přečte soubor.
     if (parsujLabel(v.label).typ === 'args') continue
     if (!v.klice.includes('predavka')) pridej('schéma bez pole predavka (§ 1.2)', v)
-    for (const [id, veta] of Object.entries(RAMEC)) if (!v.prompt.includes(veta)) pridej(`rámec bez věty ${id} „${veta}…“ (§ 1.8)`, v)
+    for (const [id, veta] of Object.entries(RAMEC)) if (!veta.test(v.prompt)) pridej(`rámec bez věty ${id} „${veta.source}“ (§ 1.8)`, v)
     // Agenti o limitu kontextu nevědí (§ 0.13); uzavření a závěr kontext jen vykazují z docs/.kontext.jsonl (§ 3 CLOSE).
     if (!vyjimky.test(v.label)) {
       if (/compact|smart zone|limit kontextu/i.test(v.prompt)) pridej('zadání zmiňuje kontext nebo compact (§ 0.13)', v)

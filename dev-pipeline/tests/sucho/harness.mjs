@@ -71,7 +71,8 @@ export async function vyhodnot(scenar, adresar = BLOKY) {
   if (b.chyba) chyby.push(`blok neproběhl: ${b.chyba}`)
   for (const l of [...new Set(b.nezname)]) chyby.push(`stub nezná label „${l}“ (mimo § 1.1)`)
   if (!b.chyba) {
-    try { chyby.push(...(scenar.over(b.vysledek, b.volani, b.logy, b) || [])) }
+    // over() smí být async (scénář může spustit druhý běh bloku přes spust() a porovnat prompty, například cache obnovy).
+    try { chyby.push(...(await scenar.over(b.vysledek, b.volani, b.logy, b) || [])) }
     catch (e) { chyby.push(`over() spadlo (blok vrátil nečekaný tvar?): ${S(e && e.stack ? e.stack.split('\n').slice(0, 2).join(' | ') : e)}`) }
   }
   return { ...b, chyby }

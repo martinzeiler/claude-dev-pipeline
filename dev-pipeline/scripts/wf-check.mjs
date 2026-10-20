@@ -1,6 +1,6 @@
 // Syntax check for Claude Code Workflow scripts: body runs inside an async function with top-level return allowed.
 // Navíc jména souborů: Claude Code (2.1.284) subagentům blokuje zápis markdownu se jmény summary, findings, analysis
-// a report-… („Subagents should return findings as text, not write report files“, analýza běhu bez-dluhu 5.7 a 5.9).
+// a report-… („Subagents should return findings as text, not write report files“).
 // Cesta .md v řetězci bloku, jejíž jméno souboru (bez adresáře) takové slovo nese, je chyba s číslem řádku.
 import fs from 'node:fs'
 import vm from 'node:vm'

@@ -21,7 +21,7 @@ export default {
     const n2 = k.jeden('prd-část:řez 05:K1:n2')
     k.obsahuje(n2, `předávku ${CWD}/docs/reviews/predavka-a109.md`, 'absolutní cestu relativní předávky')
     const ar = k.jeden('prd:řez 05')
-    for (const t of ['Řez do ~2 k řádků je malý', 'přesun a rozdělení souboru počítej dvakrát', 'kontrakt_odhad_radku', 'hned po rozdělení zapiš kostru s tabulkou Části, Kontraktem a kritérii',
+    for (const t of ['Řez do ~2 k řádků je malý', 'přesun a rozdělení souboru počítej dvakrát', 'kontrakt_odhad_radku', 'hned po rozdělení zapiš osnovu kostry',
       'přílohy vize (docs/vize/<slug>/) čti jen grepem', 'číslovaný seznam', 'Populaci nad daty, která řez', 'Kontrolní protějšek na předchozím nasazení', 'A/B proti předchozímu stavu', 'prototypem nad dnešním stavem', 'sdíleného backendu přepíše', 'doba_min', 'bez_soubehu']) k.obsahuje(ar, t)
     k.neobsahuje(ar, '1,2–2× naivního odhadu', 'starý odhad'); k.neobsahuje(ar, 'Řez do ~1,5 k', 'starou mez malého řezu')
     const ks = k.jeden('prd-check:řez 05:1')

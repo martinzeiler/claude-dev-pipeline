@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Funkční testy scripts/co-dela.sh nad syntetickou session (1.7.0): předávky jen z docs/.kontext.jsonl (za běh a za řez
-# přes všechny bloky; v běhu sonnet-5-5 dával součet výsledků bloků 32 místo 46), bez logu záloha z výsledků bloků,
-# název části z docs/.stavba-NN.json u labelu agenta a compacty orchestrátora z logu.
+# Funkční testy scripts/co-dela.sh nad syntetickou session: předávky jen z docs/.kontext.jsonl (za běh a za řez přes
+# všechny bloky), bez logu záloha z výsledků bloků, název části z docs/.stavba-NN.json u labelu agenta, compacty
+# orchestrátora z logu a --zprava (čísla běhu jako JSON).
 # Spusť: dev-pipeline/tests/skripty/co-dela.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); plugin=$(cd "$here/../.." && pwd)
@@ -57,6 +57,20 @@ o=$(cd_run); printf '%s' "$o" | grep -q 'implement řez 05 · část K2 · pokus
 rm "$proj/docs/.kontext.jsonl"
 o=$(cd_run); printf '%s' "$o" | grep -q 'kontext agentů: předávek 1$' && ok || ko "bez-logu-zaloha: $o"
 printf '%s' "$o" | grep -q 'předávek řezu' && ko "bez-logu-blok: $o" || ok
+
+# --zprava: čísla běhu jako JSON (cena z usage posledního záznamu zprávy, syntetická odpověď se nepočítá; od z markeru)
+jq -cn '{type:"assistant", message:{id:"o1", model:"claude-opus-5-5", usage:{input_tokens:1, output_tokens:0}}}' > "$sess.jsonl"
+jq -cn '{type:"assistant", message:{id:"o1", model:"claude-opus-5-5", usage:{input_tokens:1000000, output_tokens:0, cache_creation_input_tokens:1000000, cache_creation:{ephemeral_1h_input_tokens:1000000}}}}' >> "$sess.jsonl"
+jq -cn '{type:"assistant", message:{id:"o2", model:"<synthetic>", usage:{input_tokens:5000000}}}' >> "$sess.jsonl"
+jq -cn '{type:"assistant", message:{id:"b1", model:"claude-sonnet-5-5", usage:{input_tokens:0, output_tokens:100000, cache_read_input_tokens:1000000}}}' > "$sess/subagents/workflows/wf_hotovo-2/agent-b1.jsonl"
+{
+  jq -cn '{ts:"2026-10-06T08:06:00Z", rez:"-", aid:"orchestrator", typ:"orchestrator", udalost:"compact", trigger:"auto"}'
+  jq -cn '{ts:"2026-10-06T08:04:00Z", rez:"04", aid:"x4", typ:"implement", kontext:250000, max:250000, compactu:0, udalost:"predavka", soubor:"docs/reviews/predavka-x4.md"}'
+} > "$proj/docs/.kontext.jsonl"
+z=$(cd_run --zprava); rc=$?
+k=$(printf '%s' "$z" | jq -r '[.cena_usd, .cena_podle_modelu["claude-opus-5-5"], .cena_podle_modelu["claude-sonnet-5-5"], .agentu, .compactu_orchestratora, .predavek, .bloky.hotovo, .rezy["04"].vysledek, .rezy["04"].pokusy, .od] | @csv' 2>/dev/null)
+[ $rc -eq 0 ] && [ "$k" = '13.1,12.0,1.1,2,1,1,1,"hotovo",,"2026-10-06T07:30:00Z"' ] && ok || ko "zprava-json: rc=$rc $k $z"
+rm -f "$sess.jsonl"
 
 echo "co-dela: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

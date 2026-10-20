@@ -95,8 +95,7 @@ spoustene() {
     -e 's/^((sudo|env|time|nice|nohup|command|exec|do|then|else|if|while|until)[[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)+//' \
     -e 's/^(npx|bunx|pnpm|npm|yarn)([[:space:]]+(-C|--dir|--filter|-F|--prefix)[[:space:]]+[^[:space:]]+|[[:space:]]+-[^[:space:]]*)*([[:space:]]+(exec|dlx|x))?([[:space:]]+--)?[[:space:]]+//'
 }
-# `--dry-run` nic nenasazuje (wrangler deploy --dry-run jen sestaví bundle): do 1.5.0 ho gate blokoval a code-review
-# řezu 02 v běhu web-podzim kontrolu bundlu vynechal.
+# `--dry-run` nic nenasazuje (wrangler deploy --dry-run jen sestaví bundle): gate ho pouští, jinak review kontrolu bundlu vynechá.
 SUCHY='(^|[[:space:]])--dry-run([[:space:]=]|$)'
 je_deploy() {
   if printf '%s' "$1" | grep -Eq '(^|[;&|({[:space:]])((ba|z)?sh[[:space:]]+-[A-Za-z]*c|eval)[[:space:]]'; then
@@ -117,8 +116,8 @@ fi
 # a git checkout -- / git restore nad tečkou nebo nad docs/ jsou blokované. Důvod: deploy agent řezu 5 (vize doplneni-webu)
 # po `pnpm format:check` udělal `git checkout -- docs/vize-spory.md` a smazal 22 řádků necommitnutého uzavření.
 # Vrácení vlastního souboru mimo docs/ (`git checkout -- src/a.ts`) zůstává povolené.
-# Mimo projekt (po `cd` do klonu ve scratchpadu, `git -C <cesta mimo projekt>`) pravidlo neplatí: v běhu web-rijen guard
-# dvakrát zastavil checkout v klonu ve scratchpadu, protože předchozí `cd` neviděl (1.6.0). Guard proto sleduje adresář
+# Mimo projekt (po `cd` do klonu ve scratchpadu, `git -C <cesta mimo projekt>`) pravidlo neplatí: checkout v klonu ve
+# scratchpadu je legitimní a guard by ho bez sledování `cd` zastavil. Guard proto sleduje adresář
 # segment po segmentu: absolutní i relativní `cd`, `cd -`, $OLDPWD, $PWD, $CLAUDE_PROJECT_DIR, přiřazení v témže příkazu
 # (S=/cesta; cd $S), HOME a TMPDIR; konec subshellu `( … )` vrací adresář před ním. Cokoli, čemu nerozumí (neznámá
 # proměnná, `cd $(…)`, pushd, `)` bez známého `(`), znamená neznámý adresář a s ním blokaci: výjimka platí jen tam, kde je
@@ -221,7 +220,7 @@ $jm=$hod"
         if printf '%s' "$seg" | grep -Eq '(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(checkout|restore)([[:space:]]|$)'; then
           cile=$(printf '%s' "$seg" | sed -E 's/.*git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(checkout|restore)[[:space:]]*//')
           if printf ' %s ' "$cile" | grep -Eq '[[:space:]](\.|\./|docs|docs/[^[:space:]]*|:/|\*)[[:space:]]|(^|[[:space:]])--[[:space:]]*$'; then
-            block "git checkout/restore nad tečkou, docs/ nebo celým stromem je během autonomního běhu blokován: vrátil by necommitnutou práci jiných agentů (v běhu doplneni-webu tak zmizelo uzavření řezu 5). Vracej jen konkrétní soubor, který jsi sám změnil, mimo docs/."
+            block "git checkout/restore nad tečkou, docs/ nebo celým stromem je během autonomního běhu blokován: vrátil by necommitnutou práci jiných agentů. Vracej jen konkrétní soubor, který jsi sám změnil, mimo docs/."
           fi
         fi
       fi
@@ -242,8 +241,8 @@ fi
 
 # 6) rm s nechráněnou proměnnou, za jejímž lomítkem hned stojí glob, další proměnná nebo nic (`rm $S/*.ts`, `rm $S/$f.x`,
 # `rm "$D"/`): s prázdnou proměnnou maže od kořene disku. Na takový příkaz se Claude Code ptá uživatele i v bypassPermissions
-# a žádný mód, pravidlo ani hook dotaz nepřebije. V běhu bez-dluhu na něm stál celý běh 40 minut (2.1.280 čekal
-# bez limitu; od 2.1.281 dotaz po 2 min sám zamítne). Guard příkaz zastaví dřív, než dotaz vznikne, a řekne přepis.
+# a žádný mód, pravidlo ani hook dotaz nepřebije; autonomní běh na něm stojí. Guard příkaz zastaví dřív, než dotaz
+# vznikne, a řekne přepis.
 # Platí vždy, nejen během běhu: chráněný tvar "${S:?}" nebo literální cesta projde bez dotazu kdekoli.
 NECHRANENA='\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)"?/"?([*?[]|\$|[[:space:]]|$)'
 if printf '%s' "$cmd" | grep -Eq "$NECHRANENA"; then   # běžný příkaz skončí u jednoho grepu

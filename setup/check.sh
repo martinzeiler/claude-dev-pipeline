@@ -41,7 +41,7 @@ if [ -f "$claude_json" ] && jq -e '.mcpServers.serena' "$claude_json" >/dev/null
   case "$args" in *"--project-from-cwd"*) OK "MCP server serena (user scope): $args" ;; *) WARN "MCP server serena je registrovaný, ale bez --project-from-cwd: $args" ;; esac
 else FAIL "MCP server serena není v ~/.claude.json (claude mcp add --scope user serena -- \$HOME/.local/bin/serena start-mcp-server --context claude-code --project-from-cwd)"; fi
 if [ -f "$settings" ]; then
-  for h in "activate" "remind" "auto-approve" "cleanup"; do
+  for h in "activate" "auto-approve" "cleanup"; do
     jq -r '.hooks // {} | .. | .command? // empty' "$settings" | grep -q "serena-hooks $h" && OK "hook serena-hooks $h" || WARN "hook serena-hooks $h chybí v settings.json (setup/settings.snippet.json)"
   done
 fi

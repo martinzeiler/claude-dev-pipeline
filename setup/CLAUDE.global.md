@@ -26,11 +26,6 @@ Textové nástroje zůstávají správné pro: `.astro`, `.md`, konfigurace, log
 řetězců (ne symbolů), soubory mimo jazyky s language serverem, a rychlé přečtení
 krátkého souboru celého.
 
-Pozn.: `PreToolUse` hook `serena-hooks remind` **zablokuje** třetí `Grep` nebo třetí `Read`
-zdrojového souboru v řadě (a čtvrté smíšené volání) a vrátí připomínku. Jakékoli symbolické
-volání Sereny čítač resetuje. Není to náhodná chyba — je to signál, že jsi měl sáhnout po
-symbolickém nástroji.
-
 Serenu neaktivuj ručně; projekt se aktivuje sám z pracovního adresáře (`--project-from-cwd`).
 
 ## Zvláštnosti tohoto stroje (shell a nástroje)

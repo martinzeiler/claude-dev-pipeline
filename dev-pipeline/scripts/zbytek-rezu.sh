@@ -8,14 +8,14 @@
 # Výsledek: docs/e2e/rez-NN-zbytek.patch (existující se nepřepisuje: -2, -3 …; sledované soubory a malé textové netrackované
 #   jako nové soubory), pak strom vrácen: změněné a smazané soubory z HEAD, přidané do indexu odebrané, netrackované
 #   z patche smazané. Obnova: git apply <patch>.
-#   Netrackovaný soubor nad 1 MB nebo binární do patche nejde (patch se commitne se zprávou do historie vize větve; v běhu
-#   web-rijen zůstal ve stromu velký datový soubor měřidla): zůstane ve stromu nesmazaný a souhrn ho vypíše jako
+#   Netrackovaný soubor nad 1 MB nebo binární do patche nejde (patch se commitne se zprávou do historie vize větve; typicky
+#   velký datový soubor měřidla): zůstane ve stromu nesmazaný a souhrn ho vypíše jako
 #   „ponecháno, rozhodne majitel“.
 # Na stdout souhrn (patch, soubory). Návratové kódy: 0 hotovo nebo nic k uložení; 2 špatné argumenty nebo není git repo;
 #   3 patch se nepodařilo ověřit (strom beze změny); 4 vrácení stromu selhalo nebo ho git status nepotvrdil (patch je
 #   uložený, souhrn vypíše, co zůstalo).
-# Proč: v běhu web-rijen zůstal po mini-řezu 12 ve stromu změněný eslint.config.js a datový soubor měřidla; guard zakázal
-# stash a majitel to řešil ručně před mergem. Spouští ho orchestrátor, když žádný blok neběží (skill orchestrate).
+# Proč: po selhaném mini-řezu zůstávají ve stromu změněné konfigurační a datové soubory; guard zakazuje stash
+# a majitel to dřív řešil ručně před mergem. Spouští ho orchestrátor, když žádný blok neběží (skill orchestrate).
 # Seznamy souborů jdou přes -z a core.quotePath=false a operace nad nimi přes --literal-pathspecs: bez toho git cesty
 # s diakritikou uzavře do uvozovek s oktalovými escapy, git restore pak selže na celé dávce a rm nic nesmaže (review 1.6.0 N7).
 set -uo pipefail

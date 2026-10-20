@@ -5,8 +5,7 @@
 # Těžký příkaz (suita testů, typecheck celého repa, instalace, build, git commit s pre-commit branou) přepíše přes updatedInput
 # na obal, který nejdřív čeká na místo v rozpočtu stroje (scripts/tezky.py, váha podle tabulky v TRIDENI); lehký projde beze
 # změny. Proč: souběžné části řezu si dělí 8 jader a 16 GB, myšlení agentů běží na serverech a stroj zatěžují jen místní
-# příkazy (analýza 5.14: Mac se v běhu bez-dluhu přehříval). Přepis přes updatedInput ověřen 29. 9. na Claude Code 2.1.284
-# u subagenta i agenta Workflow. Obal běží ve stejném shellu jako původní příkaz, $$ je PID toho shellu; když ho zabije
+# příkazy (bez fronty se stroj přehřívá). Přepis přes updatedInput funguje u subagenta i agenta Workflow. Obal běží ve stejném shellu jako původní příkaz, $$ je PID toho shellu; když ho zabije
 # timeout, místo uvolní tezky.py sám podle mrtvého PID.
 # E2E verifikátor těžké příkazy nesmí vůbec: ověřuje běžící aplikaci, kritéria nad kódem změřila brána.
 # Fail-open: cokoli nejednoznačného projde beze změny.

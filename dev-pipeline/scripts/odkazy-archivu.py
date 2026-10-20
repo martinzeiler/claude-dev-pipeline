@@ -5,9 +5,9 @@ Spouští ho orchestrate-setup.sh před archivací předchozí vize:
     odkazy-archivu.py <projekt> <slug archivované vize> <cesta nové vize>
 
 Proč: setup přesouvá docs/prd a docs/e2e předchozí vize do docs/archive/<slug>/. Odkaz z kódu nebo dokumentu na
-docs/e2e/rez-01.md pak buď vede do prázdna (pre-commit brána projektu commit setupu odmítne, běh sonnet-5-5-a-cache
-v Surya 6. 10. 2026), nebo po startu nové vize tiše ukazuje na její stejnojmenný dokument. V Surya takhle 13 ze 14
-odkazů už ukazovalo na dokument pozdější vize, protože každá vize vytváří znovu rez-01.md atd.
+docs/e2e/rez-01.md pak buď vede do prázdna (pre-commit brána projektu commit setupu odmítne), nebo po startu nové
+vize tiše ukazuje na její stejnojmenný dokument, protože každá vize vytváří znovu rez-01.md atd. (v jednom projektu
+takhle ukazovalo 13 ze 14 odkazů na dokument pozdější vize).
 
 Jak určí cíl: commit, který odkaz do souboru přidal (git log -S), a první pozdější commit, který odkazovaný dokument
 odstranil. Když ho přejmenoval (archivace minulého setupu), cílem je nová cesta. Když dokument od té doby existuje, patří
@@ -16,7 +16,7 @@ byl smazán bez přejmenování, nebo zmizel už před vznikem odkazu), nechá b
 
 Prohledává jen trackované textové soubory mimo docs/ (kód, skripty, CLAUDE.md: odkaz tam čtou agenti a hlídá ho brána
 projektu) a živý docs/follow-ups.md. Dokumenty v docs/ (journal, vize, reporty, archiv) jsou záznam své doby a nemění se;
-v Surya by jich bylo 361 v 68 souborech a commit setupu by tím nabobtnal. Nová vize leží v docs/, takže se jí to netýká:
+ve větším projektu by jich byly stovky v desítkách souborů a commit setupu by tím nabobtnal. Nová vize leží v docs/, takže se jí to netýká:
 její docs/e2e/rez-01.md je budoucí dokument nové vize.
 Změněné soubory přidá do indexu: setup je commitne jedním commitem s archivem.
 Návratové kódy: 0 hotovo (i s nevyřešenými) · 2 chybné argumenty nebo není git repo.

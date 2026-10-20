@@ -23,6 +23,9 @@ export default {
     k.obsahuje(fx, 'smíš upravit i soubory částí', 'zapracování kostry smí měnit soubory částí')
     const d = k.jeden('prd-check:řez 05:2')
     k.obsahuje(d, 'Místa s předponou části (K2: …) leží v souboru té části', 'delta hledá místa částí v jejich souborech')
+    // 1.8.0 (review N12): v režimu zapracování kolo 1 neproběhlo, delta řeší nálezy orchestrátora ze zadání.
+    k.obsahuje(d, 'řeší nálezy orchestrátora ze zadání zapracování (včetně odebrání části; nálezy: odchylka od plánu: doplň F3)', 'delta zapracování jmenuje nálezy orchestrátora')
+    k.neobsahuje(d, 'blokující nálezy kola 1', 'kolo 1 v deltě zapracování')
     k.obsahuje(d, `K2 ${prdCasti('K2')}`, 'cestu k souboru části K2')
     k.obsahuje(d, `${CWD}/docs/reviews/rez-05-prd-check-zapr-kolo-2.md`, 'vlastní report delty zapracování')
     k.rovno(v && v.kontrola && v.kontrola.bez_kontroly, [], 'kontrola.bez_kontroly (části zkontroloval původní běh, změny delta)')

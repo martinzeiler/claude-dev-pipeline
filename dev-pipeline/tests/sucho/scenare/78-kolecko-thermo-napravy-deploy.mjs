@@ -1,6 +1,6 @@
 // 78 · kolečko · 1.5.0 (spec § 1.3, 1.4, 1.1): oprava thermo dostane soubory s nálezy i soubory jejich náprav; deploy kolečka měří
 // diff od posledního zápisu nasazení (nasadí i aplikaci, kterou řez nenasadil; běh web-podzim řez 13), health začíná řádkem aplikací
-// a čekání má strop 4,5 minuty na volání.
+// a čekání na proces nemá v zadání vlastní smyčku (od 1.8.0 je v TVAR-DOKUMENTU).
 import { argsKolecko, kontrola, stub } from '../stuby.mjs'
 
 export default {
@@ -21,7 +21,7 @@ export default {
     const d = k.jeden('deploy:kolečko:1')
     k.obsahuje(d, "git log --grep 'zápis nasazení'", 'bázi diffu')
     k.obsahuje(d, 'aplikace: <app>', 'řádek aplikací v health')
-    k.obsahuje(d, '4,5 minuty', 'strop čekacího volání')
+    k.neobsahuje(d, '4,5 minuty', 'čekací smyčku (patří do TVAR-DOKUMENTU)')
     const x = volani.find(z => /do 10 minut|skončí sama? do 10 minut/.test(z.prompt))
     k.ok(!x, `zadání s čekáním do 10 minut: ${x && x.label}`)
     return k.chyby

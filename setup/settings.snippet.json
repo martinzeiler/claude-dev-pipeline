@@ -19,7 +19,6 @@
       { "matcher": "", "hooks": [ { "type": "command", "command": "/Users/<user>/.local/bin/serena-hooks activate --client=claude-code" } ] }
     ],
     "PreToolUse": [
-      { "matcher": "", "hooks": [ { "type": "command", "command": "/Users/<user>/.local/bin/serena-hooks remind --client=claude-code" } ] },
       { "matcher": "mcp__serena__*", "hooks": [ { "type": "command", "command": "/Users/<user>/.local/bin/serena-hooks auto-approve --client=claude-code" } ] }
     ],
     "SessionEnd": [

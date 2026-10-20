@@ -1,6 +1,6 @@
 ---
 name: prototyp
-description: Postaví několik strukturálně různých variant jednoho návrhu, aby se dalo rozhodnout podíváním místo dohadováním - UI varianty za ?variant= uvnitř existující stránky, nebo TUI nad čistým logickým modulem. Volá se z /vize session u nové obrazovky nebo stavového automatu a z PRD řezu (agent prd) u nového stavového automatu; autonomní běh UI neprototypuje. NEpoužívat na úpravu existující obrazovky ani na cokoli, co jde rozhodnout prózou.
+description: Postaví několik strukturálně různých variant jednoho návrhu, aby se rozhodlo podíváním - UI varianty za ?variant= v existující stránce (z vize session), nebo TUI nad logickým modulem (z vize nebo PRD řezu). Ne na úpravu existující obrazovky.
 ---
 
 # Prototyp — rozhodni podíváním, ne dohadováním

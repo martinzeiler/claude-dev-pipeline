@@ -3,7 +3,7 @@
 
 Obal z hooku hooks/fronta-tezkych.sh volá `vezmi` před těžkým příkazem (suita testů, typecheck celého repa, instalace,
 build, git commit s pre-commit branou) a `vrat` po něm. Souběžné části řezu tak stroj nezahltí: myšlení agentů běží na
-serverech, 8 jader a 16 GB zatěžují jen místní příkazy (analýza běhu bez-dluhu 5.14). Váhy dává hook, rozpočet 6 z 8 jader.
+serverech, 8 jader a 16 GB zatěžují jen místní příkazy. Váhy dává hook, rozpočet 6 z 8 jader.
 
   tezky.py vezmi --vaha N --pid PID [--popis TEXT]   čeká na místo (přísné FIFO); 0 = drží místo, 75 = vypršelo čekání
   tezky.py vrat --pid PID                             uvolní místo i frontu toho PID

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Funkční testy scripts/args-bloku.py nad dočasnými soubory (1.6.0, oprava P1): pokračování bloku PRD přes skript (základ
-# z minulého volání, code-review N2), odmítnutí neschváleného výsledku PRD (N5), profil do stavby a záložní cesta přes
-# soubor .output z notifikace. 1.7.0: odmítnutí obnova v --doplnit, vynechání prázdných hodnot, _pole a podpříkaz
-# rozhodnuti. Spusť: dev-pipeline/tests/skripty/args-bloku.sh
+# Funkční testy scripts/args-bloku.py nad dočasnými soubory: pokračování bloku PRD přes skript (základ z minulého volání),
+# odmítnutí neschváleného výsledku PRD, profil do stavby, záložní cesta přes soubor .output z notifikace, odmítnutí obnova
+# v --doplnit (s návodem na pokus), vynechání prázdných hodnot, _pole a podpříkaz rozhodnuti. Spusť: dev-pipeline/tests/skripty/args-bloku.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); plugin=$(cd "$here/../.." && pwd)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/args-bloku-test.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
@@ -77,7 +76,7 @@ o=$(ab prd "$proj" 5 --puvodni-vysledek "$tmp/wfx.output" --doplnit "{\"rezim\":
 o=$(ab stavba "$proj" 5 --prd-run wf_nic-0); [ $? -eq 3 ] && printf '%s' "$o" | grep -q '\.output' && ok || ko "zaloha-hlaska-output: $o"
 o=$(ab prd "$proj" 5 --puvodni-run wf_nic-0); [ $? -eq 3 ] && printf '%s' "$o" | grep -q -- '--puvodni-vysledek' && ok || ko "zaloha-puvodni-hlaska: $o"
 
-# 11. skutečný soubor .output z běhu web-rijen (jen čtení, když na stroji je): starý tvar výsledku se rozbalí
+# 11. skutečný soubor .output staršího běhu (jen čtení, když na stroji je): starý tvar výsledku se rozbalí
 real=/private/tmp/claude-501/-Users-martinzeiler-Desktop-CK-Go2/b73320b0-1bca-4aa1-9727-1474b3b81387/tasks/wf1wa23ij.output
 if [ -r "$real" ]; then
   rr=$(jq -r '.result.rez // empty' "$real")
@@ -85,11 +84,16 @@ if [ -r "$real" ]; then
   [ $rc -eq 0 ] && [ "$(j '.prd_path | length > 0' "$proj/docs/.stavba-$rr.json")" = 'true' ] && ok || ko "stavba-skutecny-output: rc=$rc $o"
 fi
 
-# 12. (1.7.0) obnova patří do volání bloku: --doplnit s ní skončí kódem 2 a soubor nevznikne ani nepřepíše starý
+# 12. obnova patří do volání bloku: --doplnit s ní skončí kódem 2 a soubor nevznikne ani nepřepíše starý; bez pokus ≥ 1
+# hláška říká, odkud pokus vzít (číslo přerušeného pokusu, nikdy +1), s pokusem říká, že obnova patří do volání
 rm -f "$proj/docs/.stavba-05.json"
 o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{}}'); rc=$?
-[ $rc -eq 2 ] && printf '%s' "$o" | grep -q 'obnova patří do volání bloku' && [ ! -e "$proj/docs/.stavba-05.json" ] && ok || ko "obnova-odmitnuta: rc=$rc $o"
+[ $rc -eq 2 ] && printf '%s' "$o" | grep -q 'obnova bez pokus ≥ 1' && printf '%s' "$o" | grep -q 'číslo přerušeného pokusu' && printf '%s' "$o" | grep -q 'nikdy +1' && [ ! -e "$proj/docs/.stavba-05.json" ] && ok || ko "obnova-bez-pokusu: rc=$rc $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{"od_faze":"deploy","znacka":"x","pokus":0}}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'bez pokus' && ok || ko "obnova-pokus-nula: $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{"od_faze":"deploy","znacka":"x","pokus":"2"}}'); rc=$?
+[ $rc -eq 2 ] && printf '%s' "$o" | grep -q 'obnova patří do volání bloku' && printf '%s' "$o" | grep -q '"pokus": "2"' && [ ! -e "$proj/docs/.stavba-05.json" ] && ok || ko "obnova-s-pokusem: rc=$rc $o"
 o=$(ab kolecko "$proj" --doplnit '{"base":"main","obnova":{"od_faze":"deploy"}}'); [ $? -eq 2 ] && ok || ko "obnova-kolecko-odmitnuta: $o"
+o=$(ab --help); [ $? -eq 0 ] && printf '%s' "$o" | grep -q 'args-bloku.py stavba' && ok || ko "help: $o"
 
 # 13. (1.7.0) prázdné hodnoty (null, "", [], {}) se nepíšou, rez vždy; _pole = klíče souboru ∪ neprázdné klíče .run-args.json
 jq -n '{vize:"/p/docs/vize/v.md", produkt:"", ne_cile:"y", rozhodnuti_majitele:["2026-10-06 12:50 bez čekání"], rychle_kontroly:"pnpm verify:arch", _pole:["stare"]}' > "$proj/docs/.run-args.json"

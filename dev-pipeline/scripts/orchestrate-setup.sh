@@ -7,7 +7,8 @@
 #   3. stav předchozí vize (handoff, journal, vize-spory, prd/, e2e/, zpráva, marker) přesune do docs/archive/<slug>/,
 #      reporty z docs/reviews/ do docs/reviews/_archiv/<slug>/, z follow-ups odloží přeškrtnuté položky;
 #      stejná vize = navázání, nic se nearchivuje,
-#   4. doplní .gitignore (a .prettierignore, když projekt prettier používá), vytvoří větev vize/<slug> a stavové soubory,
+#   4. doplní .gitignore (a .prettierignore, když projekt prettier používá), vytvoří větev vize/<slug>, stavové soubory
+#      a založí docs/follow-ups.md, docs/pojmy.md a docs/rozhodnuti.md, když chybí,
 #   5. zapíše marker docs/.orchestrator-run (JSON se session_id) a docs/handoff.md s tabulkou plánu z vize,
 #   6. všechno (gitignore, vize, archiv, stavové soubory) commitne JEDNÍM commitem: projekty s pomalou
 #      pre-commit bránou platí bránu jednou, ne čtyřikrát,
@@ -49,12 +50,13 @@ gi_changed=0
 # (docs/.stavba-*.json, docs/.prd-*.json, docs/.kolecko.json) orchestrátor přes scripts/args-bloku.py; bloky je čtou
 # načítacím agentem a po compactu z nich orchestrátor navazuje. docs/.vysledek-stavba-*.json píše uzavření řezu (i seznamy
 # zastaveného bloku, -zastaveno.json), docs/.vysledek-kolecko.json závěr kolečka.
-for e in docs/.orchestrator-run docs/.orchestrator-session docs/.deploy-unlocked docs/.vize-done docs/.review-passed docs/.verify-passed docs/reviews/ docs/.kontext.jsonl docs/.run-args.json "docs/.stavba-*.json" "docs/.prd-*.json" docs/.kolecko.json "docs/.vysledek-stavba-*.json" docs/.vysledek-kolecko.json "CLAUDE-SECURITY-*/"; do
+# docs/e2e/*-vykon/ jsou surové výstupy měřidel (JSON, HAR, snímky); do commitu jde jen doklad se souhrnem.
+for e in docs/.orchestrator-run docs/.orchestrator-session docs/.deploy-unlocked docs/.vize-done docs/.review-passed docs/.verify-passed docs/reviews/ docs/.kontext.jsonl docs/.run-args.json "docs/.stavba-*.json" "docs/.prd-*.json" docs/.kolecko.json "docs/.vysledek-stavba-*.json" docs/.vysledek-kolecko.json "docs/e2e/*-vykon/" "CLAUDE-SECURITY-*/"; do
   grep -qxF -- "$e" .gitignore 2>/dev/null || { echo "$e" >> .gitignore; gi_changed=1; }
 done
 if [ "$gi_changed" = 1 ] || [ -n "$(git status --porcelain -- .gitignore)" ]; then git add .gitignore; obsah="$obsah gitignore"; fi
 # .prettierignore: stavové soubory běhu a výstupy agentů, když projekt prettier používá. Píší je agenti za běhu;
-# formátovací pre-check deploye by je přeformátoval a necommitnutou práci orchestrátora zničil (incident řezu 5, doplneni-webu).
+# formátovací pre-check deploye by je přeformátoval a necommitnutou práci orchestrátora zničil.
 if ls .prettierrc* >/dev/null 2>&1 || grep -q '"prettier"' package.json 2>/dev/null; then
   pi_changed=0
   for e in docs/handoff.md docs/journal.md docs/vize-spory.md docs/follow-ups.md docs/zaverecna-zprava.md docs/prd/ docs/e2e/ docs/reviews/ docs/archive/; do
@@ -98,8 +100,8 @@ if [ -n "$stare" ]; then
     [ -n "$old_slug" ] || old_slug="predchozi-$today"
     arch="docs/archive/$old_slug"
     # Odkazy z kódu a z follow-ups na docs/prd a docs/e2e minulých vizí přepíše na archiv vize, ve které vznikly, dřív než
-    # se dokumenty přesunou: v běhu sonnet-5-5-a-cache (Surya) pre-commit brána odmítla commit setupu kvůli odkazům na
-    # přesunuté soubory a 13 ze 14 odkazů už ukazovalo na stejnojmenný dokument pozdější vize. Změny skript dá do indexu.
+    # se dokumenty přesunou: jinak pre-commit brána odmítne commit setupu kvůli odkazům na přesunuté soubory, nebo odkaz
+    # tiše ukazuje na stejnojmenný dokument pozdější vize. Změny skript dá do indexu.
     python3 -I "$here/odkazy-archivu.py" "$proj" "$old_slug" "$vize_rel" || echo "odkazy na archiv: kontrola selhala, odkazy zůstaly beze změny"
     mkdir -p "$arch"
     for f in $stare; do
@@ -147,7 +149,11 @@ fi
 echo "větev: $branch"
 
 mkdir -p docs/prd docs/e2e docs/reviews
-[ -f docs/follow-ups.md ] || printf '# Follow-ups\n\nKontinuální backlog napříč vizemi. Jedna odrážka = jedna položka s kontextem; vyřešené se přeškrtávají s `VYŘEŠENO <datum>: <čím>`.\n' > docs/follow-ups.md
+[ -f docs/follow-ups.md ] || printf '# Follow-ups\n\nKontinuální backlog napříč vizemi. Jedna odrážka = jedna položka: `[řez NN · <oblast>] [<osud>] text` (osud: rozhodnutí, oprava, nápad, obsah); vyřešené se přeškrtávají s `VYŘEŠENO <datum>: <čím>`. Přehled dává `scripts/follow-ups.py <cwd>` z pluginu, celý soubor nikdo nečte.\n' > docs/follow-ups.md
+# Slovník a rozhodnutí projektu (TVAR-DOKUMENTU, sekce Pojmy a rozhodnutí): píše je vize session (pojmy i sklizeň běhu),
+# během běhu jsou jen ke čtení; paměť Claude Code tím přestává být úložištěm rozhodnutí.
+[ -f docs/pojmy.md ] || printf '# Pojmy projektu\n\nTermíny projektu, u každého 1–2 věty bez cest k souborům. Píše vize session a sklizeň běhu (nové termíny z kostry PRD); během běhu jen ke čtení.\n' > docs/pojmy.md
+[ -f docs/rozhodnuti.md ] || printf '# Rozhodnutí projektu\n\nDatovaná rozhodnutí s „proč“ a „místo čeho“ (R1, R2, …). Nové rozhodnutí staré označí „překonáno <datum> kým“, nikdy ho nepřepíše. Píše jen vize session; během běhu jen ke čtení.\n' > docs/rozhodnuti.md
 [ -f docs/journal.md ] || printf '# Deník běhu vize %s\n\nZačátek %s.\n' "$slug" "$today" > docs/journal.md
 [ -f docs/vize-spory.md ] || printf '# Spory a předpoklady k vizi %s\n\nZapisuje kdokoli v běhu. Formát: datum | řez | agent · Rozpor · Jak jsem se zachoval · Co by to rozhodlo.\n' "$slug" > docs/vize-spory.md
 
@@ -163,8 +169,8 @@ if [ "$resume" = 1 ] && [ -f docs/handoff.md ]; then
   git add docs/handoff.md 2>/dev/null
   zprava="běh: navázání vize $slug"
 else
-  # Sekce „Plán řezů“ končí až na nadpisu stejné nebo vyšší úrovně (podnadpisy uvnitř ji nekončí; v běhu doplneni-webu
-  # parser skončil na prvním podnadpisu a hlásil PLÁN NENALEZEN). Plán je tabulka se sloupcem „#“; sekce může mít i jiné tabulky.
+  # Sekce „Plán řezů“ končí až na nadpisu stejné nebo vyšší úrovně (podnadpisy uvnitř ji nekončí, jinak by parser
+  # skončil na prvním podnadpisu a hlásil PLÁN NENALEZEN). Plán je tabulka se sloupcem „#“; sekce může mít i jiné tabulky.
   sekce=$(awk 'BEGIN{p=0;lvl=0} /^#{1,4} /{ if (p) { match($0,/^#+/); if (RLENGTH<=lvl) exit } else if (tolower($0) ~ /pl[aá]n [rř]ez/) { match($0,/^#+/); lvl=RLENGTH; p=1; next } } p{print}' "$vize_abs")
   plan=$(printf '%s\n' "$sekce" | awk '
     function konec() { if (inb) { if (chosen == "" && first ~ /^\|[[:space:]]*#[[:space:]]*\|/) chosen = blk; else if (fallback == "" && n >= 3) fallback = blk } inb = 0; blk = ""; n = 0 }
@@ -187,7 +193,7 @@ else
   zprava="běh: start vize $slug"
 fi
 # 6. jediný commit: gitignore + vize + archiv + stavové soubory
-git add docs/handoff.md docs/journal.md docs/vize-spory.md docs/follow-ups.md 2>/dev/null
+git add docs/handoff.md docs/journal.md docs/vize-spory.md docs/follow-ups.md docs/pojmy.md docs/rozhodnuti.md 2>/dev/null
 if ! git diff --cached --quiet; then
   [ -n "$obsah" ] && zprava="$zprava (${obsah# })"
   git commit -q -m "$zprava" || die "commit selhal (pre-commit brána?). Archiv, stavové soubory a přepsané odkazy zůstaly v indexu a docs/.orchestrator-run existuje, takže pouhé nové spuštění setupu neprojde na čistém stromu. Oprav příčinu podle výstupu brány (kód opravuje uživatel nebo jiná session, orchestrátor ne), commitni index zprávou „$zprava“ a napiš znovu /dev-pipeline:orchestrate $vize_rel: setup vizi naváže."
@@ -231,7 +237,7 @@ else echo "nastavení: autocompact $ac ($acz)"; fi
 
 # varování
 vsize=$(wc -c < "$vize_abs" | tr -d ' ')
-[ "$vsize" -gt 87040 ] && echo "varování: vize má $vsize B, strop těla je 40k tokenů, u české vize ~85 kB (čeština má ~0,47 tokenu na bajt)"
+[ "$vsize" -gt 87040 ] && echo "varování: vize má $vsize B; doporučení je tělo kolem 85 kB a podklady v přílohách docs/vize/$slug/ (rozhodnutí se neškrtají, vize se kvůli délce nedělí)"
 if [ -f CLAUDE.md ]; then
   cl=$(wc -l < CLAUDE.md | tr -d ' '); cb=$(wc -c < CLAUDE.md | tr -d ' ')
   { [ "$cl" -gt 400 ] || [ "$cb" -gt 20480 ]; } && echo "varování: CLAUDE.md projektu má $cl řádků a $cb B (doporučený strop 400 řádků a ~20 kB), každý agent ho nese v preambuli; historie a stavy patří do docs/"

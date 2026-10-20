@@ -1,4 +1,4 @@
-// 79 · stavba · 1.5.0: texty a schémata (spec § 1.1, 1.4, 1.5, 1.7): rámec se stropem čekání 4,5 minuty, nikde „do 10 minut“,
+// 79 · stavba · 1.5.0: texty a schémata (spec § 1.1, 1.4, 1.5, 1.7): nikde „do 10 minut“ (čekání na proces je od 1.8.0 v TVAR-DOKUMENTU, ne v rámci),
 // deploy se čtyřmi stavy kroků a bází diffu, uzavření jako agent pluginu, popis pole predavka, bez mapy kostry žádný pokyn k ní.
 import { argsStavby, kontrola, rozhrani } from '../stuby.mjs'
 
@@ -11,7 +11,7 @@ export default {
     const k = kontrola(volani)
     k.navrat(v, { ok: true, vysledek: 'hotovo' })
     const bez = (co, f) => { const xs = volani.filter(f).map(x => x.label); k.ok(!xs.length, `${co}: ${xs.join(', ')}`) }
-    bez('rámec bez stropu čekání 4,5 minuty', x => !x.prompt.includes('Jedno čekací volání trvá nejvýš 4,5 minuty'))
+    bez('rámec s čekací smyčkou (patří do TVAR-DOKUMENTU)', x => /run_in_background|4,5 minuty|seq 1 26/.test(x.prompt))
     bez('zadání s čekáním do 10 minut', x => /do 10 minut/.test(x.prompt))
     bez('pokyn k mapě kostry bez mapy', x => x.prompt.includes('podle mapy'))
     const d = k.jeden('deploy:řez 05:1')

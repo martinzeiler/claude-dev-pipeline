@@ -13,7 +13,8 @@ export default {
   },
   over(v, volani) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, vysledek: 'hotovo', follow_ups: ['FU-70 odstranit past X'], pasti_opravene: ['PAST-70'], follow_ups_pocet: 1, pasti_pocet: 1, seznamy_zapsane: false, uzavreni: false })
+    // Od 1.8.0 nese každý follow-up značku řezu s oblastí a osud (§ 2.6, review N8): bez cesty a bez majitele je to nápad.
+    k.navrat(v, { ok: true, vysledek: 'hotovo', follow_ups: ['[řez 05 · sucho] [nápad] FU-70 odstranit past X'], pasti_opravene: ['PAST-70'], follow_ups_pocet: 1, pasti_pocet: 1, seznamy_zapsane: false, uzavreni: false })
     return k.chyby
   },
 }

@@ -24,12 +24,13 @@ export default {
   over(v, volani, logy) {
     const k = kontrola(volani)
     k.navrat(v, { ok: true })
-    const CEKANI = 'Čekání na čas. Kritérium, krok nebo scénář, který potřebuje data vznikající časem (provoz, plánované úlohy, činnost uživatelů, den, noc), změří běh nad daty, která sám vyrobí podle Povolení vize'
+    // 1.8.0: sdílené pravidlo žije jednou v TVAR-DOKUMENTU.md, blok nese jen větu pro svou roli s odkazem.
+    const CEKANI = 'Čekání na čas (pravidlo v sekci Čekání na čas pravidel dokumentů běhu)'
     const ar = k.jeden('prd:řez 05')
-    for (const t of [CEKANI, 'Na organický čas běh čeká jen tam, kde to vize výslovně vede jako rozhodnutí majitele', 'čeká na rozhodnutí majitele', 'vrať ho v cekani',
+    for (const t of [CEKANI, 'na organický čas čeká jen tam, kde to vize vede jako rozhodnutí majitele', 'čeká na rozhodnutí majitele', 'vrať ho v cekani',
       'vrátí nevztahuje-se s podmínkou a naměřenou hodnotou', 'docs/e2e/rez-05-pred.md', 'nepatří deployi', '**AK7 Rozpad útraty podle modelu.**',
-      'tvůj odhad bývá polovina skutečnosti', 'nad ~8 k řádků', 'nejdelší cestou závislostí', `Rozhodnutí majitele pro tento běh (závazná, mají přednost před vlastním výkladem vize): ${ROZH[0]}`,
-      "Pravidla běhu nečti celá: mapu sekcí dá rg -n '^## '"]) k.obsahuje(ar, t)
+      'skutečnost bývá 1,5× tvůj odhad', 'přesahuje ~8000 řádků', 'nejdelší cestou závislostí', `Rozhodnutí majitele pro tento běh (závazná, mají přednost před vlastním výkladem vize): ${ROZH[0]}`,
+      "Pravidla dokumentů nečti celá: mapu sekcí dá rg -n '^## '"]) k.obsahuje(ar, t)
     k.neobsahuje(ar, 'nad ~12 k řádků', 'starou mez rozdělení řezu')
     const ks = k.jeden('prd-check:řez 05:1')
     for (const t of ['neměřitelné v okně E2E', 'podmíněný krok bez větve „nevztahuje se“', 'krok před nasazením nezávislý na kódu řezu', 'návrh neověřen: <proč>',

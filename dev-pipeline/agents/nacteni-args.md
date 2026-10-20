@@ -1,6 +1,6 @@
 ---
 name: nacteni-args
-description: Načítací agent bloku - přečte soubor s args bloku (docs/.stavba-NN.json, docs/.prd-NN.json, docs/.kolecko.json) a docs/.run-args.json a vrátí jejich sloučení přesně opsané do schématu bloku. Nic nemění. Spouští ho Workflow blok jako první krok, když dostane args_file (skript bloku soubory číst neumí).
+description: Přečte soubor s args bloku a docs/.run-args.json a vrátí jejich sloučení přesně opsané do schématu bloku; nic nemění a nic jiného nečte.
 tools: Read
 model: sonnet
 effort: low

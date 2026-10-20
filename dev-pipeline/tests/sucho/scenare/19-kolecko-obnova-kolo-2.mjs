@@ -26,7 +26,7 @@ export default {
     const k = kontrola(volani)
     k.navrat(v, { ok: true, vysledek: 'hotovo' })
     k.nic(/^(review:kolečko:2|triáž:kolečko)/, 'kolo 2 je zrušené')
-    k.ok(logy.some(l => /kolo 2 od 1\.7\.0 neexistuje/.test(l)), 'log o obnově od zrušeného kola 2')
+    k.ok(logy.some(l => /fáze kolo 2 už neexistuje/.test(l)), 'log o obnově od zrušeného kola 2')
     const faze = x => parsujLabel(x.label).dalsi[0] || ''
     const brany = k.s(/^(verify|commit):kolečko:/)
     for (const f of ['thermo', 'kolo 1', 'bezpečnost']) k.ok(brany.some(x => faze(x) === f), `chybí brána a commit po fázi ${f}`)

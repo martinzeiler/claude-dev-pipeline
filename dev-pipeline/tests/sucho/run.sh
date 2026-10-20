@@ -15,7 +15,7 @@ echo "wf-check:"
 node "$plugin/scripts/wf-check.mjs" "$bloky"/*.js
 rc_wf=$?
 
-# Testy skriptů orchestrátora (args-bloku.py, zbytek-rezu.sh) v dočasných adresářích; bez filtru scénářů.
+# Testy skriptů orchestrátora (args-bloku.py, zbytek-rezu.sh, follow-ups.py, zprava.py, co-dela.sh) v dočasných adresářích; bez filtru scénářů.
 rc_skripty=0
 if [ "$#" -eq 0 ]; then
   for t in "$plugin"/tests/skripty/*.sh; do
@@ -25,9 +25,17 @@ if [ "$#" -eq 0 ]; then
   done
 fi
 
-if [ "$rc_scenare" -eq 0 ] && [ "$rc_wf" -eq 0 ] && [ "$rc_skripty" -eq 0 ]; then
+# Test sedimentu (tests/sediment.py): incidentní věty, duplicity a rozpočet slov souborů pluginu; bez filtru scénářů.
+rc_sediment=0
+if [ "$#" -eq 0 ]; then
+  echo
+  echo "sediment:"
+  python3 -I "$plugin/tests/sediment.py" "$plugin" || rc_sediment=1
+fi
+
+if [ "$rc_scenare" -eq 0 ] && [ "$rc_wf" -eq 0 ] && [ "$rc_skripty" -eq 0 ] && [ "$rc_sediment" -eq 0 ]; then
   echo "suchý běh: vše prošlo"
   exit 0
 fi
-echo "suchý běh: SELHÁNÍ (scénáře rc=$rc_scenare, wf-check rc=$rc_wf, skripty rc=$rc_skripty)"
+echo "suchý běh: SELHÁNÍ (scénáře rc=$rc_scenare, wf-check rc=$rc_wf, skripty rc=$rc_skripty, sediment rc=$rc_sediment)"
 exit 1
