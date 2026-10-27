@@ -27,6 +27,7 @@ touch -t 202610060801 "$sess/workflows/wf_hotovo-2.json"
 
 jq -n '{rez:"05", casti:[{id:"K1", nazev:"evidence nákladů"}, {id:"K2", nazev:"runner: thinking a effort a mnohem delší název části"}]}' > "$proj/docs/.stavba-05.json"
 {
+  jq -cn '{ts:"2026-10-06T07:59:00Z", rez:"05", aid:"a1", typ:"implement", kontext:90000, max:90000, compactu:0, udalost:"mereni", cteni_bajtu:51200, zamitnuto:1}'
   jq -cn '{ts:"2026-10-06T08:00:00Z", rez:"05", aid:"x1", typ:"implement", kontext:120000, max:120000, compactu:0, udalost:"mereni"}'
   jq -cn '{ts:"2026-10-06T08:01:00Z", rez:"05", aid:"x1", typ:"implement", kontext:260000, max:260000, compactu:0, udalost:"predavka", soubor:"docs/reviews/predavka-x1.md"}'
   jq -cn '{ts:"2026-10-06T08:02:00Z", rez:"05", aid:"x2", typ:"prd", kontext:250000, max:250000, compactu:0, udalost:"predavka", soubor:"docs/reviews/predavka-x2.md"}'
@@ -40,6 +41,8 @@ cd_run() { (cd "$proj" && CLAUDE_CONFIG_DIR="$tmp/cfg" bash "$plugin/scripts/co-
 
 o=$(cd_run)
 printf '%s' "$o" | grep -q 'implement řez 05 · část K2 (runner: thinking a effort a m…) · pokus 1' && ok || ko "nazev-casti: $o"
+# 1.9.0: čtení živého agenta z pole cteni_bajtu posledního záznamu (stráž čtení hlídače kontextu)
+printf '%s' "$o" | grep -q 'kontext 90k · čtení 50 kB' && ok || ko "cteni-kb: $o"
 printf '%s' "$o" | grep -q '^▶ stavba řezu 05 .* · předávek řezu 2$' && ok || ko "predavky-rezu-na-bloku: $o"
 printf '%s' "$o" | grep -q 'předávek 5 · compactů orchestrátora 1$' && ok || ko "predavky-z-logu: $o"
 
@@ -71,6 +74,42 @@ z=$(cd_run --zprava); rc=$?
 k=$(printf '%s' "$z" | jq -r '[.cena_usd, .cena_podle_modelu["claude-opus-5-5"], .cena_podle_modelu["claude-sonnet-5-5"], .agentu, .compactu_orchestratora, .predavek, .bloky.hotovo, .rezy["04"].vysledek, .rezy["04"].pokusy, .od] | @csv' 2>/dev/null)
 [ $rc -eq 0 ] && [ "$k" = '13.1,12.0,1.1,2,1,1,1,"hotovo",,"2026-10-06T07:30:00Z"' ] && ok || ko "zprava-json: rc=$rc $k $z"
 rm -f "$sess.jsonl"
+
+# 1.9.0: nové labely dávek balíčku a polovin Kontraktu po stropu předávek se vypisují čitelně, pokus z labelu poloviny
+mkdir -p "$sess/subagents/workflows/wf_bezi-4"
+printf "phases: [\n  { title: 'Kontrakt' },\n  { title: 'Review' },\n]\n" > "$sess/workflows/scripts/blok-stavby-wf_bezi-4.js"
+{
+  jq -cn '{type:"started", agentId:"d1", key:"d1", label:"fix:řez 06:kolo 1:balíček 2:dávka 3", phase:"Review"}'
+  jq -cn '{type:"started", agentId:"d2", key:"d2", label:"implement:řez 06:kontrakt:2:b", phase:"Kontrakt"}'
+} > "$sess/subagents/workflows/wf_bezi-4/journal.jsonl"
+o=$(cd_run)
+printf '%s' "$o" | grep -q 'fix řez 06 · kolo 1 · balíček 2 · dávka 3' && ok || ko "label-davka: $o"
+printf '%s' "$o" | grep -q 'implement řez 06 · kontrakt · pokus 2 · polovina b' && ok || ko "label-polovina: $o"
+printf '%s' "$o" | grep -q '^▶ stavba řezu 06 · pokus 2 ' && ok || ko "pokus-z-poloviny: $o"
+rm -rf "$sess/subagents/workflows/wf_bezi-4" "$sess/workflows/scripts/blok-stavby-wf_bezi-4.js"
+
+# 1.9.0: zmrazená kopie journalu stavby s částmi (tests/co-dela/, běh s výsledkem části K1 nesoucím surové U+2028/U+2029):
+# agent s result není živý, fáze Části je hotová, živí jsou jen agenti bez výsledku; „teď“ dává --ted
+fx="$plugin/tests/co-dela/wf_ece928d4-9a1"; s16="$tmp/sess16"; d16="$s16/subagents/workflows/wf_ece928d4-9a1"
+mkdir -p "$d16" "$s16/workflows/scripts"
+cp "$fx/journal.jsonl" "$d16/"; touch -d 2026-10-25T18:07:00Z "$d16/journal.jsonl"
+while IFS=$'\t' read -r aid b m; do
+  : > "$d16/agent-$aid.jsonl"; touch -d "$m" "$d16/agent-$aid.jsonl"; cp "$fx/meta/agent-$aid.meta.json" "$d16/"
+done < "$fx/casy.tsv"
+{ printf 'phases: [\n'; sed "s/.*/  { title: '&' },/" "$fx/faze.txt"; printf ']\n'; } > "$s16/workflows/scripts/blok-stavby-wf_ece928d4-9a1.js"
+fx_run() { (cd "$tmp" && bash "$plugin/scripts/co-dela.sh" --session "$s16" --ted 2026-10-25T18:07:00Z "$@" 2>&1); }
+o=$(fx_run --kratce)
+printf '%s' "$o" | grep -q 'část K1' && ko "fixture-k1-zivy: $o" || ok
+printf '%s' "$o" | grep -q 'hotové: .*Části' && ok || ko "fixture-casti-hotove: $o"
+printf '%s' "$o" | grep -q 'fix řez 16 · kolo 1 · balíček 1 · opus · píše před 0:00' && printf '%s' "$o" | grep -q 'kolo 1 · balíček 2' && ok || ko "fixture-zivi-fix: $o"
+printf '%s' "$o" | grep -q 'mlčí' && ko "fixture-mlci: $o" || ok
+printf '%s' "$o" | grep -q '^▶ stavba řezu 16 .* · fáze 7/13 Review' && ok || ko "fixture-faze: $o"
+o=$(fx_run); if printf '%s' "$o" | grep -q 'implement řez 16'; then ko "fixture-plny-implement: $o"; else ok; fi
+# review C N4: --ted bez zóny je UTC (stejný obraz jako se Z), nečitelný tvar hlásí a nic nevypisuje
+o=$(cd "$tmp" && bash "$plugin/scripts/co-dela.sh" --session "$s16" --ted 2026-10-25T18:07:00 --kratce 2>&1)
+printf '%s' "$o" | grep -q 'balíček 1 · opus · píše před 0:00' && ok || ko "ted-bez-zony: $o"
+o=$(cd "$tmp" && bash "$plugin/scripts/co-dela.sh" --session "$s16" --ted vcera --kratce 2>&1)
+[ "$o" = "co-dela: --ted 'vcera' není ISO 8601 (čekám tvar RRRR-MM-DDThh:mm:ssZ)" ] && ok || ko "ted-nevalidni: $o"
 
 echo "co-dela: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

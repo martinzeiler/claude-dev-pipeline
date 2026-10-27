@@ -216,9 +216,11 @@ if [ -e "$fb" ]; then { : >> "$fb"; } 2>/dev/null; fbrc=$?
 else { : >> "$fb"; } 2>/dev/null; fbrc=$?; [ "$fbrc" = 0 ] && rm -f "$fb"; fi
 if [ "$fbrc" = 0 ]; then echo "nastavení: zápis do ~/dev-pipeline-feedback.md funguje"
 else echo "nastavení: zápis do ~/dev-pipeline-feedback.md SELHAL (sandbox bez allowWrite): přidej \"~/dev-pipeline-feedback.md\" do sandbox.filesystem.allowWrite v nastavení, které sandbox zapíná"; chybi="$chybi;zápis do ~/dev-pipeline-feedback.md (sandbox bez allowWrite)"; fi
-# Autocompact je jen informace, ne chybějící nastavení. Orchestrátor běží s --autocompact 400k: compact kolem 370 k
-# proběhl za celý běh dvakrát bez ztráty a stav je na disku; varuje se jen nad 400k. Zdroj: příkazová řádka procesu claude
-# z docs/.orchestrator-session (hook), přepínač procesu podle CLAUDE_PID (bez sandboxu), env, settings.
+# Autocompact orchestrátora: bez stropu roste kontext k 1 M a compact na plném okně ztrácí víc; stav je na disku, compact
+# kolem 370 k proběhl za běh dvakrát bez ztráty. Práh se hledá v příkazové řádce procesu claude z docs/.orchestrator-session
+# (hook), v přepínači procesu podle CLAUDE_PID (bez sandboxu), v env, v settings nahoře i per model (modelSettings.<model>,
+# kam ho ukládá /autocompact; model ze settings.model bez přípony [1m], jinak první model s prahem). Bez nalezeného prahu
+# je to chybějící nastavení s příkazem: /autocompact v session by zůstal trvale a stropoval i ruční sessions.
 ac=""; acz=""
 ac_z() { printf '%s' "$1" | sed -nE 's/.*--autocompact[= ]+([0-9]+[kK]?).*/\1/p'; }
 if [ -n "$claude_args" ]; then ac=$(ac_z "$claude_args"); [ -n "$ac" ] && acz="claude --autocompact"; fi
@@ -228,9 +230,15 @@ if [ -z "$ac" ] && [ -n "${CLAUDE_PID:-}" ]; then
 fi
 if [ -z "$ac" ] && [ -n "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" ]; then ac=$CLAUDE_CODE_AUTO_COMPACT_WINDOW; acz="env CLAUDE_CODE_AUTO_COMPACT_WINDOW"; fi
 if [ -z "$ac" ]; then ac=$(jq -r '.autoCompactWindow // empty' "$sfile" 2>/dev/null); [ -n "$ac" ] && acz="settings autoCompactWindow"; fi
+if [ -z "$ac" ]; then
+  acm=$(jq -r '(.model // "" | sub("\\[.*$"; "")) as $m | (.modelSettings // {}) | to_entries | map(select(.value.autoCompactWindow? != null)) | (map(select(.key == $m)) + .) | first // empty | "\(.key) \(.value.autoCompactWindow)"' "$sfile" 2>/dev/null)
+  if [ -n "$acm" ]; then ac=${acm#* }; acz="settings modelSettings.${acm%% *}.autoCompactWindow, stropuje i ruční sessions na tom modelu"; fi
+fi
 acn=${ac%[kK]}; case "$acn" in ''|*[!0-9]*) acn="" ;; esac
 [ -n "$acn" ] && [ "$acn" != "$ac" ] && acn=$((acn * 1000))
-if [ -z "$acn" ]; then echo "nastavení: autocompact nezjištěn"
+if [ -z "$acn" ]; then
+  echo "nastavení: autocompact CHYBÍ (orchestrátor bez stropu compactu): ukonči session a spusť claude --autocompact 400k (přepínač platí jen pro tu session; /autocompact v session by zůstal trvale a stropoval i ruční sessions)"
+  chybi="$chybi;autocompact (spusť claude --autocompact 400k)"
 elif [ "$acn" -gt 400000 ]; then echo "nastavení: autocompact $ac ($acz) je nad 400k: orchestrátor spouštěj s claude --autocompact 400k"
 else echo "nastavení: autocompact $ac ($acz)"; fi
 [ -n "$chybi" ] && echo "nastaveni_chybi: $(printf '%s' "${chybi#;}" | sed 's/;/; /g')"

@@ -12,7 +12,7 @@ Jsi poslední kontrola před předáním hotové vize uživateli. Čteš všechn
 
 ## Vstupy
 
-Vize (celá, včetně Plánu řezů, Mantinelů a Povolení a seznamu UI ploch), `docs/produkt.md` když existuje (čti první, hodnotíš proti ní stejně jako proti vizi), `docs/handoff.md` (živý plán a Změny plánu), `docs/prd/`, `docs/journal.md`, `docs/follow-ups.md` (přes `scripts/follow-ups.py` z pluginu, když zadání nese jeho cestu; celý soubor jinak), `docs/vize-spory.md`, přístup do běžící aplikace. Kód čti Serenou jen tehdy, když ti chování nedává smysl.
+Vize (všechny sekce po sekcích, včetně Plánu řezů, Mantinelů a Povolení a seznamu UI ploch), `docs/produkt.md` když existuje (čti první, hodnotíš proti ní stejně jako proti vizi), `docs/handoff.md` (živý plán a Změny plánu), `docs/prd/`, `docs/journal.md`, `docs/follow-ups.md` (přes `scripts/follow-ups.py` z pluginu, když zadání nese jeho cestu; celý soubor jinak), `docs/vize-spory.md`, přístup do běžící aplikace. Kód čti Serenou jen tehdy, když ti chování nedává smysl.
 
 ## Postup
 

@@ -31,7 +31,7 @@ export const argsKolecko = (extra = {}) => ({
 export const souboryCasti = id => [`apps/sucho/${id.toLowerCase()}/modul.ts`, `apps/sucho/${id.toLowerCase()}/modul.test.ts`]
 export const prdCasti = id => `${CWD}/docs/prd/rez-${NN}-cast-${id}.md`
 export const casti = defs => defs.map(([id, zavisi = []]) => ({
-  id, nazev: `část ${id}`, soubory: [`apps/sucho/${id.toLowerCase()}/**`], kriteria: [`AK-${id}`], odhad_radku: 1000, zavisi_na: zavisi, prd_path: prdCasti(id),
+  id, nazev: `část ${id}`, soubory: [`apps/sucho/${id.toLowerCase()}/**`], kriteria: [`AK-${id}`], odhad_radku: 700, zavisi_na: zavisi, prd_path: prdCasti(id),
 }))
 
 // ---------- label ----------

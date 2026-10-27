@@ -1,11 +1,12 @@
-// 163b · PRD · 1.8.0 casti_odebrane bez nálezu, který odebrání žádá (spec 1.8.0 § 2.4): blok odebrání ignoruje, části zůstávají.
+// 163b · PRD · 1.8.0 casti_odebrane bez nálezu, který odebrání žádá (spec 1.8.0 § 2.4); od 1.9.0 (§ 5.2) blok nevrací stavbě části
+// se smazaným PRD: končí ok: false s důvodem a orchestrátor rozhodne.
 import { argsPrd, kontrola, rozhrani, stub, prdCasti, CWD } from '../stuby.mjs'
 import { CASTI3 } from './17-prd-tri-casti.mjs'
 
 const CASTI = CASTI3.map(c => ({ ...c, prd_path: prdCasti(c.id) }))
 
 export default {
-  nazev: 'PRD: casti_odebrane bez žádosti orchestrátora se ignoruje',
+  nazev: 'PRD: casti_odebrane bez žádosti orchestrátora je ok: false',
   blok: 'blok-prd',
   args: argsPrd({ rezim: 'zapracovani', prd_path: `${CWD}/docs/prd/rez-05-sucho.md`, e2e_path: `${CWD}/docs/e2e/rez-05.md`, nalezy: ['odchylka od plánu: doplň F3'], puvodni: { casti: CASTI, kriteria: 14 } }),
   odpoved(label) {
@@ -14,9 +15,11 @@ export default {
   },
   over(v, volani, logy) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, rezim: 'zapracovani', casti_pocet: 3 })
-    k.rovno(((v && v.stavba) || {}).casti && v.stavba.casti.map(c => c.id), ['K1', 'K2', 'K3'], 'stavba.casti beze změny')
-    k.ok(logy.some(l => l.includes('casti_odebrane K3, ale žádný nález orchestrátora odebrání nežádá: ignoruji')), 'log ignorovaného odebrání')
+    k.navrat(v, { ok: false, rez: '05', casti_odebrane: ['K3'] })
+    k.ok(v && /zapracování odebralo části K3, které žádný nález nežádá/.test(v.duvod || ''), `návrat.duvod: ${v && v.duvod}`)
+    k.ok(!v || !v.stavba, 'návrat bez pole stavba (orchestrátor rozhodne, stavba nesmí dostat části se smazaným PRD)')
+    k.nic(/^prd-check:/, 'delta po odmítnutém odebrání')
+    k.ok(logy.some(l => l.includes('zapracování odebralo části K3, které žádný nález orchestrátora nežádá odebrat; blok končí')), 'log odmítnutého odebrání')
     rozhrani(k, volani)
     return k.chyby
   },

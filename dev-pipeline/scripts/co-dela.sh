@@ -14,22 +14,28 @@
 #                              předávky, hotové a selhané bloky, výsledek a pokusy per řez, výsledek kolečka
 #   co-dela.sh --session <dir>       ruční použití: adresář session ~/.claude/projects/<slug>/<session_id>
 #   co-dela.sh --transcript <p.jsonl> ruční použití: transkript session (adresář = cesta bez .jsonl)
+#   co-dela.sh --ted <ISO 8601>      „teď“ pro testy nad zmrazenou kopií session (výchozí skutečný čas)
 #
 # Jak se pozná stav:
 #   Workflow: <session>/subagents/workflows/<wf>/journal.jsonl (launched / started {agentId,label,phase} / result / failed);
 #     stavový soubor <session>/workflows/<wf>.json vzniká až při doběhnutí (status completed|failed|killed),
 #     takže Workflow bez stavového souboru běží; živý agent = POSLEDNÍ started daného key bez result/failed
 #     (stall watchdog restartuje agenta se stejným key a novým agentId; starý started bez result není živý agent).
+#     Agent s result nebo failed (podle agentId i key) není živý nikdy; fáze, jejíž agenti všichni skončili, je hotová.
+#     Řádky journalu se dělí jen na \n: výsledek agenta smí nést surové U+2028/U+2029 (str.splitlines by řádek rozdělil,
+#     result by se ztratil a hotový agent by vypadal jako živý a mlčící).
 #     Restarty (po stallu a po usage limitu) se ukazují u běžícího i doběhlého bloku s odhadem ztraceného času.
 #     Obnova přes resumeFromRunId píše do téhož journalu a stavový soubor přerušeného běhu přepíše až při doběhnutí:
 #     journal o víc než 5 s novější než stavový soubor = obnovený běh, který běží.
-#   Labely agentů (části, kontrakt, integrace, oprava, nástupce po předávce :nN; dluh:kolečko, obnova-stav:řez NN,
-#     thermo:báze, krok na pozadí) se vypisují čitelně (implement řez 05 · část K2 (název části) · pokus 1 · nástupce 2);
-#     název části z docs/.stavba-NN.json.
+#   Labely agentů (části, kontrakt a jeho poloviny :a/:b po stropu předávek, integrace, oprava, nástupce po předávce :nN;
+#     fix:řez NN:kolo K:balíček B:dávka D; dluh:kolečko, obnova-stav:řez NN (v obnově až uprostřed běhu, po voláních
+#     z cache), thermo:báze, krok na pozadí) se vypisují čitelně (implement řez 05 · část K2 (název části) · pokus 1 ·
+#     nástupce 2); název části z docs/.stavba-NN.json.
 #   Předávky jen z docs/.kontext.jsonl (záznamy udalost predavka, hook hlídač kontextu): za běh a za řez přes všechny
 #     bloky (PRD, stavba, obnova); součet výsledků bloků předávky obnovy nevidí. Bez logu (ruční --session mimo projekt)
 #     labely nástupců a pole predavky výsledků.
-#   Kontext agentů z docs/.kontext.jsonl v cwd (hook hlídač kontextu): u živého agenta poslední záznam jeho agent_id,
+#   Kontext agentů z docs/.kontext.jsonl v cwd (hook hlídač kontextu): u živého agenta poslední záznam jeho agent_id
+#     (kontext a čtení N kB z pole cteni_bajtu stráže čtení),
 #     v souhrnu nejvyšší kontext podle typu agenta a compacty, jen za agenty této session; compacty orchestrátora
 #     zvlášť ze záznamů hooku session-start při compactu (aid orchestrator), z nich je bere i závěrečná zpráva.
 #   Fronta těžkých příkazů: scripts/tezky.py stav (co drží, co čeká); status line čte stavový soubor fronty napřímo
@@ -43,6 +49,7 @@ set -uo pipefail
 
 mode=full
 sess=""
+ted=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --kratce) mode=kratce ;;
@@ -50,6 +57,7 @@ while [ $# -gt 0 ]; do
     --zprava) mode=zprava ;;
     --session) shift; sess="${1:-}" ;;
     --transcript) shift; sess="${1%.jsonl}" ;;
+    --ted) shift; ted="${1:-}" ;;
     -h|--help) awk 'NR > 1 && /^set /{exit} NR > 1' "$0"; exit 0 ;;
     *) echo "co-dela: neznámý argument $1" >&2; exit 0 ;;
   esac
@@ -90,7 +98,7 @@ fi
 # adresář skriptů pluginu (tezky.py vedle) bez podprocesu: status line to volá každých 30 s
 case "$0" in */*) skripty="${0%/*}" ;; *) skripty=. ;; esac
 
-CO_DELA_SESSION="$sess" CO_DELA_MODE="$mode" CO_DELA_SKRIPTY="$skripty" python3 - <<'PY' 2>/dev/null || true
+CO_DELA_SESSION="$sess" CO_DELA_MODE="$mode" CO_DELA_SKRIPTY="$skripty" CO_DELA_TED="$ted" python3 - <<'PY' 2>/dev/null || true
 import glob, json, os, re, sys, time
 from datetime import datetime, timezone
 
@@ -98,6 +106,14 @@ sess = os.environ["CO_DELA_SESSION"]
 mode = os.environ["CO_DELA_MODE"]
 skripty = os.environ.get("CO_DELA_SKRIPTY") or "."
 now = time.time()
+if os.environ.get("CO_DELA_TED"):
+    # ISO 8601; bez zóny se bere UTC (ne lokální čas stroje), nečitelný tvar hlásí a končí
+    try:
+        _t = datetime.fromisoformat(re.sub(r"\.\d+", "", os.environ["CO_DELA_TED"]).replace("Z", "+00:00"))
+        now = (_t if _t.tzinfo else _t.replace(tzinfo=timezone.utc)).timestamp()
+    except ValueError:
+        print(f"co-dela: --ted {os.environ['CO_DELA_TED']!r} není ISO 8601 (čekám tvar RRRR-MM-DDThh:mm:ssZ)")
+        sys.exit(0)
 TERMINAL = {"completed", "failed", "killed", "cancelled"}
 TICHO_VAROVANI = 20 * 60      # ⚠ pro agenty mlčící déle
 OPUSTENY = 3 * 3600           # samostatný agent bez konce a s takovým tichem se nepočítá za živého
@@ -128,7 +144,7 @@ def tail_lines(path, nbytes):
                 data = fh.read()
     except OSError:
         return []
-    return data.decode("utf-8", "replace").splitlines()
+    return data.decode("utf-8", "replace").split("\n")
 
 def jsonl(lines):
     for l in lines:
@@ -251,7 +267,7 @@ def tisice(n):
 CISLO_JAKO = {"implement": "pokus", "review": "kolo", "prd-check": "kolo", "verify": "běh", "deploy": "běh", "e2e": "běh",
               "kriteria": "běh", "fix-e2e": "běh", "fix": "balíček", "dluh": "balíček", "fix-dluh": "balíček", "obnova-stav": "běh"}
 NASTUPCE = re.compile(r":n\d+$")
-POKUS = re.compile(r"implement:řez\s*[0-9a-z]+:(?:[^:]+:)?(\d+)(?::n\d+)?$")
+POKUS = re.compile(r"implement:řez\s*[0-9a-z]+:(?:[^:]+:)?(\d+)(?::[ab])?(?::n\d+)?$")
 
 _NAZVY_CASTI = {}
 
@@ -288,6 +304,8 @@ def citelny(label):
             dal.append("kolo {} · balíček {}".format(*k.split(".")))
         elif typ == "e2e" and re.fullmatch(r"[a-z]", k):
             dal.append(f"skupina {k}")
+        elif typ == "implement" and "kontrakt" in kusy and re.fullmatch(r"[ab]", k):
+            dal.append(f"polovina {k}")
         else:
             dal.append(k)
     return " · ".join([hlava] + dal)
@@ -496,7 +514,7 @@ for wf in sorted(_wfs):
         continue
     if journal_mt is None:
         continue
-    started_all, by_key, done, failed_ids, poradi = {}, {}, set(), set(), []
+    started_all, by_key, starts_by_key, done, failed_ids, poradi = {}, {}, {}, set(), set(), []
     for e in jsonl(tail_lines(journal, 4 * 1024 * 1024)):
         t, aid = e.get("type"), e.get("agentId")
         if t == "started" and aid:
@@ -504,9 +522,15 @@ for wf in sorted(_wfs):
             poradi.append(e)
             # stall restart: stejný key, nový agentId; starý start bez result není živý agent
             by_key[e.get("key") or aid] = e
-        elif t in ("result", "failed") and aid:
-            done.add(aid)
-            if t == "failed":
+            starts_by_key.setdefault(e.get("key") or aid, []).append(aid)
+        elif t in ("result", "failed"):
+            # výsledek uzavírá agenta podle agentId, bez agentId podle key všechny dosud startované pod ním
+            # (ne pozdější start téhož key); agent s výsledkem není živý nikdy
+            if aid:
+                done.add(aid)
+            elif e.get("key"):
+                done.update(starts_by_key.get(e["key"], []))
+            if t == "failed" and aid:
                 failed_ids.add(aid)
     scripts = glob.glob(os.path.join(sess, "workflows", "scripts", f"*-{wf}.js"))
     name = os.path.basename(scripts[0])[: -len(f"-{wf}.js")] if scripts else "workflow"
@@ -759,6 +783,8 @@ def agent_line(a, indent):
     k = kontext_posl.get(a["aid"])
     if k:
         hlava += f" · kontext {tisice(k.get('kontext'))}" + (f", compactů {k['compactu']}" if cislo(k.get("compactu")) else "")
+        if cislo(k.get("cteni_bajtu")):
+            hlava += f" · čtení {round(cislo(k['cteni_bajtu']) / 1024)} kB"
     if kratce:
         return [hlava]
     hlava += f" · {a['phase']}" if a["phase"] else ""

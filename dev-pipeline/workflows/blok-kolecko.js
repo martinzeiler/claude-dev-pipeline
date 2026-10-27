@@ -108,14 +108,15 @@ const neCile = a.ne_cile ? S(a.ne_cile).slice(0, 1500) : ''
 const runbook = a.runbook ? S(a.runbook) : null
 const deployMode = a.deploy_mode === 'commit-only' ? 'commit-only' : 'config'
 const runtimeDopad = deployMode !== 'commit-only'
-const appPristup = a.app_pristup ? S(a.app_pristup) : null
+// Celé znění bez useknutí (délku hlídá args-bloku.py); při obnově ho od fáze od_faze přepíše obnova.app_pristup (vstup).
+let appPristup = a.app_pristup ? S(a.app_pristup) : null
 // Zakázané okno nasazení z runbooku projektu (text), deploy čeká s rezervou.
 const deployOkno = a.deploy_okno ? S(a.deploy_okno).slice(0, 300) : ''
 const e2ePath = `${cwd}/docs/e2e/kolecko.md`
 // Rozhodnutí majitele, která mění provoz běhu (1.7.0, docs/.run-args.json): v běhu sonnet-5-5 autor scénářů kolečka „bez čekání“
 // nedostal a kritéria nad populací běhů napsal jako neměřitelná. Jdou do rámce každého agenta kolečka.
-const rozhodnutiMajitele = (Array.isArray(a.rozhodnuti_majitele) ? a.rozhodnuti_majitele : (a.rozhodnuti_majitele ? [a.rozhodnuti_majitele] : []))
-  .map(x => S(x).trim()).filter(Boolean).join(' | ').slice(0, 2000)
+const normRozhodnuti = v => (Array.isArray(v) ? v : (v ? [v] : [])).map(x => S(x).trim()).filter(Boolean).join(' | ').slice(0, 2000)
+let rozhodnutiMajitele = normRozhodnuti(a.rozhodnuti_majitele)
 // Rychlé kontroly nad celým stromem z projektových fakt (1.7.0, jako ve stavbě): fix agenti je pouštějí s dotčenými testy.
 const rychleKontroly = a.rychle_kontroly ? S(a.rychle_kontroly).trim().slice(0, 600) : ''
 const rychleText = rychleKontroly ? ` a rychlé kontroly nad celým stromem: ${rychleKontroly}` : ''
@@ -135,6 +136,24 @@ const odFaze = odFazeIn === 'kolo 2' ? 'bezpecnost' : odFazeIn
 const obnovaOd = obnovaIn ? FAZE.findIndex(([, k]) => k === odFaze) : -1
 // Neznámá fáze přeměří brány od thermo: brána navíc stojí minuty, červená brána z cache zmaří celou obnovu.
 const obnova = obnovaIn ? { od: Math.max(0, obnovaOd), znacka: S(obnovaIn.znacka).trim() || 'bez značky' } : null
+// Nové pokyny k prostředí a rozhodnutí majitele z obnovy (1.9.0 § 1.3, jako ve stavbě): platí v promptech fází od od_faze dál (vstup),
+// prompty dřívějších fází zůstávají shodné s původním během a vrátí se z cache. Kolečko nemá pokusy ani obnova-stav: obnova.bez_cache
+// a obnova.pokus přijme a ignoruje (fáze od od_faze se přeměří jako při každé obnově).
+const APP_PRISTUP_STROP = 'obnova.app_pristup nad 1 500 znaků: nasazovací pokyny patří do runbooku projektu, args nesou jen odkaz a tajemství prostředí'
+const obnovaAppPristup = obnovaIn && S(obnovaIn.app_pristup).trim() ? S(obnovaIn.app_pristup) : null
+if (obnovaAppPristup && obnovaAppPristup.length > 1500) { log(`obnova: ${APP_PRISTUP_STROP} (${obnovaAppPristup.length} znaků) – nic se nespustilo`); return { ok: false, duvod: APP_PRISTUP_STROP } }
+const obnovaRozhodnuti = obnovaIn ? normRozhodnuti(obnovaIn.rozhodnuti_majitele) : ''
+let obnovaAktivni = false
+const vstup = titul => {
+  phase(titul)
+  if (!obnova || obnovaAktivni || FAZE.findIndex(([t]) => t === titul) < obnova.od) return
+  obnovaAktivni = true
+  if (!obnovaAppPristup && !obnovaRozhodnuti) return
+  if (obnovaAppPristup) appPristup = obnovaAppPristup
+  if (obnovaRozhodnuti) rozhodnutiMajitele = obnovaRozhodnuti
+  ramec = ramecZ()
+  log(`obnova: od fáze ${FAZE[obnova.od][1]} platí ${[obnovaAppPristup ? 'pokyny k prostředí' : '', obnovaRozhodnuti ? 'rozhodnutí majitele' : ''].filter(Boolean).join(' a ')} z obnovy`)
+}
 // Commit a deploy po obnově mohou najít commit a fix(security) z přerušeného běhu (pád po commitu): bez věty je commitnou podruhé.
 const obnovaVeta = (ph, commitu) => obnova && FAZE.findIndex(([t]) => t === ph) >= obnova.od ? `\nObnova běhu (${obnova.znacka}): výsledek této fáze z přerušeného běhu neplatí; změř a proveď ji znovu nad dnešním stavem.${commitu ? ' Commit kolečka nebo fix(security) z přerušeného běhu může už existovat (git log --grep): nový nedělej, vrať jejich hashe; změny pracovního stromu, které v nich nejsou, commitni dalším commitem.' : ''}` : ''
 // Fáze selhání → od_faze obnovy (návrat obnova_od): orchestrátor ji nemusí odvozovat.
@@ -159,7 +178,7 @@ async function run(prompt, opts) {
 // Předávka platí jen jako cesta, kterou jmenuje hook (docs/reviews/predavka-<agent_id>.md), a jen nová: v revizi 1.4.0 vyplnil
 // agent pole textem „žádná“ a nástupce zopakoval cestu předchůdce; obojí blok bral jako další předávku a po třetí fázi zahodil.
 // Relativní cesta platí taky a doplní se na absolutní (1.6.0, běh web-rijen: části řezu 10 vrátily cestu bez úvodního lomítka).
-const MAX_PREDAVEK = 3
+const MAX_PREDAVEK = 8
 const PREDAVKA_CESTA = /(^|\/)docs\/reviews\/predavka-[^/\s]+\.md$/
 const predavkaCesta = p => { const t = S(p).trim(); return !PREDAVKA_CESTA.test(t) ? '' : t.startsWith('/') ? t : `${cwd}/${t.replace(/^\.\//, '')}` }
 let predavekCelkem = 0
@@ -189,7 +208,7 @@ async function runSePredavkou(prompt, opts) {
 // Rámec každého agenta kolečka (1.8.0, § 3 A1, shodně se stavbou): kontext, args majitele a pět vět: autonomie, vize-spory s definicí
 // konzervativní volby odkazem (§ 2.1), návrat strojově, společná pravidla odkazem na TVAR-DOKUMENTU.md, hranice souborů. Každá věta
 // pod 40 slov (test sedimentu počítá duplicity řádků mezi bloky). Soubory kolečka se jmenují kolecko-<co>.md (vzor v TVAR-DOKUMENTU).
-const ramec = [
+const ramecZ = () => [
   `Projekt: ${cwd} (absolutní cesty; commity jen na vize větvi, nikdy na ${base}).`,
   `Závěrečné kolečko vize ${a.vize}${produkt ? ` · severka ${produkt}` : ''}. Rozsah: ${rozsah}.`,
   'Běh je autonomní: uživatele se neptáš a vykonáváš jen svou fázi, další spouští workflow.',
@@ -202,6 +221,7 @@ const ramec = [
   'docs/handoff.md je stav orchestrátora, ne tvůj vstup: nečti ho; co máš vědět, je v tomto zadání.',
   'Hranice: měníš jen soubory své role podle zadání; cizí soubory a rozpracovanou práci jiných agentů nevracíš (git checkout, restore, stash, clean; guard je blokuje) ani neformátuješ.',
 ].filter(Boolean).join('\n')
+let ramec = ramecZ()
 const M = { opusH: { model: 'opus', effort: 'high' }, opusM: { model: 'opus', effort: 'medium' }, sonL: { model: 'sonnet', effort: 'low' }, sonM: { model: 'sonnet', effort: 'medium' } }
 const cisty = xs => [...new Set((xs || []).map(x => S(x).trim()).filter(Boolean))]
 // Rozhodnutí nesou i objekty (prostředí, krok mimo Povolení, 1.8.0): deduplikace podle textu nebo JSON, objekty zůstávají.
@@ -263,6 +283,7 @@ const VERIFY = { type: 'object', required: ['typecheck', 'proslo', 'selhalo', 'e
   exit_kod: { type: 'integer', description: 'návratový kód příkazu testů' },
   z_cache: { type: 'boolean', description: 'true = runner vrátil výsledek testů nebo typechecku z cache, měření neproběhlo' },
   kontroly: arr('kontroly z pre-commit hooku projektu s výsledkem'), kontroly_ok: { type: 'boolean', description: 'všechny kontroly z pre-commit hooku prošly; true, když projekt pre-commit hook nemá' },
+  flaky: arr('soubory testů, které napoprvé skončily timeoutem a samostatný běh po uvolnění fronty těžkých příkazů prošel; nejvýš 3, víc je selhání'),
   selhavajici: arr('jména selhávajících testů a chyby typecheck s file:line, max 20'), vystup_path: str('soubor s plným výstupem'), prikazy: arr('spuštěné příkazy'), marker: str('hash stromu z verify-marker.sh při zelené bráně, jinak prázdné'),
   predavka: PREDAVKA,
 } }
@@ -452,7 +473,10 @@ const fazeTitul = faze => faze === 'thermo' ? 'Thermo' : faze === 'kolo 1' ? 'Co
 
 // Zelená jen nad doloženým měřením: exit kód testů 0, aspoň jeden prošlý test, nic z cache a kontroly pre-commitu (v běhu bez-dluhu
 // pustila brána zelenou nad neproběhlou suitou a commit pak padl na kontrolu pre-commitu, kterou brána nespustila). Měřidla kolečko nemá.
-const zelena = v => !!v && v.typecheck === true && v.selhalo === 0 && v.exit_kod === 0 && v.proslo > 0 && v.z_cache !== true && v.kontroly_ok !== false && v.meridla_ok !== false
+// Testy, které prošly až samostatně po timeoutu pod zátěží (flaky): nejvýš 3, zelená platí a každý jde do follow-ups k zlevnění měření.
+const MAX_FLAKY = 3
+const flakyZ = v => cisty(v && v.flaky)
+const zelena = v => !!v && v.typecheck === true && v.selhalo === 0 && v.exit_kod === 0 && v.proslo > 0 && v.z_cache !== true && v.kontroly_ok !== false && v.meridla_ok !== false && flakyZ(v).length <= MAX_FLAKY
 // Proč je brána červená, stejným výčtem jako zelena(): jde do logu, do opravy brány i do detailu selhání.
 const proc = v => [
   v.typecheck !== true && 'typecheck s chybami',
@@ -461,6 +485,7 @@ const proc = v => [
   !(v.proslo > 0) && 'žádný prošlý test',
   v.z_cache === true && 'výsledek z cache (spusť s --force)',
   v.kontroly_ok === false && 'kontroly pre-commitu neprošly',
+  flakyZ(v).length > MAX_FLAKY && `${flakyZ(v).length} testů prošlo až samostatně po timeoutu (strop ${MAX_FLAKY}): ${flakyZ(v).join(' | ')}`,
 ].filter(Boolean).join(', ')
 const verify = (faze, k, ph) => { const vystup = rep('verify', faze.replace(/\s+/g, '-'), k); return runSePredavkou(`${ramec}
 
@@ -490,7 +515,7 @@ const zapisNasazeni = `${cwd}/docs/e2e/kolecko-nasazeni.md`
 const ODKLAD = 'Když nasazení podle zakázaného okna, runbooku nebo pokynů majitele nesmí proběhnout dřív než za ~30 minut (včetně rezervy okna), dál nic nenasazuj a vrať stav odlozeno s nejdriv (ISO 8601 s časovou zónou) a duvod; commit kolečka smí proběhnout (vrať ho v commit). Odklad není infra selhání; kratší čekání počkej.'
 const deploy = (k, pozn, secOpravy, noveKroky = []) => runSePredavkou(`${ramec}
 
-Úkol: nasazení kolečka (běh ${k}).${bezpecnostniOpravy(secOpravy)} Nejdřív commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, počkej na terminální stav platformy (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. Co nasadit, urči podle git diff --stat <báze>..HEAD -- apps packages a importů změněných balíčků, nikdy podle diffu jednoho commitu: báze je poslední commit se zprávou „zápis nasazení“ (git log --grep 'zápis nasazení' -1 --format=%H), když žádný není, git merge-base HEAD ${base}; nasaď každou aplikaci, které se diff dotkl (i tu, kterou řez nenasadil), a pole health začni řádkem „aplikace: <app>@<verze nebo deployment id> nasazeno | <app> nenasazeno (<důvod z diffu>) | …“. Zápis nasazení kolečka (čas, commit, co se nasadilo, doklady; další nasazení kolečka připiš pod předchozí) zapiš do ${zapisNasazeni} a commitni ho samostatně zprávou „kolecko: zápis nasazení“ až po commitu kolečka; vrať report_path a commit_zapisu. Do zápisu přidej řádek „Dveře: jednosměrné | obousměrné · Dosah: <web | admin | data | zóna | platforma>“ (jednosměrné, když nasazení nese migraci, zápis podle Povolení, odeslání zprávy, mazání nebo cokoli, co jeden revert nevrátí) a totéž vrať v dvere a dosah.${noveKroky.length ? ` Oprava po E2E vyžaduje nový krok po nasazení s oporou v Povolení: ${noveKroky.map(kr => `${kr.krok} (důvod: ${kr.duvod}; opora: ${kr.opora})`).join(' | ').slice(0, 1200)}; proveď ho po nasazení v mezích citované opory a uveď ho v zápisu nasazení.` : ''} Pole commit je commit kolečka, ne commit zápisu. ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy, jen když to celé trvá nejvýš ~30 minut; jinak odklad (níže).` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'} ${ODKLAD}${appPristup ? ` Pokyny majitele k prostředí a nasazení jsou závazné a mají přednost před skripty repa (skript, který nasazuje jinam nebo jinak, než pokyny říkají, nepoužij nebo doplň o správné parametry): ${appPristup.slice(0, 1200)}.` : ''}`} Formátovací kontrolu pouštěj jen nad soubory, které commituješ. Nikdy si nedomýšlej postup, který projekt nedokumentuje.${obnovaVeta('Deploy a E2E', true)}`,
+Úkol: nasazení kolečka (běh ${k}).${bezpecnostniOpravy(secOpravy)} Nejdřív commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, počkej na terminální stav platformy (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. Co nasadit, urči podle git diff --stat <báze>..HEAD -- apps packages a importů změněných balíčků, nikdy podle diffu jednoho commitu: báze je poslední commit se zprávou „zápis nasazení“ (git log --grep 'zápis nasazení' -1 --format=%H), když žádný není, git merge-base HEAD ${base}; nasaď každou aplikaci, které se diff dotkl (i tu, kterou řez nenasadil), a pole health začni řádkem „aplikace: <app>@<verze nebo deployment id> nasazeno | <app> nenasazeno (<důvod z diffu>) | …“. Zápis nasazení kolečka (čas, commit, co se nasadilo, doklady; další nasazení kolečka připiš pod předchozí) zapiš do ${zapisNasazeni} a commitni ho samostatně zprávou „kolecko: zápis nasazení“ až po commitu kolečka; vrať report_path a commit_zapisu. Do zápisu přidej řádek „Dveře: jednosměrné | obousměrné · Dosah: <web | admin | data | zóna | platforma>“ (jednosměrné, když nasazení nese migraci, zápis podle Povolení, odeslání zprávy, mazání nebo cokoli, co jeden revert nevrátí) a totéž vrať v dvere a dosah.${noveKroky.length ? ` Oprava po E2E vyžaduje nový krok po nasazení s oporou v Povolení: ${noveKroky.map(kr => `${kr.krok} (důvod: ${kr.duvod}; opora: ${kr.opora})`).join(' | ').slice(0, 1200)}; proveď ho po nasazení v mezích citované opory a uveď ho v zápisu nasazení.` : ''} Pole commit je commit kolečka, ne commit zápisu. ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy, jen když to celé trvá nejvýš ~30 minut; jinak odklad (níže).` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'} ${ODKLAD}${appPristup ? ` Pokyny majitele k prostředí a nasazení jsou závazné a mají přednost před skripty repa (skript, který nasazuje jinam nebo jinak, než pokyny říkají, nepoužij nebo doplň o správné parametry): ${appPristup}.` : ''}`} Formátovací kontrolu pouštěj jen nad soubory, které commituješ. Nikdy si nedomýšlej postup, který projekt nedokumentuje.${obnovaVeta('Deploy a E2E', true)}`,
   { label: `deploy:kolečko:${k}`, phase: 'Deploy a E2E', agentType: 'dev-pipeline:deploy', schema: DEPLOY, ...M.sonM })
 
 // Sdílené pravidlo čekání na čas (spec 1.7.0 § 1.1, doslova): v běhu sonnet-5-5 napsal autor scénářů kolečka K16 a K17 vědomě jako
@@ -584,12 +609,13 @@ async function brana(faze, ph) {
   }
   st.verify = zapisVerify(v)
   zelenaBrana = ph
-  log(`brána po ${faze} zelená: ${v.proslo} testů`)
+  for (const t of flakyZ(v)) st.follow_ups.push(`[kolečko · testy] [oprava] test ${t} přesáhl limit pod zátěží, zlevni měření (nezvedej limit)`)
+  log(`brána po ${faze} zelená: ${v.proslo} testů${flakyZ(v).length ? `, ${flakyZ(v).length} testů až samostatně po timeoutu (follow-up)` : ''}`)
   return { ok: true }
 }
 
 // ---------- 1. thermo ----------
-phase('Thermo')
+vstup('Thermo')
 log(`kolečko vize ${S(a.vize)} nad ${base}...HEAD`)
 if (a.obnova && typeof a.obnova === 'object' && !obnovaIn) log('obnova bez od_faze ignorována: kolečko běží jako nové, bez značky obnovy')
 if (obnova) {
@@ -597,6 +623,8 @@ if (obnova) {
   if (obnovaOd < 0) log(`obnova: neznámá fáze „${S(a.obnova.od_faze)}“ (platí ${FAZE.map(([, k]) => k).join(', ')}), přeměří se všechno od thermo`)
   if (obnova.znacka === 'bez značky') log('obnova: chybí značka; další obnova bez nové značky vrátí brány této obnovy z cache')
   log(`obnova od fáze ${FAZE[obnova.od][1]} (značka ${obnova.znacka}): brána, commit, deploy a E2E od ní se přeměří, review se vrátí z cache`)
+  if (obnovaIn.bez_cache === true) log('obnova: bez_cache kolečko ignoruje (nemá pokusy ani obnova-stav; fáze od od_faze se přeměří jako při každé obnově)')
+  if (obnovaAppPristup || obnovaRozhodnuti) log(`obnova: nové ${[obnovaAppPristup ? 'pokyny k prostředí' : '', obnovaRozhodnuti ? 'rozhodnutí majitele' : ''].filter(Boolean).join(' a ')} platí od fáze ${FAZE[obnova.od][1]}`)
 }
 const th = await thermo()
 if (!th) return selhani('thermo', nic('thermo:kolečko', 'thermo agent'))
@@ -618,7 +646,7 @@ if (thermoSoubory(th).length) {
 }
 
 // ---------- 2. code-review kolo 1 ----------
-phase('Code-review 1')
+vstup('Code-review 1')
 const r1 = await review1()
 if (!r1) return selhani('code-review kolo 1', nic('review:kolečko:1', 'code-review agent'))
 if (r1.report_path) st.reports.push(r1.report_path)
@@ -632,7 +660,7 @@ if (!v1.ok) return selhani('code-review kolo 1', v1.detail)
 // ---------- 2b. dluh z follow-ups ----------
 // Vlna dluhu (§ 2.6): agent sběru vybere skriptem follow-ups.py nejvýš 40 otevřených položek [oprava] (nejdřív z řezů tohoto běhu podle
 // tabulky plánu v handoffu), rozdělí je do disjunktních balíčků po souborech; fix agenti je opraví, brána, commit; závěr opravené přeškrtne.
-phase('Dluh')
+vstup('Dluh')
 const DLUH = { type: 'object', required: ['balicky'], properties: {
   chyba: str('jen když skript follow-ups.py chybí nebo selhal: důvod; jinak nevyplňuj'),
   celkem: { type: 'integer', description: 'otevřené položky [oprava] ve follow-ups celkem' },
@@ -669,7 +697,7 @@ else {
 }
 
 // ---------- 3. bezpečnost ----------
-phase('Bezpečnost')
+vstup('Bezpečnost')
 const [sc, ss] = await parallel([() => secCocka(), () => secSkill()])
 for (const r of [sc, ss]) if (r && r.report_path) st.reports.push(r.report_path)
 if (!sc && !ss) return selhani('bezpečnost', `ani jedna bezpečnostní metodika nevrátila výsledek (${nic('security:kolečko:čočka', 'čočka')}; ${nic('security:kolečko:security-review', 'security-review')})`)
@@ -683,7 +711,7 @@ const vs = await vlna('bezpečnost', 'Bezpečnost', 'kolecko: bezpečnost', bs, 
 if (!vs.ok) return selhani('bezpečnost', vs.detail)
 
 // ---------- 4. deploy a E2E ----------
-phase('Deploy a E2E')
+vstup('Deploy a E2E')
 // Brána před nasazením jen nad změněným stromem (1.7.0): v běhu sonnet-5-5 běžela minutu po zelené bráně bezpečnosti nad týmž stromem
 // (4,7 min). Zelená brána platí, když po ní žádný fix agent nesahal do stromu a při obnově byla přeměřená v tomto běhu (fáze
 // od od_faze dál); brána z cache přerušeného běhu strom po zásahu člověka nezná.
@@ -819,7 +847,7 @@ if ((e.zavazne_mimo_ak || []).length) {
 }
 
 // ---------- 5. závěr ----------
-phase('Závěr')
+vstup('Závěr')
 const kola = `thermo ${st.thermo.nalezu}/${st.thermo.blokeru} (opraveno ${st.thermo.opraveno}); kolo 1 ${st.review.kolo1.nalezu} nálezů, ${st.review.kolo1.blokujicich} blokujících, ${st.review.kolo1.fix_agentu} fix agentů; dluh ${st.dluh.polozek} položek, opraveno ${st.dluh.opraveno}; bezpečnost ${st.security.nalezu} nálezů, ${st.security.blokujicich} blokujících, commity ${cisty(st.security.commity).length}`
 const c = await close({ kola, commity: cisty([...st.commity, ...st.security.commity]), security: cisty(st.security.commity), metodiky, odmitnute: cisty(st.odmitnute), jinak: cisty(st.jinak), rozhodnuti: dedupR(st.rozhodnuti), follow_ups: osudy(st.follow_ups), reports: cisty(st.reports), dluh: cisty(st.dluhOpravene), e2e: `${st.e2e.vysledek} ${st.e2e.pass}/${st.e2e.celkem}${st.e2e.castecne ? ` (částečně ${st.e2e.castecne})` : ''}` })
 st.review_passed = !!(c && c.ok && c.review_passed)

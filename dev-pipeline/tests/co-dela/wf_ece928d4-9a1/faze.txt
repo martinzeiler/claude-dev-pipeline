@@ -1,0 +1,13 @@
+Vstup
+Refresh PRD
+Kontrakt
+Implementace
+Části
+Integrace
+Review
+Brána
+Doklad
+Deploy
+E2E
+Diagnóza
+Uzavření

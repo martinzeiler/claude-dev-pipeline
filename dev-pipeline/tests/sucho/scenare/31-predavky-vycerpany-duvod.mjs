@@ -1,5 +1,5 @@
 // 31 · stavba · revize 1.4.0 nález 3 (a doplnění koordinátora): implementace předává pořád dál (4 platné předávky). Důvod selhání
-// v návratu je strop předávek, ne „agent nevrátil výsledek“, a log to řekne slovy „předávky vyčerpány“.
+// v návratu je strop předávek, ne „agent nevrátil výsledek“, a log to řekne slovy „předávky vyčerpány“. Od 1.9.0 strop 8 (9 předávek).
 import { argsStavby, kontrola, stub, hash, CWD, S } from '../stuby.mjs'
 
 export default {
@@ -12,7 +12,7 @@ export default {
   },
   over(v, volani, logy) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, vysledek: 'selhalo', faze: 'implementace', predavky: 4 })
+    k.navrat(v, { ok: true, vysledek: 'selhalo', faze: 'implementace', predavky: 9 })
     k.ok(/strop předávek vyčerpán/.test(S(v && v.detail)) && !/nevrátil výsledek/.test(S(v && v.detail)), `návrat.detail: ${JSON.stringify(v && v.detail)}`)
     k.ok(logy.some(l => /předávky vyčerpány/.test(l)), 'log „předávky vyčerpány“')
     return k.chyby

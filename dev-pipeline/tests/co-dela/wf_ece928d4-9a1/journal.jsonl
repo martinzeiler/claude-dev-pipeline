@@ -1,0 +1,39 @@
+{"type": "launched"}
+{"type": "started", "key": "v2:162c3fbb8b9457ca65d97a8847088f9d3a21e57b9ba1922fe17dc8345949b800", "agentId": "ab6554212d02bf20f", "label": "args:řez 16", "phase": "Vstup"}
+{"type": "result", "key": "v2:162c3fbb8b9457ca65d97a8847088f9d3a21e57b9ba1922fe17dc8345949b800", "agentId": "ab6554212d02bf20f", "result": {"stav": "hotovo"}}
+{"type": "started", "key": "v2:2f94b0791ef9bacd139b87245c2bc7eb8f8b5b380642f34fab28c8a93a40eeff", "agentId": "abb41bec9625c2811", "label": "prd-refresh:řez 16", "phase": "Refresh PRD"}
+{"type": "result", "key": "v2:2f94b0791ef9bacd139b87245c2bc7eb8f8b5b380642f34fab28c8a93a40eeff", "agentId": "abb41bec9625c2811", "result": {"stav": "hotovo"}}
+{"type": "started", "key": "v2:e5b74b7cd92a7d873d96ae2f8ddb860affc473005e84c58b9aaccf1beb7ed2a2", "agentId": "a0296ce2c34092265", "label": "prd-refresh-fix:řez 16", "phase": "Refresh PRD"}
+{"type": "result", "key": "v2:e5b74b7cd92a7d873d96ae2f8ddb860affc473005e84c58b9aaccf1beb7ed2a2", "agentId": "a0296ce2c34092265", "result": {"stav": "hotovo"}}
+{"type": "started", "key": "v2:363c97501b704e6c499663f40f040ebc2968b64b025ded59e00a3022319f9cf6", "agentId": "a466edfa0a23cbc48", "label": "implement:řez 16:kontrakt:1", "phase": "Kontrakt"}
+{"type": "result", "key": "v2:363c97501b704e6c499663f40f040ebc2968b64b025ded59e00a3022319f9cf6", "agentId": "a466edfa0a23cbc48", "result": {"stav": "hotovo"}}
+{"type": "started", "key": "v2:d557c2af8a2c97be16df08fa058c8c387e23481c409bfdc0fb43dfebc7400cc7", "agentId": "ad7d4b75f5417eb76", "label": "implement:řez 16:část K2:1", "phase": "Části"}
+{"type": "started", "key": "v2:237034f0f96da9860cc3c68b5b0c7145ef7bc43c247fafe6b4d9b908739cc2b6", "agentId": "a482b7fee65c6050c", "label": "implement:řez 16:část K1:1", "phase": "Části"}
+{"type": "result", "key": "v2:d557c2af8a2c97be16df08fa058c8c387e23481c409bfdc0fb43dfebc7400cc7", "agentId": "ad7d4b75f5417eb76", "result": {"stav": "hotovo"}}
+{"type": "result", "key": "v2:237034f0f96da9860cc3c68b5b0c7145ef7bc43c247fafe6b4d9b908739cc2b6", "agentId": "a482b7fee65c6050c", "result": {"stav": "hotovo", "souhrn": "část hotová detail na novém řádku konec"}}
+{"type": "started", "key": "v2:031b4d5adab5ca671ef1424f07ab4397076aa45ef97d78e444ac9530be733fad", "agentId": "a0a3daba9f67ed5cf", "label": "implement:řez 16:část K3:1", "phase": "Části"}
+{"type": "result", "key": "v2:031b4d5adab5ca671ef1424f07ab4397076aa45ef97d78e444ac9530be733fad", "agentId": "a0a3daba9f67ed5cf", "result": {"stav": "hotovo"}}
+{"type": "started", "key": "v2:a469a067d4c0471cd8e792571f8471a6374dcb68b2c18ec27aae30991c132a1e", "agentId": "a70086fe4adf6ef7e", "label": "implement:řez 16:integrace:1", "phase": "Integrace"}
+{"type": "result", "key": "v2:a469a067d4c0471cd8e792571f8471a6374dcb68b2c18ec27aae30991c132a1e", "agentId": "a70086fe4adf6ef7e", "result": {"stav": "hotovo"}}
+{"type": "started", "key": "v2:f681d0bf7a9db4dc3fa4b285eaf1cbcdfd4e9e836cb6754d1ee637ac22f40cbe", "agentId": "a1338ce9f47def8ad", "label": "review:řez 16:integrace:1", "phase": "Review"}
+{"type": "started", "key": "v2:217f5e1729dce5d37d3ce5c0d8c93cf67060403af96cf708b811bda7dd7a2b9b", "agentId": "a8f06f16e0200c4bd", "label": "thermo:řez 16:část K1", "phase": "Review"}
+{"type": "started", "key": "v2:bba06972213f70a5229b343721ef030a82c9d07563c337a0e81eafa0787c67e3", "agentId": "ab2fcdcaee2ecd5d7", "label": "review:řez 16:část K1:1", "phase": "Review"}
+{"type": "started", "key": "v2:a6f796ddff5c5655ddf1541d5973ce454bc6aa6d8332cfde29729b9953ba01e0", "agentId": "ab1410ce4a951bee8", "label": "review:řez 16:část K3:1", "phase": "Review"}
+{"type": "started", "key": "v2:6d50fcad3e5db5f627ade287877ec8f5eadb552983e5856ac915361a40ed18cc", "agentId": "a87845b4b55bb66b7", "label": "review:řez 16:část K2:1", "phase": "Review"}
+{"type": "started", "key": "v2:deb3e0e2817e266b018717095e5cc125fd17e21eb323c0fb28a213497989355c", "agentId": "acc6387c6fad413ed", "label": "thermo:řez 16:část K3", "phase": "Review"}
+{"type": "started", "key": "v2:b28730842e8d66cb3e68a646ccd0f0ec75a89d764617bad6592a345363bc7557", "agentId": "a041601b62db3e7cb", "label": "thermo:řez 16:část K2", "phase": "Review"}
+{"type": "result", "key": "v2:b28730842e8d66cb3e68a646ccd0f0ec75a89d764617bad6592a345363bc7557", "agentId": "a041601b62db3e7cb", "result": {"stav": "hotovo"}}
+{"type": "result", "key": "v2:217f5e1729dce5d37d3ce5c0d8c93cf67060403af96cf708b811bda7dd7a2b9b", "agentId": "a8f06f16e0200c4bd", "result": {"stav": "hotovo"}}
+{"type": "result", "key": "v2:deb3e0e2817e266b018717095e5cc125fd17e21eb323c0fb28a213497989355c", "agentId": "acc6387c6fad413ed", "result": {"stav": "hotovo"}}
+{"type": "result", "key": "v2:6d50fcad3e5db5f627ade287877ec8f5eadb552983e5856ac915361a40ed18cc", "agentId": "a87845b4b55bb66b7", "result": {"stav": "hotovo"}}
+{"type": "result", "key": "v2:a6f796ddff5c5655ddf1541d5973ce454bc6aa6d8332cfde29729b9953ba01e0", "agentId": "ab1410ce4a951bee8", "result": {"stav": "hotovo"}}
+{"type": "result", "key": "v2:f681d0bf7a9db4dc3fa4b285eaf1cbcdfd4e9e836cb6754d1ee637ac22f40cbe", "agentId": "a1338ce9f47def8ad", "result": {"stav": "hotovo"}}
+{"type": "result", "key": "v2:bba06972213f70a5229b343721ef030a82c9d07563c337a0e81eafa0787c67e3", "agentId": "ab2fcdcaee2ecd5d7", "result": {"stav": "hotovo"}}
+{"type": "started", "key": "v2:d9139fc8cb1c64d4bcaa0032f3a90dd27e2fc252e163e3f9356793f019edaf5b", "agentId": "ae52a972c2ab6fa22", "label": "fix:řez 16:1.1", "phase": "Review"}
+{"type": "started", "key": "v2:1702e74f4921b693f7701e3481a652081e7ea30bf7de691e93c2eea7db28fa3b", "agentId": "ac975339da232213b", "label": "fix:řez 16:1.2", "phase": "Review"}
+{"type": "started", "key": "v2:6aaa756e2d412e2fd848206cfa3ae077c9dd1a18cd47f7dc67b03f18004b582c", "agentId": "acbfeff3d571c94f9", "label": "fix:řez 16:1.3", "phase": "Review"}
+{"type": "started", "key": "v2:c1524d4fa319db7ba36bfefbd34804dd798da4d4018ea9b3e37f5b322b6e8510", "agentId": "ac73db030c156e308", "label": "fix:řez 16:1.4", "phase": "Review"}
+{"type": "started", "key": "v2:8f5640de30d3b30335d63d8c48cac79eee6ce94c78f7a3b28c025244755d652a", "agentId": "a60cae0d3643abbfa", "label": "fix:řez 16:1.5", "phase": "Review"}
+{"type": "result", "key": "v2:8f5640de30d3b30335d63d8c48cac79eee6ce94c78f7a3b28c025244755d652a", "agentId": "a60cae0d3643abbfa", "result": {"stav": "hotovo"}}
+{"type": "result", "key": "v2:c1524d4fa319db7ba36bfefbd34804dd798da4d4018ea9b3e37f5b322b6e8510", "agentId": "ac73db030c156e308", "result": {"stav": "hotovo"}}
+{"type": "result", "key": "v2:6aaa756e2d412e2fd848206cfa3ae077c9dd1a18cd47f7dc67b03f18004b582c", "agentId": "acbfeff3d571c94f9", "result": {"stav": "hotovo"}}

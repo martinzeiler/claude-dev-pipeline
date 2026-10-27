@@ -3,7 +3,7 @@
 // (label prd-fix:řez NN:rozdělit, schéma jen rozdelit_navrh) a autory, kontroly ani zapracování nespustí.
 import { argsPrd, kontrola, rozhrani, stub, casti } from '../stuby.mjs'
 
-const CASTI6 = casti([['K1'], ['K2'], ['K3', ['K1']], ['K4'], ['K5', ['K2']], ['K6']])
+const CASTI6 = casti([['K1'], ['K2'], ['K3', ['K1']], ['K4'], ['K5', ['K2']], ['K6']]).map(c => ({ ...c, odhad_radku: 1000 }))
 export const NAVRH = 'NAVRH-160: K1+K2+K3 jako řez 05a, K4+K5+K6 jako 05b'
 
 export default {
@@ -25,7 +25,8 @@ export default {
     k.obsahuje(n, 'skutečnost bývá 1.5× odhad, takže řez vychází na ~9000 řádků (strop ~8000)', 'výpočet 1,5× v zadání')
     k.obsahuje(n, 'Vrať jen rozdelit_navrh', 'jen návrh, kostru needituje')
     k.nic(/^prd-část:|^prd-check:|^prd-fix:řez 05$/, 'autoři, kontroly a zapracování po rozdělení před autory')
-    k.ok(logy.some(l => l.includes('rozdělení před autory: 1.5 × odhad částí 6000 ř. = 9000 ř. (strop 8000), částí 6 (strop 10)')), 'log výpočtu rozdělení')
+    k.ok(logy.some(l => l.includes('rozdělení před autory: 1.5 × odhad částí 6000 ř. = 9000 ř. (strop 8000), částí 6 (strop 12)')), 'log výpočtu rozdělení')
+    k.nic(/rozdělit-části$/, 'rozdělení částí po konci po architektovi')
     k.ok(logy.some(l => /návrh rozdělit řez: blok končí po architektovi/.test(l)), 'log o konci po architektovi')
     k.rovno(((v && v.stavba) || {}).casti && v.stavba.casti.map(c => c.id), ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'], 'návrat.stavba.casti pro pokračování')
     rozhrani(k, volani)

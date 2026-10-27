@@ -25,7 +25,12 @@ a sám je nedoplňuje (vize z docs/.orchestrator-run jen tehdy, když ji .run-ar
 Pole `obnova` patří do volání bloku, ne do souboru (--doplnit s ním skončí kódem 2): načítací agent by si ho mohl vymyslet
 a obnova by přehrála celou stavbu. Obnova musí nést `pokus` ≥ 1 = číslo PŘERUŠENÉHO pokusu (`pokusy` z návratu
 zastaveného bloku; bez návratu číslo z labelu posledního agenta), nikdy +1: blok ten pokus dokončí a od něj čísluje
-pokusy, labely a reporty, aby nepřepsal reporty dřívějších pokusů. Pole s prázdnou hodnotou (null, "", [], {}) se do
+pokusy, labely a reporty, aby nepřepsal reporty dřívějších pokusů. Další klíče obnovy: `od_faze`, `znacka`,
+`bez_cache` (true/false; true jen po aktualizaci pluginu nebo změně args, blok pak cache Workflow nevěří), `app_pristup`
+(nové pokyny k prostředí jen pro fáze od od_faze; `.run-args.json` ani cesta k args se při obnově nemění, cache by minula),
+`rozhodnuti_majitele`; neznámý klíč skript odmítne. `app_pristup` (v --doplnit, v obnově i v docs/.run-args.json) nad
+1 500 znaků skončí kódem 2: nasazovací pokyny patří do runbooku projektu, args nesou odkaz a tajemství prostředí.
+Pole s prázdnou hodnotou (null, "", [], {}) se do
 souboru nepíšou (kromě rez); `_pole` je seřazený seznam klíčů souboru sjednocený s klíči docs/.run-args.json (bez prázdných
 hodnot): blok podle něj pozná, že načítací agent pole vynechal nebo přidal.
 
@@ -210,6 +215,42 @@ def klice_run_args(cwd):
     return {k for k, v in ra.items() if k != "_pole" and not prazdne(v)} if isinstance(ra, dict) else set()
 
 
+APP_PRISTUP_MAX = 1500
+OBNOVA_KLICE = ("od_faze", "znacka", "pokus", "bez_cache", "app_pristup", "rozhodnuti_majitele")
+
+
+def over_app_pristup(v, odkud):
+    """app_pristup nad strop je chyba, ne tiché useknutí: nasazovací pokyny patří do runbooku projektu."""
+    if isinstance(v, str) and len(v) > APP_PRISTUP_MAX:
+        chyba(2, f"{odkud}: app_pristup má {len(v)} znaků, strop je {APP_PRISTUP_MAX}; nasazovací pokyny patří do runbooku "
+                 "projektu (runbook), args nesou jen odkaz na něj a tajemství prostředí; zkrať a spusť znovu")
+
+
+def over_obnovu(ob):
+    """Tvar pole obnova ve volání bloku: známé klíče, bez_cache jen true/false, app_pristup řetězec pod stropem."""
+    cizi = sorted(k for k in ob if k not in OBNOVA_KLICE)
+    if cizi:
+        chyba(2, f"obnova nese neznámé klíče {', '.join(cizi)}; povolené: {', '.join(OBNOVA_KLICE)}")
+    if "bez_cache" in ob and not isinstance(ob["bez_cache"], bool):
+        chyba(2, "obnova.bez_cache musí být true nebo false (true jen po aktualizaci pluginu nebo změně args: blok pak "
+                 "přeskočí jen fáze nad doloženým nasazením a cache Workflow nevěří)")
+    if "app_pristup" in ob and not isinstance(ob["app_pristup"], str):
+        chyba(2, "obnova.app_pristup musí být řetězec (nové pokyny k prostředí jen pro fáze od od_faze)")
+    rm = ob.get("rozhodnuti_majitele")
+    if rm is not None and not (isinstance(rm, list) and all(isinstance(x, str) for x in rm)):
+        chyba(2, "obnova.rozhodnuti_majitele musí být seznam řetězců (citace majitele pro fáze od od_faze)")
+    over_app_pristup(ob.get("app_pristup"), "obnova")
+
+
+def run_args(cwd):
+    try:
+        with open(os.path.join(cwd, "docs", ".run-args.json"), encoding="utf-8") as f:
+            ra = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return ra if isinstance(ra, dict) else {}
+
+
 def zapis_json(cil, data):
     tmp = f"{cil}.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -307,11 +348,14 @@ def main(argv):
                          "přerušeného pokusu (pokusy z návratu zastaveného bloku, bez návratu číslo z labelu posledního "
                          "agenta; nikdy +1); blok ten pokus dokončí a od N čísluje pokusy, labely a reporty. Obnova patří "
                          "do volání bloku, ne do souboru args.")
+            over_obnovu(ob)
             chyba(2, "obnova patří do volání bloku, ne do souboru (Workflow args: {cwd, plugin_root, rez, args_file, obnova: "
                      + json.dumps(ob, ensure_ascii=False) + "})")
+        over_app_pristup(d.get("app_pristup"), "--doplnit")
         dr = d.get("rez")
         if dr is not None and druh != "kolecko" and nn(dr) != NN:
             chyba(4, f"--doplnit nese rez {nn(dr)}, ne {NN}")
+    over_app_pristup(run_args(cwd).get("app_pristup"), "docs/.run-args.json")
     args_behu = None
     if "--puvodni-run" in opt or "--puvodni-vysledek" in opt:
         if druh != "prd":

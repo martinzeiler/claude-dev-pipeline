@@ -4,9 +4,9 @@
 import { argsPrd, kontrola, rozhrani, stub, prdCasti } from '../stuby.mjs'
 
 export const CASTI3 = [
-  { id: 'K1', nazev: 'Datový model', soubory: ['packages/db/rozpocty/**'], kriteria: ['AK1', 'AK2'], odhad_radku: 1200, zavisi_na: [] },
-  { id: 'K2', nazev: 'API', soubory: ['apps/api/src/rozpocty/**'], kriteria: ['AK3'], odhad_radku: 1000, zavisi_na: [] },
-  { id: 'K3', nazev: 'UI', soubory: ['apps/web/src/rozpocty/**'], kriteria: ['AK4', 'AK5'], odhad_radku: 1300, zavisi_na: ['K1'] },
+  { id: 'K1', nazev: 'Datový model', soubory: ['packages/db/rozpocty/**'], kriteria: ['AK1', 'AK2'], odhad_radku: 700, zavisi_na: [] },
+  { id: 'K2', nazev: 'API', soubory: ['apps/api/src/rozpocty/**'], kriteria: ['AK3'], odhad_radku: 600, zavisi_na: [] },
+  { id: 'K3', nazev: 'UI', soubory: ['apps/web/src/rozpocty/**'], kriteria: ['AK4', 'AK5'], odhad_radku: 750, zavisi_na: ['K1'] },
 ]
 const SEKCE = [{ nazev: 'Rozpočty API', kriterii: 7 }, { nazev: 'Rozpočty UI', kriterii: 7 }]
 const IDS = CASTI3.map(c => c.id)

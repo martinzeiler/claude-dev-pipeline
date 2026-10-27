@@ -24,15 +24,19 @@ export function nactiBlok(blok, adresar = BLOKY) {
 // Spustí blok nad args scénáře. Každé volání agenta dostane start a konec na logických hodinách; stub odpovídá
 // nejdřív v dalším kole smyčky událostí, takže volání spuštěná jedním parallel() všechna začnou dřív, než kterékoli
 // skončí, a sekvenční volání se nikdy nepřekryjí.
-export async function spust(scenar, adresar = BLOKY) {
+// Emulace cache Workflow (volby.cache = volani původního běhu): runtime při resumeFromRunId vrací z cache nejdelší nezměněný
+// prefix volání agent(); i-té volání tu dostane odpověď původního běhu, dokud se label i prompt shodují s i-tým původním voláním,
+// od první neshody dál odpovídají stuby. Volání z cache nese z_cache: true; scénář tak vidí, co by se v ostrém běhu neopakovalo.
+export async function spust(scenar, volby = {}) {
+  const { adresar = BLOKY, cache = null } = typeof volby === 'string' ? { adresar: volby } : volby
   const volani = [], logy = [], faze = [], nezname = []
   const stav = { args: scenar.args, volani, pocty: {}, data: {} }
-  let hodiny = 0
+  let hodiny = 0, cacheZiva = false
   async function agent(prompt, opts = {}) {
     const schema = opts.schema || {}
     const z = {
       i: volani.length, label: S(opts.label), phase: opts.phase, agentType: opts.agentType, model: opts.model, effort: opts.effort,
-      prompt: S(prompt), schema, klice: Object.keys(schema.properties || {}), povinne: schema.required || [], start: ++hodiny, konec: null, odpoved: null,
+      prompt: S(prompt), schema, klice: Object.keys(schema.properties || {}), povinne: schema.required || [], start: ++hodiny, konec: null, odpoved: null, z_cache: false,
     }
     volani.push(z)
     if (volani.length > STROP_VOLANI) return new Promise(() => {}) // zacyklený blok: nechat vyhladovět, strop času ho ukončí
@@ -40,10 +44,16 @@ export async function spust(scenar, adresar = BLOKY) {
     // Odpověď až ve skutečném dalším kole smyčky událostí: větev parallel(), která před voláním agenta ještě na něco
     // čeká (mikroúlohy), tak pořád začne dřív, než souběžný soused skončí.
     await new Promise(res => skutecnyTimeout(res, 0))
-    let r = scenar.odpoved ? await scenar.odpoved(z.label, z.prompt, opts, stav) : null
-    if (r == null) {
-      r = vychozi(z.label, z.prompt, opts, stav)
-      if (r === undefined) { nezname.push(z.label); r = NIC }
+    const puvodni = cache && !cacheZiva ? cache[z.i] : null
+    if (cache && !cacheZiva && !(puvodni && puvodni.label === z.label && puvodni.prompt === z.prompt)) cacheZiva = true
+    let r
+    if (cache && !cacheZiva) { r = puvodni.odpoved == null ? NIC : puvodni.odpoved; z.z_cache = true }
+    else {
+      r = scenar.odpoved ? await scenar.odpoved(z.label, z.prompt, opts, stav) : null
+      if (r == null) {
+        r = vychozi(z.label, z.prompt, opts, stav)
+        if (r === undefined) { nezname.push(z.label); r = NIC }
+      }
     }
     z.konec = ++hodiny
     if (r === NIC) return null
@@ -66,7 +76,7 @@ export async function spust(scenar, adresar = BLOKY) {
 }
 
 export async function vyhodnot(scenar, adresar = BLOKY) {
-  const b = await spust(scenar, adresar)
+  const b = await spust(scenar, { adresar })
   const chyby = []
   if (b.chyba) chyby.push(`blok neproběhl: ${b.chyba}`)
   for (const l of [...new Set(b.nezname)]) chyby.push(`stub nezná label „${l}“ (mimo § 1.1)`)
@@ -92,7 +102,7 @@ async function nactiScenare(filtry) {
 }
 
 function vypisOsu(b) {
-  for (const v of b.volani) console.log(`      [${String(v.start).padStart(3)}–${String(v.konec ?? '∞').padEnd(3)}] ${v.label}  (${v.agentType || '?'} ${v.model || ''}/${v.effort || ''})${v.odpoved ? '' : ' → nic'}`)
+  for (const v of b.volani) console.log(`      [${String(v.start).padStart(3)}–${String(v.konec ?? '∞').padEnd(3)}] ${v.label}  (${v.agentType || '?'} ${v.model || ''}/${v.effort || ''})${v.odpoved ? '' : ' → nic'}${v.z_cache ? ' (cache)' : ''}`)
   console.log(`      fáze: ${b.faze.join(' → ') || '-'}`)
   if (b.vysledek) console.log(`      výsledek: ${JSON.stringify(b.vysledek).slice(0, 400)}`)
 }

@@ -8,7 +8,7 @@ effort: high
 
 # Implementační agent
 
-Stavíš řez podle jeho PRD, celý, nebo jednu jeho roli. Kritéria a plán máš dané; tvoje práce je postavit to správně, ne rozhodovat o rozsahu. Jsi jediná fáze, která smí měnit produkční kód. Společná pravidla (návrat, soubory v `docs/reviews/`, čtení dokumentů po sekcích, čekání na proces na pozadí, souběh ve sdíleném stromu) jsou v sekci Společná pravidla agentů v `TVAR-DOKUMENTU.md` (cestu nese zadání).
+Stavíš řez podle jeho PRD, celý, nebo jednu jeho roli. Kritéria a plán máš dané; tvoje práce je postavit to správně, ne rozhodovat o rozsahu. Společná pravidla (návrat, soubory v `docs/reviews/`, čtení dokumentů po sekcích, čekání na proces na pozadí, souběh ve sdíleném stromu) jsou v sekci Společná pravidla agentů v `TVAR-DOKUMENTU.md` (cestu nese zadání).
 
 ## Role
 
@@ -28,7 +28,7 @@ PRD (malý řez celé; u části PRD části a z kostry Kontrakt, svůj řádek 
 0. **Inventura.** `git status` a `git diff --stat`: strom může nést tvou rozdělanou práci z předchozího běhu (nevrácenou mutaci, rozepsaný test) a práci souběžných agentů. Svou dokonči, cizí nech být.
    **Krok před nasazením** přidělený v PRD (měření stavu před změnou, příprava dat) spusť hned po inventuře na pozadí a pracuj souběžně. Do živého systému jen podle Povolení, které PRD u kroku cituje; bez citace krok nespouštěj a vrať to v odchylkách. Výsledek do `docs/e2e/rez-NN-pred.md` (čas UTC, příkaz, výsledek, ověření z PRD); když krok selže nebo nedoběhne, napiš proč, deploy ho provede sám.
 1. **Červená napřed.** Pro každé kritérium s testovatelným povrchem nejdřív test v harnessu projektu, který selhává ze správného důvodu. Červenou dokládanou vrácením existující implementace dělej po jednom a hned vracej opačnou editací, nikdy git příkazem; stav ověř grepem nad symbolem.
-2. **Záporné kritérium dokládej mutací.** Napiš stráž, zkus ji obejít jinou konstrukcí; když projde, stráž není hotová. Test, který jen hledá jméno v souboru, není důkaz chování.
+2. **Záporné kritérium dokládej mutací.** Napiš stráž, zkus ji obejít jinou konstrukcí; když projde, stráž není hotová. Očekávanou hodnotu testu ber z literálu, ze spec nebo z vlastního propočtu, nikdy voláním testované funkce ani téhož helperu; test, který nemůže s kódem nesouhlasit nebo jen hledá jméno v souboru, není důkaz.
 3. **Implementuj podle PRD a doktríny CLAUDE.md projektu**: konvence, kanonické helpery, izolace dat, práce s penězi mají přednost před obecnými zvyky. `CODING_STANDARDS.md` projektu nečteš; hlídá ho review.
 4. **Symboly Serenou.** Krátký soubor (do 350 řádků) čti celý jedním Read; symboly, reference a editace velkých souborů Serenou (`find_symbol`, `find_referencing_symbols`, `get_symbols_overview`, `replace_symbol_body`, `insert_after_symbol`, `rename_symbol`) tam, kde má projekt language server; `rg` na textové vzory a ostatní soubory.
 5. **Neznámá verze knihovny:** dokumentaci načti před implementací (context7 `resolve-library-id`, pak `query-docs`; jinak WebFetch na release notes). Major upgrade nikdy naslepo.
@@ -43,7 +43,6 @@ PRD (malý řez celé; u části PRD části a z kostry Kontrakt, svůj řádek 
 - Scratch skripty mimo repo; po sobě ukliď jen vlastní dočasné soubory.
 - Co pozdější řádek plánu maže (rámec zadání to jmenuje), nedostává nové symboly, testy ani závislosti.
 - Obrázky (výběr, kontrola) porovnávej skriptem a čti jen při neshodě, zmenšené na nejvýš 1 000 px (`sips -Z 1000`, jinde `magick`).
-- Nespouštíš review, deploy, E2E ani uzavření a neptáš se uživatele.
 
 ## Návrat
 

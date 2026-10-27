@@ -57,13 +57,15 @@ if [ -f "$settings" ]; then
   jq -e '.extraKnownMarketplaces["claude-dev-pipeline"]' "$settings" >/dev/null 2>&1 && OK "marketplace claude-dev-pipeline: $(jq -r '.extraKnownMarketplaces["claude-dev-pipeline"].source.path' "$settings")" || FAIL "marketplace claude-dev-pipeline chybí v settings.json"
   [ "$(jq -r '.enabledPlugins["dev-pipeline@claude-dev-pipeline"]' "$settings")" = "true" ] && OK "plugin dev-pipeline zapnutý" || FAIL "plugin dev-pipeline není zapnutý (claude plugin install dev-pipeline@claude-dev-pipeline)"
   [ "$(jq -r '.autoContinueAtUsageLimit' "$settings")" = "true" ] && OK "autoContinueAtUsageLimit: true" || FAIL "autoContinueAtUsageLimit není true (Workflow po usage limitu nepokračuje)"
-  # Doporučeno 400k: compact orchestrátora kolem 370 k proběhl v běhu bez ztráty, stav je na disku; subagenty běhu
-  # předá nástupci hlídač kontextu dřív. Varuje se jen nad 400k nebo bez hodnoty. /autocompact ukládá práh per model
-  # pod modelSettings (má přednost před horním klíčem); hodnotí se nejvyšší nalezená.
-  acw=$(jq -r '[.autoCompactWindow // empty, ((.modelSettings // {})[] | .autoCompactWindow? // empty)] | map(numbers) | max // empty' "$settings")
-  if [ -z "$acw" ]; then WARN "autoCompactWindow chybí (doporučeno 400k: orchestrátor spouštěj s claude --autocompact 400k, nebo natrvalo /autocompact 400k v session)"
-  elif [ "$acw" -gt 400000 ] 2>/dev/null; then WARN "autoCompactWindow: $acw, doporučeno nejvýš 400000 (/autocompact 400k)"
-  else OK "autoCompactWindow: $acw"; fi
+  # Orchestrátor se stropuje přepínačem claude --autocompact 400k (jen ta session): compact kolem 370 k proběhl v běhu bez
+  # ztráty, stav je na disku; subagenty běhu předá nástupci hlídač kontextu dřív. Horní klíč autoCompactWindow a klíče per
+  # model (modelSettings.<model>, kam je ukládá /autocompact v session) se vypisují zvlášť: klíč per model stropuje
+  # i ruční sessions na tom modelu, proto je to jen informace, ne doporučení.
+  acw=$(jq -r '.autoCompactWindow // empty' "$settings")
+  [ -n "$acw" ] && OK "autoCompactWindow (horní klíč, všechny sessions): $acw" || OK "autoCompactWindow bez horního klíče (orchestrátor spouštěj s claude --autocompact 400k; setup běhu to kontroluje)"
+  while IFS= read -r m; do
+    [ -n "$m" ] && WARN "modelSettings.${m%% *}.autoCompactWindow: ${m#* } (z /autocompact v session; stropuje i ruční sessions na tom modelu, orchestrátorovi stačí přepínač claude --autocompact 400k)"
+  done < <(jq -r '(.modelSettings // {}) | to_entries[] | select(.value.autoCompactWindow? != null) | "\(.key) \(.value.autoCompactWindow)"' "$settings" 2>/dev/null)
   # allowWrite vždy: sandbox může zapínat i projekt (.claude/settings.local.json), user settings pak sandbox.enabled nemají
   # a zápis orchestrátora do feedback souboru přesto selže.
   if jq -e '.sandbox.filesystem.allowWrite // [] | index("~/dev-pipeline-feedback.md")' "$settings" >/dev/null 2>&1; then OK "sandbox: ~/dev-pipeline-feedback.md v allowWrite"

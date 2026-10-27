@@ -18,9 +18,7 @@ Pro agenty bloků: co kde leží, kdo to píše a v jakém tvaru. Čti jen sekce
 - `docs/vize-spory.md` (kdokoli v běhu): rozpory, předpoklady, otázky pro majitele (níže)
 - `docs/pojmy.md`, `docs/rozhodnuti.md` (vize session; pojmy i sklizeň): slovník a rozhodnutí projektu (níže); během běhu jen ke čtení
 - `docs/reviews/rez-NN-p<pokus>-<typ>-kolo-M.md`, `kolecko-<typ>[-<kolo>].md` (kontrolní agenti): plné reporty (`prd-check` bez čísla pokusu); gitignorováno; čte je fix agent
-- `docs/reviews/predavka-<agent_id>.md` (agent na výzvu PŘEDÁVKA): předávka nástupci: zadání větou, hotové a čím ověřené, co zbývá, zjištění, rozdělané soubory; cesta v poli `predavka`
-
-Vlastní soubory pojmenuj česky (`rez-NN-<co>.md`); jména `summary`, `findings`, `analysis` a `report-…` Claude Code subagentům blokuje.
+- `docs/reviews/predavka-<agent_id>.md` (agent na výzvu PŘEDÁVKA): předávka nástupci: zadání větou, hotové a čím ověřené, co zbývá, řádek `zbývající soubory: …` (shodný s polem `zbyvajici_soubory` návratu, z něj blok dělí Kontrakt na stropu předávek), zjištění, rozdělané soubory; cesta v poli `predavka`
 
 ## Handoff
 
@@ -79,5 +77,5 @@ Vadu pipeline samotné (krok, který selhal, nejednoznačná instrukce, nástroj
 - **Proces na pozadí:** `run_in_background` a čekání v tomtéž tahu smyčkou s pevným počtem iterací (`for i in $(seq 1 26); do …; sleep 10; done`), jedno čekací volání nejvýš 4,5 minuty; `Monitor` v agentovi bloku nečeká.
 - **Žádné otázky na uživatele**; handoff nečteš; auto-paměť se během běhu nepíše.
 - **Sdílený strom:** po restartu i po předávce začni inventurou (`git status`, `git diff --stat`); cizí soubory neupravuj, neformátuj, nevracej; pracuj jen v hranici souborů své role, změnu jinde vrať v návratu. Mazání s proměnnou jen chráněně (`rm -f "${S:?}"/soubor`); žádný `git checkout`, `stash` ani `clean`.
-- **Jména souborů** v `docs/reviews/` a `docs/e2e/`: `rez-NN-<co>.md`, `kolecko-<co>.md`; nikdy summary, findings, analysis ani report-.
+- **Jména souborů** v `docs/reviews/` a `docs/e2e/`: `rez-NN-<co>.md`, `kolecko-<co>.md`; nikdy summary, findings, analysis, report-.
 - **Testy patří k chování, ne k řezu**; past v kódu se opravuje, ne dokumentuje.

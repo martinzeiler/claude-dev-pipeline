@@ -1,6 +1,6 @@
 // 108 · PRD · 1.6.0 části nad stropem a sekce E2E s dobou (spec 1.6.0 § 1.8, 1.9): kontrola části K2 vrátí ready s vlastním
 // odhadem 1 700 řádků; část jde stavbě v casti_nad_stropem i při ready (delta K8 řezu 10 v běhu web-rijen předpověděla
-// 1 650–1 800 řádků a stavba to nedostala). Sekce E2E nesou doba_min a bez_soubehu až do stavba.e2e_sekce.
+// 1 650–1 800 řádků a stavba to nedostala); od 1.9.0 strop 1 200. Sekce E2E nesou doba_min a bez_soubehu až do stavba.e2e_sekce.
 import { argsPrd, kontrola, rozhrani, stub, CWD } from '../stuby.mjs'
 import { CASTI3 } from './17-prd-tri-casti.mjs'
 
@@ -13,7 +13,7 @@ export default {
   odpoved(label) {
     if (label === 'prd:řez 05') return stub(label, { kriteria: 14, casti: CASTI3, odhad_radku: 3500, kontrakt_potreba: true, kontrakt_odhad_radku: 1800, e2e_sekce: SEKCE })
     if (label === 'prd-check:řez 05:část K2:1') return { verdikt: 'ready', nalezu: 0, blokujicich: 0, osy: [], report_path: `${CWD}/docs/reviews/rez-05-prd-check-cast-K2-kolo-1.md`, nalezy_ids: [], odhad_casti: 1700 }
-    if (label === 'prd-check:řez 05:část K1:1') return { verdikt: 'ready', nalezu: 0, blokujicich: 0, osy: [], report_path: `${CWD}/docs/reviews/rez-05-prd-check-cast-K1-kolo-1.md`, nalezy_ids: [], odhad_casti: 900 }
+    if (label === 'prd-check:řez 05:část K1:1') return { verdikt: 'ready', nalezu: 0, blokujicich: 0, osy: [], report_path: `${CWD}/docs/reviews/rez-05-prd-check-cast-K1-kolo-1.md`, nalezy_ids: [], odhad_casti: 1100 }
     return null
   },
   over(v, volani, logy) {

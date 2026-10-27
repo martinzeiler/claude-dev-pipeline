@@ -93,6 +93,23 @@ o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{"od_faze":"dep
 o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{"od_faze":"deploy","znacka":"x","pokus":"2"}}'); rc=$?
 [ $rc -eq 2 ] && printf '%s' "$o" | grep -q 'obnova patří do volání bloku' && printf '%s' "$o" | grep -q '"pokus": "2"' && [ ! -e "$proj/docs/.stavba-05.json" ] && ok || ko "obnova-s-pokusem: rc=$rc $o"
 o=$(ab kolecko "$proj" --doplnit '{"base":"main","obnova":{"od_faze":"deploy"}}'); [ $? -eq 2 ] && ok || ko "obnova-kolecko-odmitnuta: $o"
+# 1.9.0: obnova.bez_cache (bool) a obnova.app_pristup (řetězec) projdou tvarem (hláška je opíše do volání bloku); jiný tvar
+# a neznámý klíč skončí vlastní hláškou; app_pristup nad 1 500 znaků skončí kódem 2 v --doplnit, v obnově i v .run-args.json
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{"od_faze":"deploy","znacka":"x","pokus":2,"bez_cache":true,"app_pristup":"nové heslo v 1Password"}}'); rc=$?
+[ $rc -eq 2 ] && printf '%s' "$o" | grep -q 'obnova patří do volání bloku' && printf '%s' "$o" | grep -q '"bez_cache": true' && printf '%s' "$o" | grep -q '"app_pristup": "nové heslo' && ok || ko "obnova-bez-cache-projde: rc=$rc $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{"od_faze":"deploy","pokus":2,"bez_cache":"ano"}}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'bez_cache musí být true nebo false' && ok || ko "obnova-bez-cache-tvar: $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{"od_faze":"deploy","pokus":2,"cache":false}}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'neznámé klíče cache' && ok || ko "obnova-neznamy-klic: $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{"od_faze":"deploy","pokus":2,"rozhodnuti_majitele":["2026-10-26 10:00 nasazuj hned"]}}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'obnova patří do volání bloku' && printf '%s' "$o" | grep -q 'nasazuj hned' && ok || ko "obnova-rozhodnuti-projde: $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"obnova":{"od_faze":"deploy","pokus":2,"rozhodnuti_majitele":"nasazuj hned"}}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'rozhodnuti_majitele musí být seznam řetězců' && ok || ko "obnova-rozhodnuti-tvar: $o"
+dlouhy=$(head -c 1600 /dev/zero | tr '\0' 'a')
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit "{\"obnova\":{\"od_faze\":\"deploy\",\"pokus\":2,\"app_pristup\":\"$dlouhy\"}}"); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'app_pristup má 1600 znaků, strop je 1500' && ok || ko "obnova-app-pristup-dlouhy: $o"
+rm -f "$proj/docs/.stavba-05.json"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit "{\"app_pristup\":\"$dlouhy\"}"); rc=$?
+[ $rc -eq 2 ] && printf '%s' "$o" | grep -q -- '--doplnit: app_pristup má 1600 znaků' && printf '%s' "$o" | grep -q 'runbook' && [ ! -e "$proj/docs/.stavba-05.json" ] && ok || ko "doplnit-app-pristup-dlouhy: rc=$rc $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"app_pristup":"heslo v 1Password, položka web"}'); [ $? -eq 0 ] && ok || ko "doplnit-app-pristup-kratky: $o"
+jq -n --arg a "$dlouhy" '{vize:"/p/docs/vize/v.md", app_pristup:$a}' > "$proj/docs/.run-args.json"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'docs/.run-args.json: app_pristup má 1600 znaků' && ok || ko "run-args-app-pristup-dlouhy: $o"
+jq -n '{vize:"/p/docs/vize/v.md", produkt:"/p/docs/produkt.md", ne_cile:"y"}' > "$proj/docs/.run-args.json"
 o=$(ab --help); [ $? -eq 0 ] && printf '%s' "$o" | grep -q 'args-bloku.py stavba' && ok || ko "help: $o"
 
 # 13. (1.7.0) prázdné hodnoty (null, "", [], {}) se nepíšou, rez vždy; _pole = klíče souboru ∪ neprázdné klíče .run-args.json

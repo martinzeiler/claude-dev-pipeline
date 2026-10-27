@@ -1,14 +1,15 @@
-// 142 · stavba · 1.8.0 (spec § 2.3): při obnově je první krok po args deploy v režimu obnova-stav. HEAD je commit řezu a nasazení je
-// doložené: implementace, review a brána se nepouští bez ohledu na cache; provedené kroky po nasazení z přerušeného běhu dostane deploy
-// a krok vynechaný s doloženým dřívějším provedením pokus nestojí.
+// 142 · stavba · 1.8.0 (spec § 2.3), od 1.9.0 (§ 1.2) jen s obnova.bez_cache: true (plugin aktualizovaný mezi pádem a obnovou, změněný
+// args_file: cache sedět nemůže). Obnova-stav běží hned jako první volání; HEAD je commit řezu a nasazení doložené: implementace, review
+// a brána se nepouští; provedené kroky po nasazení z přerušeného běhu dostane deploy a krok vynechaný s doloženým dřívějším provedením
+// pokus nestojí. Bez bez_cache blok cache důvěřuje a nic nepřeskakuje (153, 178).
 import { argsStavby, kontrola, stub, hash } from '../stuby.mjs'
 
 const Z = 'ZNACKA-142'
 
 export default {
-  nazev: 'obnova nad nasazeným commitem: bez implementace, review a brány',
+  nazev: 'obnova bez cache nad nasazeným commitem: bez implementace, review a brány',
   blok: 'blok-stavby',
-  args: argsStavby({ obnova: { od_faze: 'deploy', znacka: Z, pokus: 1 } }),
+  args: argsStavby({ obnova: { od_faze: 'deploy', znacka: Z, pokus: 1, bez_cache: true } }),
   odpoved(label) {
     if (label === 'obnova-stav:řez 05') return { commit_rezu: hash('commit řezu 142'), head_shodny: true, nasazeni_dolozeno: true, provedene_kroky: [{ id: 2, krok: 'purge keše CDN' }] }
     if (label === 'deploy:řez 05:1') return stub(label, { kroky_po_nasazeni: [{ id: 2, krok: 'purge keše CDN', stav: 'vynechano', duvod: 'provedeno v předchozím nasazení' }] })
@@ -24,6 +25,7 @@ export default {
     const d = k.jeden('deploy:řez 05:1')
     k.obsahuje(d, 'Předchozí nasazení tohoto řezu už provedlo: 2. purge keše CDN', 'provedené kroky z přerušeného běhu')
     k.obsahuje(d, Z, 'značku obnovy'); k.obsahuje(k.jeden('e2e:řez 05:1'), Z, 'značku obnovy')
+    k.ok(logy.some(l => /obnova bez cache \(bez_cache\): blok začíná pokusem 1/.test(l)), 'log obnovy bez cache')
     k.ok(logy.some(l => /implementace, review a brána se nepouští/.test(l)), 'log o přeskočení fází')
     return k.chyby
   },

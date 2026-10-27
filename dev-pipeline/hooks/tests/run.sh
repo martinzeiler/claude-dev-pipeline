@@ -14,9 +14,10 @@ echo "# vize" > "$proj/docs/vize/test.md"; echo "# prd" > "$proj/docs/prd/rez-01
 printf 'stav běhu: běží workflow blok-stavby řez 01\n| řez | stav |\n' > "$proj/docs/handoff.md"
 pass=0; fail=0
 ok() { pass=$((pass+1)); }; ko() { fail=$((fail+1)); echo "FAIL $*"; }
+mkdir -p "$tmp/tmpdir"   # stav hlídače kontextu (guard-run do něj připisuje zamítnutí) mimo skutečný TMPDIR
 run() { # name script json expect(allow|deny|block|ctx) [grep]
   local name=$1 script=$2 json=$3 expect=$4 grepfor=${5:-} out rc got=allow
-  out=$(printf '%s' "$json" | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/$script" 2>/dev/null); rc=$?
+  out=$(printf '%s' "$json" | TMPDIR="${TMPDIR_TEST:-$tmp/tmpdir}" CLAUDE_PROJECT_DIR="$proj" bash "$hooks/$script" 2>/dev/null); rc=$?
   if printf '%s' "$out" | grep -q '"permissionDecision": *"deny"'; then got=deny
   elif printf '%s' "$out" | grep -q '"decision": *"block"'; then got=block
   elif printf '%s' "$out" | grep -q 'additionalContext'; then got=ctx
@@ -155,14 +156,64 @@ run sub-ask guard-run.sh "$(pre $SID ag1 AskUserQuestion questions "")" allow
 run sub-read-big-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts")" deny "find_symbol"
 run sub-read-big-offset guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts" offset "100" limit "50")" allow
 run sub-read-small guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/small.ts")" allow
-run sub-read-big-md guard-run.sh "$(pre $SID ag1 Read file_path "$proj/docs/big.md")" allow
+# 1.9.0: práh platí pro každý textový soubor pod projektem, ne jen zdrojové přípony (agenti četli PRD .md celé, 58 kB na agenta)
+run sub-read-big-md-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/docs/big.md")" deny "rg -n (nadpis"
 run sub-read-prd guard-run.sh "$(pre $SID ag1 Read file_path "$proj/docs/prd/rez-01.md")" allow
+# 1.9.0: Read s offset nebo limit prošel vždy; teď projde jen úsek pod 300 řádků
+run sub-read-limit-2000-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts" limit "2000")" deny "find_symbol"
+run sub-read-limit-300-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts" limit "300")" deny
+run sub-read-limit-250 guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts" limit "250")" allow
+run sub-read-offset-bez-limitu-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts" offset "1")" deny
+run sub-read-offset-konec guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts" offset "300")" allow
+run sub-read-maly-bez-limitu guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/small.ts")" allow
+# výjimky: předávka, tečkové stavové soubory docs/, cesta mimo projekt, binární soubor
+mkdir -p "$proj/docs/reviews"; seq 1 500 > "$proj/docs/reviews/predavka-ag1.md"; seq 1 500 > "$proj/docs/.kontext.jsonl"; seq 1 500 > "$tmp/mimo.ts"
+{ printf '\0\0\0'; seq 1 500; } > "$proj/src/bin.dat"
+run sub-read-predavka guard-run.sh "$(pre $SID ag1 Read file_path "$proj/docs/reviews/predavka-ag1.md")" allow
+run sub-cat-kontext-jsonl guard-run.sh "$(pre $SID ag1 Bash command "cat docs/.kontext.jsonl")" allow
+run sub-cat-mimo-projekt guard-run.sh "$(pre $SID ag1 Bash command "cat $tmp/mimo.ts")" allow
+run sub-cat-binarni guard-run.sh "$(pre $SID ag1 Bash command "cat src/bin.dat")" allow
+rm -f "$proj/docs/reviews/predavka-ag1.md" "$proj/docs/.kontext.jsonl" "$proj/src/bin.dat"
 run sub-cat-big-deny guard-run.sh "$(pre $SID ag1 Bash command "cat src/big.ts")" deny
 run sub-cat-n-big-deny guard-run.sh "$(pre $SID ag1 Bash command "cat -n src/big.ts")" deny
 run sub-cat-small guard-run.sh "$(pre $SID ag1 Bash command "cat src/small.ts")" allow
 run sub-cat-pipe guard-run.sh "$(pre $SID ag1 Bash command "cat src/big.ts | grep foo")" allow
 run sub-cat-heredoc guard-run.sh "$(pre $SID ag1 Bash command "cat > src/big.ts <<'EOF'\\nx\\nEOF")" allow
 run sub-sed-narrow guard-run.sh "$(pre $SID ag1 Bash command "sed -n '10,60p' src/big.ts")" allow
+run sub-sed-200 guard-run.sh "$(pre $SID ag1 Bash command "sed -n '1,200p' src/big.ts")" allow
+run sub-sed-300-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -n '1,300p' src/big.ts")" deny
+run sub-sed-p-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -n p src/big.ts")" deny
+run sub-sed-p-quoted-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -n 'p' src/big.ts")" deny
+run sub-sed-i-ok guard-run.sh "$(pre $SID ag1 Bash command "sed -i '' 's/a/b/' src/big.ts")" allow
+run sub-head-300-deny guard-run.sh "$(pre $SID ag1 Bash command "head -300 src/big.ts")" deny
+run sub-tail-300-deny guard-run.sh "$(pre $SID ag1 Bash command "tail -n 300 src/big.ts")" deny
+run sub-awk-print-deny guard-run.sh "$(pre $SID ag1 Bash command "awk '{print}' src/big.ts")" deny
+run sub-awk-1-deny guard-run.sh "$(pre $SID ag1 Bash command "awk 1 src/big.ts")" deny
+run sub-awk-program guard-run.sh "$(pre $SID ag1 Bash command "awk '/foo/ {print \$2}' src/big.ts")" allow
+run sub-less-deny guard-run.sh "$(pre $SID ag1 Bash command "less src/big.ts")" deny
+run sub-roura-jinde-deny guard-run.sh "$(pre $SID ag1 Bash command "cat src/big.ts; rg x src | head")" deny
+run sub-roura-segment guard-run.sh "$(pre $SID ag1 Bash command "rg x src | head; cat src/big.ts | wc -l")" allow
+# review C: cesty s mezerou, cd v příkazu, podshell a blok, sed -n -e, awk s mezerami, || není roura, docs/./ není výjimka
+mkdir -p "$proj/src/sub dir"; seq 1 500 > "$proj/src/sub dir/big sp.ts"
+run sub-read-mezera-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/sub dir/big sp.ts")" deny
+run sub-cat-mezera-uvozovky-deny guard-run.sh "$(pre $SID ag1 Bash command "cat \"src/sub dir/big sp.ts\"")" deny
+run sub-cat-mezera-lomitko-deny guard-run.sh "$(pre $SID ag1 Bash command "cat src/sub\\ dir/big\\ sp.ts")" deny
+run sub-cd-relativni-deny guard-run.sh "$(pre $SID ag1 Bash command "cd src && cat big.ts")" deny
+run sub-cd-zpet-ok guard-run.sh "$(pre $SID ag1 Bash command "cd src && cat small.ts")" allow
+run sub-podshell-deny guard-run.sh "$(pre $SID ag1 Bash command "(cat src/big.ts)")" deny
+run sub-blok-deny guard-run.sh "$(pre $SID ag1 Bash command "{ cat src/big.ts; }")" deny
+run sub-sed-n-e-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -n -e '1,400p' src/big.ts")" deny
+run sub-sed-ne-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -ne '1,400p' src/big.ts")" deny
+run sub-awk-mezery-deny guard-run.sh "$(pre $SID ag1 Bash command "awk '{ print }' src/big.ts")" deny
+run sub-cat-or-true-deny guard-run.sh "$(pre $SID ag1 Bash command "cat src/big.ts || true")" deny
+run sub-read-docs-tecka-lomitko-deny guard-run.sh "$(pre $SID ag1 Read file_path "$proj/docs/./big.md")" deny
+run sub-cat-docs-tecka-lomitko-deny guard-run.sh "$(pre $SID ag1 Bash command "cat docs/./big.md")" deny
+# zamítnutí guard-run se připíše do stavu hlídače kontextu (zam), ať metrika zamitnuto nese i celé soubory
+rm -f "$tmp/tmpdir/dev-pipeline-kontext/ag1"
+run sub-zam-1 guard-run.sh "$(pre $SID ag1 Bash command "cat src/big.ts")" deny
+run sub-zam-2 guard-run.sh "$(pre $SID ag1 Read file_path "$proj/src/big.ts")" deny
+[ "$(sed -n 's/^zam=//p' "$tmp/tmpdir/dev-pipeline-kontext/ag1" 2>/dev/null)" = 2 ] && ok || ko "sub-zam-stav: $(cat "$tmp/tmpdir/dev-pipeline-kontext/ag1" 2>/dev/null)"
+rm -f "$tmp/tmpdir/dev-pipeline-kontext/ag1"
 run sub-sed-wide-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -n '1,400p' src/big.ts")" deny
 run sub-sed-dollar-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -n '1,\$p' src/big.ts")" deny
 run sub-sed-noquote-deny guard-run.sh "$(pre $SID ag1 Bash command "sed -n 1,500p src/big.ts")" deny
@@ -447,8 +498,15 @@ kx 160000; hl hl-narust-malo hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Read
 kx 260000; hl hl-mekky-ctx hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" ctx "tuhle práci dokončí nástupce"
            hl hl-mekky-hotovy hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" ctx "PŘEDÁVKA: Když je celé zadání už hotové a zbývá jen návrat, vrať normální návrat bez předávky"
            hl hl-mekky-cesta hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Edit file_path "$proj/src/a.ts")" ctx "do $PRED: 1. zadání"
+# 1.9.0: implementační agent dostane navíc řádek „zbývající soubory“ do předávky a pole zbyvajici_soubory do návratu (Kontrakt na stropu předávek)
+           hl hl-mekky-zbyvajici hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" ctx "řádek „zbývající soubory: …“ (soubory ze zadání, které ještě nejsou hotové"
+           hl hl-mekky-zbyvajici-navrat hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" ctx "zbyvajici_soubory = tytéž soubory jako v předávce"
            hl hl-mekky-pre hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test")" allow
 kx 300000; hl hl-tvrdy-bash-deny hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test")" deny "PŘEDÁVKA je povinná"
+# 1.9.0: i tvrdá výzva žádá u implementace zbyvajici_soubory v návratu a řádek „zbývající soubory“ v předávce (plan-check N5)
+           hl hl-tvrdy-zbyvajici-navrat hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test")" deny "predavka = $PRED, zbyvajici_soubory = tytéž soubory jako v předávce"
+           hl hl-tvrdy-zbyvajici-predavka hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test")" deny "řádek „zbývající soubory: …“ (soubory ze zadání, které ještě nejsou hotové"
+           hl hl-tvrdy-prd-bez-zbyvajici hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Bash command "pnpm test" | jq -c '.agent_type = "dev-pipeline:prd"')" deny "predavka = $PRED (když je zadání"
            hl hl-tvrdy-structured hlidac-kontextu.sh "$(hk $SID $AID PreToolUse StructuredOutput stav castecne)" allow
            hl hl-tvrdy-write-predavka hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Write file_path "$PRED" content "x")" allow
            hl hl-tvrdy-write-jinam-deny hlidac-kontextu.sh "$(hk $SID $AID PreToolUse Write file_path "$proj/src/a.ts" content "x")" deny
@@ -465,14 +523,15 @@ printf '{"type":"assistant","message":{"usage":{"input_tok' >> "$T"   # rozepsan
 echo >> "$T"
 kx 100000; hl hl-compact hlidac-kontextu.sh "$(hk $SID $AID PostToolUse Bash command "pnpm test")" allow
 k=$(jq -sc 'map(select(.aid == "agtest1")) | [map(.udalost), (last | .compactu, .max), (first | .rez, .typ, .aid)]' "$proj/docs/.kontext.jsonl" 2>/dev/null)
-[ "$k" = '[["mereni","mereni","mekky","tvrdy","compact"],1,100000,"05","implement","agtest1"]' ] && ok || ko "hl-kontext-jsonl: $k"
+# 1.9.0: PreToolUse StructuredOutput bez jiné události zapíše „navrat“, aby poslední záznam agenta nesl konečné čtení
+[ "$k" = '[["mereni","mereni","mekky","tvrdy","navrat","compact"],1,100000,"05","implement","agtest1"]' ] && ok || ko "hl-kontext-jsonl: $k"
 # strukturovaný návrat nad prahem: žádná výzva ani událost prahu, jen měření (1.5.0; 5 falešných „mekky“ v běhu web-podzim)
 AID3=agnavrat; T3="$tdir/agent-$AID3.jsonl"; head -1 "$T" > "$T3"
 jq -cn '{type:"assistant", message:{usage:{input_tokens:10, cache_read_input_tokens:258890, cache_creation_input_tokens:1000, output_tokens:100}}}' >> "$T3"
            hl hl-structured-post-bez-vyzvy hlidac-kontextu.sh "$(hk $SID $AID3 PostToolUse StructuredOutput stav hotovo)" allow
            hl hl-structured-pre hlidac-kontextu.sh "$(hk $SID $AID3 PreToolUse StructuredOutput stav hotovo)" allow
 k3=$(jq -sc --arg a "$AID3" '[.[] | select(.aid == $a) | .udalost]' "$proj/docs/.kontext.jsonl" 2>/dev/null)
-[ "$k3" = '["mereni"]' ] && ok || ko "hl-structured-jen-mereni: $k3"
+[ "$k3" = '["mereni","navrat"]' ] && ok || ko "hl-structured-jen-mereni: $k3"
 # týž agent po návratu dál pracuje (nástroj jiný než StructuredOutput): výzva přijde, práh platí
            hl hl-po-navratu-vyzva hlidac-kontextu.sh "$(hk $SID $AID3 PostToolUse Bash command "pnpm test")" ctx "tuhle práci dokončí nástupce"
 # 1.6.0: zapsaná předávka jde do logu jako udalost "predavka", jednou za agenta
@@ -498,6 +557,86 @@ ka "$T5" 160000; hl hl-arch-pod-prahem hlidac-kontextu.sh "$(hkp $SID $AID5 Post
 ka "$T5" 175000; hl hl-arch-vyzva hlidac-kontextu.sh "$(hkp $SID $AID5 PostToolUse Bash command "rg x")" ctx "zapiš ji teď (tabulka Části, Kontrakt, kritéria), i neúplnou"
                  hl hl-arch-pre-bez hlidac-kontextu.sh "$(hkp $SID $AID5 PreToolUse Bash command "rg x")" allow
 ka "$T5" 185000; hl hl-arch-jednou hlidac-kontextu.sh "$(hkp $SID $AID5 PostToolUse Bash command "rg x")" allow
+# 1.9.0: stráž opakovaného čtení a měření čtení (41 kB přesných opakování na implement agenta v běhu zaklad-dat)
+AID6=agcteni; T6="$tdir/agent-$AID6.jsonl"; head -1 "$T" > "$T6"; ka "$T6" 50000
+hkr() { # jako hk, PostToolUse s tool_response (délka obsahu = bajty čtení)
+  local n=$1; shift; hk "$@" | jq -c --arg s "$(head -c "$n" /dev/zero | tr '\0' 'x')" '.tool_response = (if .tool_name == "Read" then {type:"text", file:{content:$s}} else {stdout:$s, stderr:""} end)'
+}
+touch -t 202601010000 "$proj/src/big.ts" "$proj/src/small.ts" "$proj/docs/big.md"
+           hl hl-cteni-prvni hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Read file_path "$proj/src/big.ts" offset "1" limit "100")" allow
+           hl hl-cteni-post hlidac-kontextu.sh "$(hkr 1234 $SID $AID6 PostToolUse Read file_path "$proj/src/big.ts" offset "1" limit "100")" allow
+           hl hl-cteni-opakovani-deny hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Read file_path "$proj/src/big.ts" offset "1" limit "100")" deny "už máš v kontextu (tvoje čtení č. 1)"
+           hl hl-cteni-jiny-usek hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Read file_path "$proj/src/big.ts" offset "101" limit "100")" allow
+touch -t 202601010001 "$proj/src/big.ts"
+           hl hl-cteni-po-zmene hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Read file_path "$proj/src/big.ts" offset "1" limit "100")" allow
+           hl hl-cteni-sed-post hlidac-kontextu.sh "$(hkr 2000 $SID $AID6 PostToolUse Bash command "sed -n '10,60p' src/big.ts")" allow
+           hl hl-cteni-sed-opakovani-deny hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Bash command "sed -n '10,60p' src/big.ts")" deny "řádky 10-60"
+           hl hl-cteni-sed-roura hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Bash command "sed -n '10,60p' src/big.ts | head -3")" allow
+           hl hl-cteni-sed-jinam hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Bash command "sed -n '10,60p' src/big.ts > \$TMPDIR/x")" allow
+           hl hl-cteni-cat-maly-post hlidac-kontextu.sh "$(hkr 300 $SID $AID6 PostToolUse Bash command "cd $proj && cat src/small.ts")" allow
+           hl hl-cteni-cat-maly-opakovani-deny hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Bash command "cat src/small.ts")" deny "small.ts"
+           hl hl-cteni-head-post hlidac-kontextu.sh "$(hkr 100 $SID $AID6 PostToolUse Bash command "head -n 20 src/big.ts")" allow
+           hl hl-cteni-head-opakovani-deny hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Bash command "head -20 src/big.ts")" deny "řádky 1-20"
+           hl hl-cteni-tail-jiny hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Bash command "tail -n 20 src/big.ts")" allow
+seq 1 500 > "$proj/docs/.kontext.jsonl.test"; mkdir -p "$proj/docs/reviews"; seq 1 50 > "$proj/docs/reviews/predavka-$AID6.md"
+           hl hl-cteni-vyjimka-docs-tecka-post hlidac-kontextu.sh "$(hkr 100 $SID $AID6 PostToolUse Bash command "cat docs/.kontext.jsonl.test")" allow
+           hl hl-cteni-vyjimka-docs-tecka hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Bash command "cat docs/.kontext.jsonl.test")" allow
+           hl hl-cteni-vyjimka-predavka-post hlidac-kontextu.sh "$(hkr 100 $SID $AID6 PostToolUse Read file_path "$proj/docs/reviews/predavka-$AID6.md")" allow
+           hl hl-cteni-vyjimka-predavka hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Read file_path "$proj/docs/reviews/predavka-$AID6.md")" allow
+           hl hl-cteni-mimo-cwd hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse Read file_path "$tmp/mimo.ts")" allow
+           hl hl-cteni-jina-session hlidac-kontextu.sh "$(hk $OTHER $AID6 PreToolUse Read file_path "$proj/src/big.ts" offset "101" limit "100")" allow
+rm -f "$proj/docs/.kontext.jsonl.test" "$proj/docs/reviews/predavka-$AID6.md"
+# měření: poslední záznam agenta (navrat při StructuredOutput) nese součet bajtů proběhlých čtení a počet zamítnutí
+           hl hl-cteni-navrat hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse StructuredOutput stav hotovo)" allow
+k6=$(jq -sc --arg a "$AID6" '[.[] | select(.aid == $a)] | last | [.udalost, .cteni_bajtu, .zamitnuto]' "$proj/docs/.kontext.jsonl" 2>/dev/null)
+[ "$k6" = '["navrat",3634,4]' ] && ok || ko "hl-cteni-mereni: $k6 (čekáno navrat, 1234+2000+300+100 bajtů, 4 zamítnutí; výjimky se nepočítají)"
+# review C: navrat jen jednou; zamítnutí guard-run (celý soubor) se počítá do téhož zamitnuto
+           hl hl-cteni-navrat-znovu hlidac-kontextu.sh "$(hk $SID $AID6 PreToolUse StructuredOutput stav hotovo)" allow
+[ "$(jq -sc --arg a "$AID6" '[.[] | select(.aid == $a and .udalost == "navrat")] | length' "$proj/docs/.kontext.jsonl")" = 1 ] && ok || ko "hl-navrat-jednou"
+           hl hl-guard-zam guard-run.sh "$(hk $SID $AID6 PreToolUse Bash command "cat src/big.ts")" deny
+           hl hl-cteni-po-guard hlidac-kontextu.sh "$(hkr 10 $SID $AID6 PostToolUse Bash command "head -n 3 src/big.ts")" allow
+[ "$(sed -n 's/^zam=//p' "$tmp/tmpdir/dev-pipeline-kontext/$AID6")" = 5 ] && ok || ko "hl-zam-z-guard: $(cat "$tmp/tmpdir/dev-pipeline-kontext/$AID6")"
+# review C V1: opakování se zamítá jen u volání složeného výhradně z čtecích kusů; zápis, formátovač, git, cd ho vypnou
+AID7=agzmena; T7="$tdir/agent-$AID7.jsonl"; head -1 "$T" > "$T7"; ka "$T7" 50000
+seq 1 40 > "$proj/src/a7.ts"; seq 1 40 > "$proj/src/b7.ts"; touch -t 202601010000 "$proj/src/a7.ts" "$proj/src/b7.ts"
+           hl hl-v1-post hlidac-kontextu.sh "$(hkr 80 $SID $AID7 PostToolUse Bash command "cat src/a7.ts")" allow
+           hl hl-v1-sed-i-cat hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "sed -i '' 's/1/one/' src/a7.ts && cat src/a7.ts")" allow
+           hl hl-v1-prettier-cat hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "pnpm prettier --write src/a7.ts && cat src/a7.ts")" allow
+           hl hl-v1-git-cat hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "git checkout src/a7.ts; cat src/a7.ts")" allow
+           hl hl-v1-cd-cat hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "cd src && cat a7.ts")" allow
+           hl hl-v1-cp-cat hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "cp src/b7.ts src/a7.ts && cat src/a7.ts")" allow
+           hl hl-v1-jen-cteni-deny hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "cat src/a7.ts; cat src/b7.ts")" deny "a7.ts"
+           hl hl-v1-podshell-deny hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "(cat src/a7.ts)")" deny
+           hl hl-v1-sed-ne-post hlidac-kontextu.sh "$(hkr 20 $SID $AID7 PostToolUse Bash command "sed -ne '1,5p' src/a7.ts")" allow
+           hl hl-v1-sed-n-e-deny hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "sed -n -e '1,5p' src/a7.ts")" deny "řádky 1-5"
+           hl hl-v1-awk-mezery-deny hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "awk '{ print }' src/a7.ts")" deny
+# N1: táž sekunda, jiná velikost = změna (klíč nese mtime i velikost); N5: 2>/dev/null je čtení; N6: tail -f není čtení
+{ printf 'xx'; cat "$proj/src/a7.ts"; } > "$tmp/a7"; mv "$tmp/a7" "$proj/src/a7.ts"; touch -t 202601010000 "$proj/src/a7.ts"   # 40 řádků, +2 B
+           hl hl-n1-velikost hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "cat src/a7.ts")" allow
+           hl hl-n5-stderr-post hlidac-kontextu.sh "$(hkr 90 $SID $AID7 PostToolUse Bash command "cat src/b7.ts 2>/dev/null")" allow
+           hl hl-n5-stderr-deny hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "cat src/b7.ts 2>&1")" deny
+           hl hl-n6-tail-f-post hlidac-kontextu.sh "$(hkr 50 $SID $AID7 PostToolUse Bash command "tail -f src/b7.ts")" allow
+           hl hl-n6-tail-f-znovu hlidac-kontextu.sh "$(hk $SID $AID7 PreToolUse Bash command "tail -f src/b7.ts")" allow
+# P3: odpověď bez obsahu (obrázek, chyba) se neměří
+           hl hl-p3-obrazek hlidac-kontextu.sh "$(hk $SID $AID7 PostToolUse Read file_path "$proj/src/a7.ts" | jq -c '.tool_response = {type:"image", source:"x"}')" allow
+[ "$(sed -n 's/^cb=//p' "$tmp/tmpdir/dev-pipeline-kontext/$AID7")" = 190 ] && ok || ko "hl-cb-po-review: $(sed -n 's/^cb=//p' "$tmp/tmpdir/dev-pipeline-kontext/$AID7") (čekáno 80+20+90)"
+# review C V2: deset souběžných PostToolUse téhož agenta (Claude Code pouští nástroje jednoho tahu najednou) pod zámkem
+AID8=agsoubeh; T8="$tdir/agent-$AID8.jsonl"; head -1 "$T" > "$T8"; ka "$T8" 50000
+for i in $(seq 1 10); do
+  printf '%s' "$(hkr 50 $SID $AID8 PostToolUse Read file_path "$proj/src/big.ts" offset "$((i * 10))" limit "5")" | DEV_PIPELINE_TRANSCRIPTS="$tmp/transcripts" TMPDIR="$tmp/tmpdir" CLAUDE_PROJECT_DIR="$proj" bash "$hooks/hlidac-kontextu.sh" > /dev/null 2>&1 &
+done; wait
+k8="$(sed -n 's/^cn=//p' "$tmp/tmpdir/dev-pipeline-kontext/$AID8") $(sed -n 's/^cb=//p' "$tmp/tmpdir/dev-pipeline-kontext/$AID8") $(grep -c '^cteni=' "$tmp/tmpdir/dev-pipeline-kontext/$AID8")"
+[ "$k8" = "10 500 10" ] && ok || ko "hl-soubeh: cn cb cteni = $k8 (čekáno 10 500 10)"
+[ ! -d "$tmp/tmpdir/dev-pipeline-kontext/$AID8.lock" ] && ok || ko "hl-soubeh-zamek-uklizen"
+# čas: 20 volání nad souborem 5 000 řádků pod 1 500 ms (samostatně 39–45 ms na volání u guard-run, ~35 ms u hlídače;
+# limit s rezervou na souběžnou zátěž stroje)
+seq 1 5000 | sed 's/^/const y/' > "$proj/src/big5000.ts"
+ms() { perl -MTime::HiRes=time -e 'printf "%.0f\n", time * 1000'; }
+for h in guard-run.sh hlidac-kontextu.sh; do
+  t0=$(ms); for i in $(seq 1 20); do printf '%s' "$(hk $SID $AID6 PreToolUse Bash command "cat src/big5000.ts")" | DEV_PIPELINE_TRANSCRIPTS="$tmp/transcripts" TMPDIR="$tmp/tmpdir" CLAUDE_PROJECT_DIR="$proj" bash "$hooks/$h" > /dev/null 2>&1; done; t1=$(ms)
+  [ $((t1 - t0)) -lt 1500 ] && ok || ko "cas-$h: 20 volání $((t1 - t0)) ms (limit 1 500)"
+done
+rm -f "$proj/src/big5000.ts"
 AID6=agarchskok; T6="$tdir/agent-$AID6.jsonl"; head -1 "$T" > "$T6"
 ka "$T6" 260000; hl hl-arch-s-predavkou hlidac-kontextu.sh "$(hkp $SID $AID6 PostToolUse Bash command "rg x")" ctx "i neúplnou; E2E scénáře nech nástupci. PŘEDÁVKA:"
 AID7=agarchnavrat; T7="$tdir/agent-$AID7.jsonl"; head -1 "$T" > "$T7"

@@ -6,10 +6,14 @@
 # (jen vizi, produkt.md, handoff, vize-spory, follow-ups, pojmy, rozhodnuti, závěrečnou zprávu, args a výsledky bloků
 # v docs/.run-args.json, docs/.stavba-*.json, docs/.prd-*.json, docs/.kolecko.json, docs/.vysledek-*.json, log
 # docs/.kontext.jsonl, deník vad ~/dev-pipeline-feedback.md a soubory pluginu), nespouští projekt, needituje kód.
-# Subagenti (s agent_id): nečtou celé velké zdrojové soubory, ani přes Read bez offset/limit,
-# ani přes cat, sed -n, head, tail v Bash (výstup přesměrovaný do souboru není čtení). Práh DEV_PIPELINE_READ_MAX_LINES,
-# výchozí 350. Radu Sereny dostanou jen u jazyků, které má projekt v .serena/project.yml. Obrázek nad
-# DEV_PIPELINE_IMAGE_MAX_BYTES (výchozí 400 kB) nečtou celý: snímky se srovnávají skriptem a čte se zmenšený náhled.
+# Subagenti (s agent_id): nečtou celý velký textový soubor (nad DEV_PIPELINE_READ_MAX_LINES řádků, výchozí 350) ani
+# jeho úsek od DEV_PIPELINE_READ_CHUNK_LINES řádků (výchozí 300): Read bez limit nebo s limit ≥ 300, cat, less, more, bat,
+# sed -n p nebo s rozsahem ≥ 300 řádků, head/tail -n ≥ 300, tail -n +K se zbytkem ≥ 300, awk '{print}'. Jen soubory pod cwd;
+# výjimky: soubor předávky, tečkové stavové soubory docs/, roura v segmentu, přesměrování do souboru, heredoc; binární
+# soubory a obrázky se neměří řádky. Do 1.8.1 platilo jen pro zdrojové přípony a Read s offset nebo limit prošel vždy:
+# agenti četli PRD (.md) a soubory s limit 2000 celé. Radu Sereny dostanou jen u jazyků, které má projekt
+# v .serena/project.yml. Obrázek nad DEV_PIPELINE_IMAGE_MAX_BYTES (výchozí 400 kB) nečtou celý: snímky se srovnávají
+# skriptem a čte se zmenšený náhled. Opakované čtení téhož úseku a měření čtení hlídá hlidac-kontextu.sh.
 # Všichni v běhu: do docs/reviews/ nepíšou skripty (pomocný skript patří do scratchpadu agenta) a do auto-paměti
 # Claude Code (<config>/projects/*/memory/) nezapisují: rozhodnutí patří do vize-spory, stav do journalu.
 # Fail-open: cokoli nejednoznačného projde. Deny = JSON permissionDecision, exit 0.
@@ -17,18 +21,39 @@ set -uo pipefail
 
 input=$(cat)
 j() { printf '%s' "$input" | jq -r "$1 // empty" 2>/dev/null; }
-tool=$(j '.tool_name'); sid=$(j '.session_id'); agent_id=$(j '.agent_id'); cwd=$(j '.cwd')
+# Jedno volání jq pro hlavičku (příkaz s novými řádky jako \x1e): hook běží u každého nástroje v běhu a každé jq stojí
+# ~10 ms; session z markeru čte sed, marker je jednořádkový JSON hooku prompt-submit.
+IFS=$'\037' read -r tool sid agent_id cwd cmd0 fp0 off0 lim0 <<EOF
+$(printf '%s' "$input" | jq -r '[.tool_name, .session_id, .agent_id, .cwd, ((.tool_input.command? // "") | tostring | gsub("\n"; "\u001e")), (.tool_input.file_path? // ""), (.tool_input.offset? // ""), (.tool_input.limit? // "")] | map(. // "" | tostring) | join("\u001f")' 2>/dev/null)
+EOF
 proj="${CLAUDE_PROJECT_DIR:-$cwd}"
 marker="$proj/docs/.orchestrator-run"
-[ -n "$tool" ] && [ -f "$marker" ] || exit 0
-msid=$(jq -r '.session_id // empty' "$marker" 2>/dev/null)
-[ -n "$msid" ] && [ "$msid" = "$sid" ] || exit 0
+[ -n "${tool:-}" ] && [ -f "$marker" ] || exit 0
+msid=$(sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$marker" 2>/dev/null | head -1)
+[ -n "$msid" ] && [ "$msid" = "${sid:-}" ] || exit 0
+cmd=${cmd0//$'\x1e'/$'\n'}
 
 plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 MAX="${DEV_PIPELINE_READ_MAX_LINES:-350}"
+USEK="${DEV_PIPELINE_READ_CHUNK_LINES:-300}"
 LINES=0
+BASE="$cwd"   # adresář pro relativní cesty; cd v příkazu ho posouvá
 
+# Zamítnutí u subagenta běhu se připíše do stavu hlídače kontextu (zam, týž soubor a zámek jako hlidac-kontextu.sh):
+# po deny PostToolUse neběží, hlídač by zamítnutí celého souboru do cteni/zamitnuto nezapočítal.
+zam_plus() {
+  local stdir st lock cekani=0 radky
+  stdir="${TMPDIR:-/tmp}"; stdir="${stdir%/}/dev-pipeline-kontext"; st="$stdir/$agent_id"; lock="$st.lock"
+  [ -d "$stdir" ] || mkdir -p "$stdir" 2>/dev/null
+  until mkdir "$lock" 2>/dev/null; do
+    cekani=$((cekani + 1)); if [ "$cekani" -gt 100 ]; then rmdir "$lock" 2>/dev/null; mkdir "$lock" 2>/dev/null; break; fi; sleep 0.02
+  done
+  radky=$(grep -v '^zam=' "$st" 2>/dev/null); z=$(sed -n 's/^zam=\([0-9]*\)$/\1/p' "$st" 2>/dev/null | head -1); z=${z:-0}
+  { [ -n "$radky" ] && printf '%s\n' "$radky"; printf 'zam=%s\n' "$((z + 1))"; } > "$st.$$" 2>/dev/null && mv -f "$st.$$" "$st" 2>/dev/null
+  rmdir "$lock" 2>/dev/null
+}
 deny() {
+  [ -n "$agent_id" ] && zam_plus
   jq -n --arg r "dev-pipeline guard běhu: $1" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
   exit 0
@@ -38,7 +63,7 @@ abspath() {
   case "$1" in
     /*) printf '%s' "$1" ;;
     "~"*) printf '%s%s' "$HOME" "${1#\~}" ;;
-    *) printf '%s/%s' "$cwd" "$1" ;;
+    *) printf '%s/%s' "$BASE" "$1" ;;
   esac
 }
 
@@ -73,12 +98,22 @@ ORCH_READ="Orchestrátor nečte projekt. Sám čteš jen vizi, produkt.md, hando
 ORCH_RUN="Orchestrátor nespouští projekt (balíčkovač, testy, typecheck, curl, deploy). Tu práci dělají fázoví agenti v bloku stavby; stav si nech ověřit agentem a převzít jen výsledek."
 ORCH_EDIT="Orchestrátor needituje kód ani konfiguraci projektu; píše jen do docs/ (handoff, vize-spory, follow-ups). Opravy dělá fix agent v bloku stavby."
 
+# bez podprocesů (sed+awk stály ~6 ms na segment): první slovo bez obalu sudo/env/time/nice/nohup; set -f, aby hvězdička
+# v příkazu neexpandovala na soubory
 first_word() {
-  printf '%s' "$1" | sed -E 's/^[[:space:]]*//; s/^(sudo|env|time|nice|nohup)[[:space:]]+//' | awk '{print $1}'
+  local w
+  set -f; set -- $1; set +f
+  w=${1#\(}; w=${w#\{}
+  case "$w" in ''|sudo|env|time|nice|nohup) w=${2:-} ;; esac
+  printf '%s' "$w"
 }
-# Argumenty od 2. slova, které nejsou flagy, bez uvozovek.
+# Argumenty od 2. slova, které nejsou flagy; xargs rozumí uvozovkám a zpětnému lomítku (cesty s mezerou), na nepárové
+# uvozovce vrátí prázdno (fail-open). Závorka příkazu v podshellu se odřízne.
 file_args() {
-  printf '%s' "$1" | awk '{for (i = 2; i <= NF; i++) if ($i !~ /^-/) print $i}' | tr -d "'\""
+  local a
+  printf '%s' "${1#\{}" | sed 's/^[[:space:]]*(//; s/)[[:space:]]*$//' | xargs printf '%s\n' 2>/dev/null | while IFS= read -r a; do
+    case "$a" in ''|-*) ;; *) printf '%s\n' "$a" ;; esac
+  done | sed '1d'
 }
 
 # Segmenty složeného příkazu, jeden na řádek: dělí na | ; & a konci řádku jen MIMO uvozovky (konec řádku v uvozovkách
@@ -153,10 +188,10 @@ orch_bash() {
       pnpm|npm|npx|yarn|bun|pytest|vitest|jest|tsc|turbo|curl|wget|railway|wrangler|docker|make|cargo)
         deny "$ORCH_RUN" ;;
       cat|head|tail|sed|awk|grep|rg|find|less|more|bat|wc|diff)
-        for a in $(file_args "$seg"); do
+        while IFS= read -r a; do
           p=$(abspath "$a"); { [ -f "$p" ] || [ -d "$p" ]; } || continue
           orch_read_ok "$a" || deny "$ORCH_READ (cesta: $a)"
-        done ;;
+        done < <(file_args "$seg") ;;
       git)
         if printf '%s' "$seg" | grep -Eq '(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(diff|show|log[[:space:]]+.*-p)' \
            && ! printf '%s' "$seg" | grep -Eq -- '--(stat|shortstat|name-only|name-status|oneline)'; then
@@ -173,10 +208,14 @@ src_ext_ok() {
   esac
   return 1
 }
+# Velký textový soubor pod projektem: ne předávka ani tečkový stavový soubor docs/, ne obrázek ani binární soubor.
 big_source() {
   local p; p=$(abspath "$1")
   [ -f "$p" ] || return 1
-  src_ext_ok "$p" || return 1
+  case "$p" in "$proj"/*) ;; *) return 1 ;; esac
+  case "$p" in */docs/reviews/predavka-*.md|*/docs/.[!/]*) return 1 ;; esac
+  is_image_path "$p" && return 1
+  LC_ALL=C grep -qI '' "$p" 2>/dev/null || return 1
   LINES=$(wc -l < "$p" | tr -d ' ')
   [ "$LINES" -gt "$MAX" ]
 }
@@ -209,50 +248,70 @@ read_reason() {
   serena_ext
   case "$SERENA_EXT" in
     *" ${1##*.} "*)
-      printf 'Soubor %s má %s řádků. Celé velké zdrojové soubory se nečtou: použij mcp__serena__get_symbols_overview a mcp__serena__find_symbol (include_body=true) na to, co potřebuješ, nebo čti po částech do %s řádků (Read s offset/limit, sed -n s užším rozsahem).' "$1" "$2" "$MAX" ;;
+      printf 'Soubor %s má %s řádků. Celé velké soubory se nečtou: použij mcp__serena__get_symbols_overview a mcp__serena__find_symbol (include_body=true) na to, co potřebuješ, nebo čti úsek pod %s řádků (Read s offset/limit, sed -n s užším rozsahem).' "$1" "$2" "$USEK" ;;
     *)
-      printf 'Soubor %s má %s řádků. Celé velké zdrojové soubory se nečtou: najdi místo přes rg -n a čti po částech do %s řádků (Read s offset/limit, sed -n s užším rozsahem). Serena tenhle jazyk v projektu nemá (.serena/project.yml), nepoužívej ji na něj.' "$1" "$2" "$MAX" ;;
+      if src_ext_ok "$1"; then
+        printf 'Soubor %s má %s řádků. Celé velké soubory se nečtou: najdi místo přes rg -n a čti úsek pod %s řádků (Read s offset/limit, sed -n s užším rozsahem). Serena tenhle jazyk v projektu nemá (.serena/project.yml), nepoužívej ji na něj.' "$1" "$2" "$USEK"
+      else
+        printf 'Soubor %s má %s řádků. Celé velké soubory se nečtou: najdi místo přes rg -n (nadpis, klíč, identifikátor) a čti úsek pod %s řádků (Read s offset/limit, sed -n s užším rozsahem).' "$1" "$2" "$USEK"
+      fi ;;
   esac
 }
-check_files() { local a; for a in $(file_args "$1"); do big_source "$a" && deny "$(read_reason "$a" "$LINES")"; done; }
+check_one() { big_source "$1" && deny "$(read_reason "$1" "$LINES")"; return 0; }
+check_files() { local a; while IFS= read -r a; do check_one "$a"; done < <(file_args "$1"); }
+# Úsek od K do konce velkého souboru: zbytek ≥ USEK je čtení celku.
+check_rest_one() { big_source "$1" && [ $((LINES - $2 + 1)) -ge "$USEK" ] && deny "$(read_reason "$1" "$LINES")"; return 0; }
+check_rest() { local a; while IFS= read -r a; do check_rest_one "$a" "$2"; done < <(file_args "$1"); }
 
 sub_read() {
-  local fp off lim
-  fp=$(j '.tool_input.file_path'); off=$(j '.tool_input.offset'); lim=$(j '.tool_input.limit')
+  local fp="$fp0" off="$off0" lim="$lim0"
   [ -n "$fp" ] || return 0
   big_image "$fp" && deny "$(image_reason "$fp")"
-  { [ -n "$off" ] || [ -n "$lim" ]; } && return 0
-  big_source "$fp" && deny "$(read_reason "$fp" "$LINES")"
+  case "$off" in ''|*[!0-9]*) off=1 ;; esac
+  case "$lim" in
+    ''|*[!0-9]*) check_rest_one "$fp" "$off" ;;
+    *) [ "$lim" -ge "$USEK" ] && check_rest_one "$fp" "$off" ;;
+  esac
   return 0
 }
 sub_bash() {
-  local cmd="$1" seg w rng x y n k a
-  case "$cmd" in *"|"*|*"<<"*) return 0 ;; esac
+  local cmd="$1" seg w rng x y n k a prog d
+  case "$cmd" in *"<<"*) return 0 ;; esac
   while IFS= read -r seg; do
-    # Výstup přesměrovaný do souboru do kontextu nejde (sed -n 177,866p a.ts > $TMPDIR/a.ts je zápis, ne čtení).
-    # 2> a >&2 se nepočítají: chyby a stderr kontext dostane.
+    # Roura v segmentu (|| není roura): do kontextu jde až výstup posledního členu. Výstup přesměrovaný do souboru do
+    # kontextu nejde (sed -n 177,866p a.ts > $TMPDIR/a.ts je zápis, ne čtení). 2> a >&2 se nepočítají: chyby a stderr
+    # kontext dostane.
+    case "${seg//||/}" in *"|"*) continue ;; esac
     printf '%s' "$seg" | grep -Eq '(^|[^0-9&>])>>?[[:space:]]*[^&[:space:]]' && continue
     w=$(first_word "$seg")
     case "$w" in
-      cat) check_files "$seg" ;;
+      cd)
+        # cd posune základ relativních cest pro další segmenty (cd apps/web && cat src/big.ts)
+        d=$(file_args "$seg" | head -1); d=${d%\)}
+        case "$d" in '') BASE="$cwd" ;; *) BASE=$(abspath "$d") ;; esac ;;
+      cat|less|more|bat) check_files "$seg" ;;
       sed)
-        rng=$(printf '%s' "$seg" | sed -nE "s/.*-n[[:space:]]*['\"]?([0-9]+),(\\$|[0-9]+)p['\"]?.*/\1 \2/p")
+        printf '%s' "$seg" | grep -Eq '(^|[[:space:]])-[A-Za-z]*i' && continue
+        if printf '%s' "$seg" | grep -Eq -- "-n(e|[[:space:]]+-e)?[[:space:]]*['\"]?p['\"]?([[:space:]]|$)"; then check_files "$seg"; continue; fi
+        rng=$(printf '%s' "$seg" | sed -nE "s/.*-n(e|[[:space:]]+-e)?[[:space:]]*['\"]?([0-9]+),(\\$|[0-9]+)p['\"]?.*/\2 \3/p")
         [ -n "$rng" ] || continue
         x=${rng% *}; y=${rng#* }
-        if [ "$y" = '$' ] || [ $((y - x + 1)) -gt "$MAX" ]; then check_files "$seg"; fi ;;
+        if [ "$y" = '$' ]; then check_rest "$seg" "$x"
+        elif [ $((y - x + 1)) -ge "$USEK" ]; then check_files "$seg"; fi ;;
       head)
         n=$(printf '%s' "$seg" | sed -nE 's/.*head[[:space:]]+(-n[[:space:]]*|-)([0-9]+).*/\2/p')
-        [ -n "$n" ] && [ "$n" -gt "$MAX" ] && check_files "$seg" ;;
+        [ -n "$n" ] && [ "$n" -ge "$USEK" ] && check_files "$seg" ;;
       tail)
         k=$(printf '%s' "$seg" | sed -nE 's/.*tail[[:space:]]+-n[[:space:]]*\+([0-9]+).*/\1/p')
-        if [ -n "$k" ]; then
-          for a in $(file_args "$seg"); do
-            big_source "$a" && [ $((LINES - k + 1)) -gt "$MAX" ] && deny "$(read_reason "$a" "$LINES")"
-          done
+        if [ -n "$k" ]; then check_rest "$seg" "$k"
         else
           n=$(printf '%s' "$seg" | sed -nE 's/.*tail[[:space:]]+(-n[[:space:]]*|-)([0-9]+).*/\2/p')
-          [ -n "$n" ] && [ "$n" -gt "$MAX" ] && check_files "$seg"
+          [ -n "$n" ] && [ "$n" -ge "$USEK" ] && check_files "$seg"
         fi ;;
+      awk)
+        # jen holý průchod celým souborem (program i s mezerami mezi uvozovkami); awk s programem stráž neřeší
+        prog=$(printf '%s' "$seg" | sed -nE "s/^[[:space:]]*[({]?[[:space:]]*awk[[:space:]]+(['\"]([^'\"]*)['\"]|([^[:space:]]+)).*/\2\3/p" | tr -d ' ')
+        case "$prog" in '{print}'|'{print$0}'|1) check_files "$seg" ;; esac ;;
     esac
   done < <(printf '%s\n' "$cmd" | tr ';&' '\n')
 }
@@ -375,7 +434,7 @@ bash_writes_memory() {
 # Obrázek nad IMG_MAX se nečte celý do kontextu: snímky obrazovky se srovnávají skriptem (rozměry, hash, compare)
 # a obrázek se čte jen při neshodě, zmenšený na nejvýš 1 000 px.
 IMG_MAX="${DEV_PIPELINE_IMAGE_MAX_BYTES:-409600}"
-is_image_path() { case "$(printf '%s' "${1##*.}" | tr 'A-Z' 'a-z')" in jpg|jpeg|png|webp|gif) return 0 ;; esac; return 1; }
+is_image_path() { case "${1##*.}" in jpg|jpeg|png|webp|gif|JPG|JPEG|PNG|WEBP|GIF|Jpg|Jpeg|Png) return 0 ;; esac; return 1; }
 big_image() {
   local p; p=$(abspath "$1")
   [ -f "$p" ] || return 1
@@ -394,7 +453,7 @@ case "$tool" in
     [ -n "$fp" ] && is_review_script "$fp" && deny "$REVIEW_SKRIPT (soubor: $fp)"
     [ -n "$fp" ] && is_memory_path "$fp" && deny "$PAMET (soubor: $fp)" ;;
   Bash)
-    cmd=$(j '.tool_input.command'); [ -n "$cmd" ] && bash_writes_verify_marker "$cmd" && deny "$VERIFY_MARK"
+    [ -n "$cmd" ] && bash_writes_verify_marker "$cmd" && deny "$VERIFY_MARK"
     [ -n "$cmd" ] && bash_writes_review_script "$(strip_data_heredocs "$cmd")" && deny "$REVIEW_SKRIPT"
     [ -n "$cmd" ] && bash_writes_memory "$cmd" && deny "$PAMET" ;;
 esac
@@ -409,14 +468,14 @@ if [ -z "$agent_id" ]; then
       p=$(j '.tool_input.path'); [ -z "$p" ] && p="$cwd"
       orch_read_ok "$p" || deny "$ORCH_READ (hledání v: $p)" ;;
     Bash)
-      cmd=$(j '.tool_input.command'); [ -n "$cmd" ] && orch_bash "$(strip_data_heredocs "$cmd")" ;;
+      [ -n "$cmd" ] && orch_bash "$(strip_data_heredocs "$cmd")" ;;
     Write|Edit|MultiEdit|NotebookEdit)
       fp=$(j '.tool_input.file_path // .tool_input.notebook_path'); [ -n "$fp" ] && ! orch_write_ok "$fp" && deny "$ORCH_EDIT (soubor: $fp)" ;;
   esac
 else
   case "$tool" in
     Read) sub_read ;;
-    Bash) cmd=$(j '.tool_input.command'); [ -n "$cmd" ] && sub_bash "$cmd" ;;
+    Bash) [ -n "$cmd" ] && sub_bash "$cmd" ;;
   esac
 fi
 exit 0

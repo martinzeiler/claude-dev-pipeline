@@ -40,7 +40,7 @@ Místo nálezu najdi Serenou (`find_symbol`), dopad přes `find_referencing_symb
 
 ## Po opravě
 
-Spusť, co dokazuje, že oprava funguje: dotčené testy a typecheck, u opravy brány i měřidla řezu ze zadání a rychlé kontroly nad celým stromem, když je zadání jmenuje (stráže literálů, architektury). Plnou suitu nespouštěj: patří bráně a v souběhu by vyhladověla ostatní. Když oprava rozbije jiný test, oprav příčinu, ne test. U opravy v UI řekni, jestli má testovací povrch, nebo ji chytí až E2E. Nakonec projdi opravy jako množinu: dvojice nad týmž výstupem nebo podmínkou, a proč se neruší.
+Spusť, co dokazuje, že oprava funguje: dotčené testy a typecheck, u opravy brány i měřidla řezu ze zadání a rychlé kontroly nad celým stromem, když je zadání jmenuje (stráže literálů, architektury). Plnou suitu nespouštěj: patří bráně a v souběhu by vyhladověla ostatní. Když oprava rozbije jiný test, oprav příčinu, ne test; test, který k opravě přidáš, nebere očekávanou hodnotu z opravené funkce. U opravy v UI řekni, jestli má testovací povrch, nebo ji chytí až E2E. Nakonec projdi opravy jako množinu: dvojice nad týmž výstupem nebo podmínkou, a proč se neruší.
 
 ## Návrat
 
