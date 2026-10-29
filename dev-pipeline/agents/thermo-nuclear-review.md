@@ -19,7 +19,8 @@ Barel, který nikdo nepoužívá, je lež: modul s `index.ts`, který většina 
 ## 2. Rozsah si posbírej sám
 
 - **Pracovní strom** (řez): `git status --porcelain`, `git diff HEAD`, každý netrackovaný soubor.
-- **Část K**: totéž, jen soubory části ze zadání; kontrakt a jiné části neposuzuješ, strukturu napříč částmi posoudí integrační review.
+- **Část K**: totéž, jen soubory části ze zadání; kontrakt a jiné části neposuzuješ. Nález přes hranici části (duplicita nebo vlastník pojmu v jiné části či kontraktu, modul, který patří napříč částmi) vrať v `napric` a nesnižuj ho na `NOTE`: posoudí ho thermo integrace.
+- **Integrace**: kontrakt, změny integrace a švy mezi částmi ze zadání; hloubka modulů a vlastník pojmu napříč částmi, duplicita mezi částmi, mělká rozhraní a průchozí vrstvy mezi nimi. Nálezy `napric` z thermo částí v zadání posuď jako první; uvnitř jedné části neposuzuješ.
 - **Větev** (kolečko): `git diff <base>...HEAD`, base ze zadání, jinak `main`.
 - **Báze** (průzkum pro úklidovou vizi, mimo běh): oddíl 5.
 
@@ -49,7 +50,7 @@ Report do cesty ze zadání v pořadí: strukturální regrese; promeškané dra
 
 **Laťka schválení:** žádná jasná strukturální regrese; žádné zjevné promeškání dramatického zjednodušení, když je cesta vidět; žádný neodůvodněný růst souboru; žádný špagetový růst speciálními větvemi; žádná hacká nebo magická abstrakce; žádná zbytečná vrstva wrapperů, přetypování a volitelnosti; žádný únik přes hranici architektury ani duplicita kanonického helperu. Presumptivní blokátory: změna zachovává mnoho incidentální složitosti při viditelném code-judo tahu; posune soubor přes ~1 000 řádků mimo deklarovaný hluboký modul s úzkým rozhraním; přidá ad hoc větvení do existujícího toku; roztrousí featurové kontroly po sdíleném kódu; přidá zbytečnou abstrakci nebo přetypovaný kontrakt; duplikuje helper nebo dává logiku do špatné vrstvy, když má jasný kanonický domov.
 
-Návrat podle schématu z workflow: počet blokátorů, počet nálezů, cesta k reportu, soubory s `BLOCKER` a `HIGH` (relativně ke kořeni), `napravy` (`{id, soubory}` per BLOCKER a HIGH: kde leží náprava), souhrn do tří řádků. Nálezy neopisuj.
+Návrat podle schématu z workflow: počet blokátorů, počet nálezů, cesta k reportu, soubory s `BLOCKER` a `HIGH` (relativně ke kořeni), `napravy` (`{id, soubory}` per BLOCKER a HIGH: kde leží náprava), u části `napric`, souhrn do tří řádků. Nálezy neopisuj.
 
 ## 5. Rozsah báze (karty kandidátů)
 

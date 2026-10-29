@@ -17,8 +17,9 @@ export default {
     k.navrat(v, { ok: true, vysledek: 'hotovo', pokusy: 2 })
     k.ok(volani[0] && volani[0].label === 'obnova-stav:řez 05', `první volání má být obnova-stav, je ${volani[0] && volani[0].label}`)
     k.nic(/^(implement|review|thermo|verify|diagnose):/, 'pokus 1 ani stavba pokusu 2')
-    k.pocet(/^deploy:řez 05:1$/, 1, 'jeden deploy (pokus 2)')
-    k.obsahuje(k.jeden('e2e:řez 05:1'), 'rez-05-p2-e2e', 'report pokusu 2'); k.obsahuje(k.jeden('deploy:řez 05:1'), Z, 'značku obnovy')
+    k.pocet(/^deploy:/, 1, 'jeden deploy (pokus 2)')
+    // Štítky pokusu 2 nesou od 1.10.0 :p2.
+    k.obsahuje(k.jeden('e2e:řez 05:p2:1'), 'rez-05-p2-e2e', 'report pokusu 2'); k.obsahuje(k.jeden('deploy:řez 05:p2:1'), Z, 'značku obnovy')
     k.ok(logy.some(l => l.includes('obnova bez cache (bez_cache): blok začíná pokusem 2, pokusy 1–1 se nepřehrávají')), 'log začátku pokusem 2')
     return k.chyby
   },

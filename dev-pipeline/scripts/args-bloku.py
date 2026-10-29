@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Args bloků dev-pipeline do souboru: orchestrátor předá bloku jen {cwd, plugin_root, rez, args_file} a první agent
-bloku (dev-pipeline:nacteni-args) soubor načte a sloučí s docs/.run-args.json. Workflow skript soubory číst neumí.
+bloku (dev-pipeline:nacteni-args) soubor načte. Workflow skript soubory číst neumí. Soubor nese i stálá pole běhu
+z docs/.run-args.json, takže agent opisuje jediný soubor a nic neslučuje.
 
 Proč: args přepisované rukou procházejí kontextem orchestrátora opakovaně a přenášejí chyby mezi řezy. Skript skládá
 soubor deterministicky; výsledek bloku PRD čte sám ze souboru běhu Workflow, orchestrátor ho neopisuje.
@@ -11,6 +12,7 @@ Použití:
   args-bloku.py prd     <cwd> <NN> [--puvodni-run <runId> | --puvodni-vysledek <soubor>] [--doplnit …]
   args-bloku.py kolecko <cwd> [--doplnit …]
   args-bloku.py rozhodnuti <cwd> --text '<doslovná citace majitele>'
+  (stavba, prd i kolecko navíc [--i-kdyz-bezi])
 
 --prd-vysledek / --puvodni-vysledek: soubor .output, na který runtime odkazuje v useknuté notifikaci („full result in
 …/tasks/<id>.output“: JSON s polem result), celý výsledek bloku PRD, nebo jen jeho pole stavba.
@@ -20,7 +22,8 @@ Použití:
 pole volání z existujícího docs/.prd-NN.json (plan_row, hypotezy, profil …; bez souboru z args předchozího běhu), aby blok
 neskončil na „chybí plan_row“; pole režimu z minula (rezim, nalezy, prd_path, od_faze …) do základu nejdou.
 Stálá pole běhu (STALA, včetně vize a produkt) patří do docs/.run-args.json: skript je ze stavby z výsledku PRD vynechá
-a sám je nedoplňuje (vize z docs/.orchestrator-run jen tehdy, když ji .run-args.json nemá); --doplnit je smí přepsat výslovně.
+(mohla zastarat) a do každého souboru bloku vloží všechna neprázdná pole docs/.run-args.json; pole souboru (z výsledku
+PRD, z minulého volání, z --doplnit) mají přednost. vize z docs/.orchestrator-run jen tehdy, když ji .run-args.json nemá.
 
 Pole `obnova` patří do volání bloku, ne do souboru (--doplnit s ním skončí kódem 2): načítací agent by si ho mohl vymyslet
 a obnova by přehrála celou stavbu. Obnova musí nést `pokus` ≥ 1 = číslo PŘERUŠENÉHO pokusu (`pokusy` z návratu
@@ -31,20 +34,32 @@ pokusy, labely a reporty, aby nepřepsal reporty dřívějších pokusů. Dalš�
 `rozhodnuti_majitele`; neznámý klíč skript odmítne. `app_pristup` (v --doplnit, v obnově i v docs/.run-args.json) nad
 1 500 znaků skončí kódem 2: nasazovací pokyny patří do runbooku projektu, args nesou odkaz a tajemství prostředí.
 Pole s prázdnou hodnotou (null, "", [], {}) se do
-souboru nepíšou (kromě rez); `_pole` je seřazený seznam klíčů souboru sjednocený s klíči docs/.run-args.json (bez prázdných
-hodnot): blok podle něj pozná, že načítací agent pole vynechal nebo přidal.
+souboru nepíšou (kromě rez); `_pole` je seřazený seznam klíčů sloučeného souboru (bez prázdných hodnot): blok podle něj
+pozná, že načítací agent pole vynechal nebo přidal.
+
+Běžící blok: když v session běhu (session_id z docs/.orchestrator-run) právě běží blok téhož typu pro týž řez (u kolečka
+jakékoli kolečko), skript args nesloží a skončí kódem 6: druhý běh téhož řezu by přepisoval tentýž strom (typicky po
+compactu mezi spuštěním bloku a zápisem jeho task id do handoffu). Běžící bloky a jejich řez (z labelů agentů, jinak
+z args běhu) zná scripts/co-dela.sh --bezici; blok bez známého řezu se nepočítá. Blok bez stavového souboru se počítá
+vždy, i zombie (journal i agenti mlčí přes 2 h): stejně vypadá blok, který stojí na usage limitu a po resetu pokračuje, takže
+hláška jen řekne, co ověřit. --i-kdyz-bezi kontrolu vypne (blok zastavený nebo spadlý bez stavového souboru).
+
+kolecko: commity bez review (pole bez_review v docs/.vysledek-stavba-NN.json a docs/.vysledek-stavba-NN-zastaveno.json,
+[{rez, commit, popis}], každý commit jednou) skript zapíše do souboru kolečka jako bez_review; --doplnit je smí přepsat.
 
 rozhodnuti: rozhodnutí majitele, které mění provoz běhu, připíše do docs/.run-args.json (pole rozhodnuti_majitele, položka
-"<YYYY-MM-DD HH:MM> <citace>"); bloky ho dávají do rámce agentů od dalšího spuštění. Orchestrátor JSON ručně nepřepisuje.
+"<YYYY-MM-DD HH:MM> <citace>"); platí od dalšího složeného souboru args (soubor bloku ho nese jako stálé pole). Orchestrátor JSON ručně nepřepisuje.
 
 Výstup: docs/.stavba-NN.json, docs/.prd-NN.json, docs/.kolecko.json; na stdout jeden řádek (cesta, velikost, pole),
 obsah nevypisuje. Návratové kódy: 0 zapsáno; 2 špatné argumenty nebo nevalidní JSON; 3 výsledek bloku PRD nenalezen
 nebo nedokončený (vypíše záložní cestu); 4 výsledek patří jinému řezu; 5 výsledek bloku PRD není schválené PRD pro stavbu
-(ok: false, konec po architektovi s návrhem rozdělit řez, bez prd_path).
+(ok: false, konec po architektovi s návrhem rozdělit řez, bez prd_path); 6 blok téhož řezu v session běží.
 """
 import glob
 import json
 import os
+import re
+import subprocess
 import sys
 from datetime import datetime
 
@@ -89,16 +104,32 @@ def sloucit(zaklad, navic):
     return out
 
 
-def soubor_behu(cwd, run_id):
-    koren = os.environ.get("DEV_PIPELINE_TRANSCRIPTS") or os.path.join(
+def koren_projektu():
+    return os.environ.get("DEV_PIPELINE_TRANSCRIPTS") or os.path.join(
         os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "projects")
-    jmena = [run_id] if run_id.startswith("wf_") else [run_id, "wf_" + run_id]
-    sid = ""
+
+
+def sid_behu(cwd):
     try:
         with open(os.path.join(cwd, "docs", ".orchestrator-run"), encoding="utf-8") as f:
-            sid = str(json.load(f).get("session_id") or "")
+            return str(json.load(f).get("session_id") or "")
     except (OSError, ValueError, AttributeError):
-        pass
+        return ""
+
+
+def adresar_session(cwd):
+    """Adresář session běhu (<projekty>/<slug>/<session_id>); prázdný, když marker nebo adresář chybí."""
+    sid = sid_behu(cwd)
+    if not sid:
+        return ""
+    nalez = [d for d in glob.glob(os.path.join(glob.escape(koren_projektu()), "*", glob.escape(sid))) if os.path.isdir(d)]
+    return nalez[0] if nalez else ""
+
+
+def soubor_behu(cwd, run_id):
+    koren = koren_projektu()
+    jmena = [run_id] if run_id.startswith("wf_") else [run_id, "wf_" + run_id]
+    sid = sid_behu(cwd)
     for sezeni in ([sid] if sid else []) + ["*"]:
         for j in jmena:
             nalez = glob.glob(os.path.join(glob.escape(koren), "*", sezeni if sezeni != "*" else "*", "workflows", j + ".json"))
@@ -200,19 +231,63 @@ def zaklad_volani(cwd, NN, args_behu):
     return {}
 
 
+BLOK = {"stavba": "blok-stavby", "prd": "blok-prd", "kolecko": "blok-kolecko"}
+
+
+def bezici_blok(cwd, druh, NN):
+    """Běžící blok téhož typu a řezu podle co-dela.sh --bezici, jinak None. Bez session nebo s nečitelným výstupem kontrola
+    mlčí: nespuštěný blok nemá co přepsat, a selhaný dotaz nesmí zastavit běh."""
+    sess = adresar_session(cwd)
+    if not sess:
+        return None
+    skript = os.path.join(os.path.dirname(os.path.abspath(__file__)), "co-dela.sh")
+    try:
+        out = subprocess.run(["bash", skript, "--session", sess, "--bezici"], cwd=cwd, capture_output=True, text=True,
+                             timeout=60).stdout
+        bezici = json.loads(out)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    for b in bezici if isinstance(bezici, list) else []:
+        if not isinstance(b, dict) or b.get("name") != BLOK[druh]:
+            continue
+        if druh == "kolecko" or (b.get("rez") and nn(b["rez"]) == NN):
+            return b
+    return None
+
+
+VYSLEDEK_STAVBY = re.compile(r"\.vysledek-stavba-([0-9]+[a-z]?)(-zastaveno)?\.json$")
+
+
+def bez_review_z_vysledku(cwd):
+    """[{rez, commit, popis}] z pole bez_review souborů výsledku stavby (docs/.vysledek-stavba-NN.json i -zastaveno.json:
+    trvalý zdroj přes všechny sessions běhu) podle řezu, každý commit jednou."""
+    soubory = []
+    for p in glob.glob(os.path.join(glob.escape(os.path.join(cwd, "docs")), ".vysledek-stavba-*.json")):
+        m = VYSLEDEK_STAVBY.search(os.path.basename(p))
+        if m:
+            soubory.append(((int(re.sub(r"\D", "", m.group(1))), m.group(1), bool(m.group(2))), p))
+    zdroje = []
+    for (_, nazev, _), p in sorted(soubory):
+        try:
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if isinstance(d, dict) and isinstance(d.get("bez_review"), list):
+            zdroje.append((nn(d.get("rez") or nazev), d["bez_review"]))
+    out, videne = [], set()
+    for rez, xs in zdroje:
+        for x in xs:
+            c = str(x.get("commit") or "").strip() if isinstance(x, dict) else ""
+            if c and c not in videne:
+                videne.add(c)
+                out.append({"rez": rez, "commit": c, "popis": str(x.get("popis") or "").strip()[:400]})
+    return out
+
+
 def prazdne(v):
     """Hodnota, která se do souboru args nepíše: blok ji čte stejně jako chybějící pole."""
     return v is None or (isinstance(v, (str, list, dict)) and len(v) == 0)
-
-
-def klice_run_args(cwd):
-    """Klíče docs/.run-args.json s neprázdnou hodnotou (bez _pole); prázdná množina, když soubor chybí nebo není objekt."""
-    try:
-        with open(os.path.join(cwd, "docs", ".run-args.json"), encoding="utf-8") as f:
-            ra = json.load(f)
-    except (OSError, ValueError):
-        return set()
-    return {k for k, v in ra.items() if k != "_pole" and not prazdne(v)} if isinstance(ra, dict) else set()
 
 
 APP_PRISTUP_MAX = 1500
@@ -306,6 +381,8 @@ def main(argv):
         NN = nn(rest[0])
         rest = rest[1:]
     opt = {}
+    i_kdyz_bezi = "--i-kdyz-bezi" in rest
+    rest = [x for x in rest if x != "--i-kdyz-bezi"]
     while rest:
         k = rest[0]
         if k not in ("--prd-run", "--prd-vysledek", "--puvodni-run", "--puvodni-vysledek", "--doplnit") or len(rest) < 2:
@@ -314,6 +391,18 @@ def main(argv):
         rest = rest[2:]
     if not os.path.isdir(os.path.join(cwd, "docs")):
         chyba(2, f"{cwd}/docs neexistuje")
+    if not i_kdyz_bezi:
+        b = bezici_blok(cwd, druh, NN)
+        if b:
+            kde = "kolečko" if druh == "kolecko" else f"{BLOK[druh]} řezu {NN}"
+            if b.get("zombie"):
+                chyba(6, f"{kde} nemá stavový soubor a mlčí přes 2 h ({b.get('wf')}): buď čeká na usage limit a po resetu "
+                         "sám pokračuje, nebo je mrtvý. Args nesložím, druhý běh téhož řezu by přepisoval tentýž strom. Ověř "
+                         "co-dela.sh --kratce a stav usage limitu; teprve když blok opravdu neběží, spusť znovu s --i-kdyz-bezi")
+            chyba(6, f"{kde} v session právě běží ({b.get('wf')}); args nesložím, druhý běh téhož řezu by přepisoval tentýž "
+                     "strom. Zkontroluj stav běhu v docs/handoff.md a co-dela.sh --kratce: když blok běží, doplň do handoffu "
+                     "jeho task id a počkej na jeho konec; jen když opravdu neběží (zastavený nebo spadlý bez stavového "
+                     "souboru), spusť znovu s --i-kdyz-bezi")
 
     data, pozn = {}, ""
     if druh == "stavba":
@@ -381,6 +470,11 @@ def main(argv):
             pozn += " (POZOR: plan_row z minulého volání nenalezen; dej ho do --doplnit, jinak blok skončí „chybí args“)"
     if "plan_row" in d:
         data.pop("plan_row", None)  # nový řádek plánu nahrazuje starý celý, neslučuje se s ním
+    if druh == "kolecko":
+        br = bez_review_z_vysledku(cwd)
+        if br:
+            data["bez_review"] = br
+            pozn += f" (bez_review: {len(br)} commitů z výsledků stavby)"
     data = sloucit(data, d)
 
     data["cwd"] = cwd
@@ -407,7 +501,11 @@ def main(argv):
     data.pop("obnova", None)
     data.pop("_pole", None)
     data = {k: v for k, v in data.items() if k == "rez" or not prazdne(v)}
-    data["_pole"] = sorted(set(data) | klice_run_args(cwd))
+    # Stálá pole běhu do souboru bloku (spec H1): pole souboru mají přednost, .run-args.json doplní chybějící.
+    for k, v in run_args(cwd).items():
+        if k not in ("_pole", "obnova") and k not in data and not prazdne(v):
+            data[k] = v
+    data["_pole"] = sorted(data)
 
     jmeno = {"stavba": f".stavba-{NN}.json", "prd": f".prd-{NN}.json", "kolecko": ".kolecko.json"}[druh]
     cil = os.path.join(cwd, "docs", jmeno)

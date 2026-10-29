@@ -119,8 +119,9 @@ jq -n '{status:"running", workflowName:"blok-prd", result:null}' > "$wfd/wf_ccc-
 jq -n '{status:"completed", workflowName:"blok-stavby", result:{rez:"05"}}' > "$wfd/wf_ddd-444.json"
 jq -n '{vize:"/p/docs/vize/v.md", produkt:"/p/docs/produkt.md", ne_cile:"y"}' > "$proj/docs/.run-args.json"
 o=$(ab stavba "$proj" 5 --prd-run wf_aaa-111 --doplnit '{"prd_stale":[{"rez":"04"}],"hypotezy":{"text":["věta"]}}'); rc=$?
-k=$(jq -c '[.rez, .cwd == $p, .casti[0].id, .hypotezy.blokujici, .hypotezy.text, .prd_stale[0].rez, has("mapa_kostry"), has("ne_cile"), has("vize")]' --arg p "$proj" "$proj/docs/.stavba-05.json" 2>/dev/null)
-[ $rc -eq 0 ] && [ "$k" = '["05",true,"K1",["N1"],["věta"],"04",false,false,false]' ] && printf '%s' "$o" | grep -q '^docs/.stavba-05.json: ' && ok || ko "ab-stavba: rc=$rc $o $k"
+# stálá pole z výsledku PRD (ne_cile, vize) se zahodí a soubor je nese z .run-args.json (spec H1)
+k=$(jq -c '[.rez, .cwd == $p, .casti[0].id, .hypotezy.blokujici, .hypotezy.text, .prd_stale[0].rez, has("mapa_kostry"), .ne_cile, .vize]' --arg p "$proj" "$proj/docs/.stavba-05.json" 2>/dev/null)
+[ $rc -eq 0 ] && [ "$k" = '["05",true,"K1",["N1"],["věta"],"04",false,"y","/p/docs/vize/v.md"]' ] && printf '%s' "$o" | grep -q '^docs/.stavba-05.json: ' && ok || ko "ab-stavba: rc=$rc $o $k"
 o=$(ab stavba "$proj" 5 --prd-run bbb-222); rc=$?
 k=$(jq -c '[.hypotezy.ids, .kriteria]' "$proj/docs/.stavba-05.json" 2>/dev/null)
 [ $rc -eq 0 ] && [ "$k" = '[["N3"],7]' ] && printf '%s' "$o" | grep -q 'starší tvar' && ok || ko "ab-stavba-stary-blok: rc=$rc $o $k"
@@ -131,7 +132,7 @@ jq -n '{rez:"05", prd_path:"/p/x.md", hypotezy:{ids:["N9"]}}' > "$tmp/stavba.jso
 o=$(ab stavba "$proj" 5 --prd-vysledek "$tmp/stavba.json"); rc=$?
 [ $rc -eq 0 ] && [ "$(jq -c '.hypotezy.ids' "$proj/docs/.stavba-05.json")" = '["N9"]' ] && ok || ko "ab-zalozni: rc=$rc $o"
 o=$(ab prd "$proj" 5 --puvodni-run wf_bbb-222 --doplnit '{"rezim":"zapracovani","od_faze":"autori"}'); rc=$?
-[ $rc -eq 0 ] && [ "$(jq -c '[.rez, .puvodni.kriteria, .od_faze, has("vize")]' "$proj/docs/.prd-05.json")" = '["05",7,"autori",false]' ] && ok || ko "ab-prd-puvodni: rc=$rc $o"
+[ $rc -eq 0 ] && [ "$(jq -c '[.rez, .puvodni.kriteria, .od_faze, .vize]' "$proj/docs/.prd-05.json")" = '["05",7,"autori","/p/docs/vize/v.md"]' ] && ok || ko "ab-prd-puvodni: rc=$rc $o"
 o=$(ab prd "$proj" 5 --puvodni-run wf_ddd-444); [ $? -eq 3 ] && printf '%s' "$o" | grep -q 'ne blok-prd' && ok || ko "ab-puvodni-stavba: $o"
 o=$(ab prd "$proj" 5 --doplnit '{"rez":"06"}'); [ $? -eq 4 ] && ok || ko "ab-doplnit-rez: $o"
 o=$(ab prd "$proj" 5 --doplnit '{neni'); [ $? -eq 2 ] && ok || ko "ab-nevalidni: $o"
@@ -716,4 +717,37 @@ ROZ=4; MAXC=2; tk vezmi --vaha 9 --pid $p1 --popis velky; rc=$?
 [ $rc -eq 0 ] && [ "$(tk stav | jq -c '[.drzi[].vaha]')" = "[4]" ] && ok || ko "tk-nad-rozpoctem: rc=$rc $(tk stav)"
 tk vrat --pid $p1
 { kill $p1 $p2; wait $p1 $p2; } 2>/dev/null
+# --- dialog-v-behu.sh (PermissionRequest): v běhu každý dialog zamítne a zapíše do docs/.kontext.jsonl, jinde mlčí
+pr() { # sid agent_id agent_type nástroj příkaz → vstup PermissionRequest
+  jq -n --arg s "$1" --arg a "$2" --arg ty "$3" --arg t "$4" --arg c "$5" --arg p "$proj" \
+    '{session_id:$s, cwd:$p, hook_event_name:"PermissionRequest", permission_mode:"bypassPermissions", tool_name:$t,
+      tool_input:(if $t == "Bash" then {command:$c} else {file_path:$c} end), permission_suggestions:[]}
+     + (if $a == "" then {} else {agent_id:$a, agent_type:$ty} end)'
+}
+drun() { printf '%s' "$1" | TMPDIR="$tmp/tmpdir" CLAUDE_PROJECT_DIR="${2:-$proj}" bash "$hooks/dialog-v-behu.sh" 2>/dev/null; }
+dialogy() { jq -c 'select(.udalost == "dialog")' "$proj/docs/.kontext.jsonl" 2>/dev/null; }
+mkdir -p "$tmp/tmpdir/dev-pipeline-kontext"; printf 'rez=13\nmax=0\n' > "$tmp/tmpdir/dev-pipeline-kontext/ag-dlg"
+zsh_cmd='X=(${(f)"$(printf "a\nb")"}); echo ${#X}'
+o=$(drun "$(pr $SID ag-dlg dev-pipeline:implement Bash "$zsh_cmd")"); z=$(dialogy | tail -1)
+printf '%s' "$o" | jq -e '.hookSpecificOutput | .hookEventName == "PermissionRequest" and .decision.behavior == "deny" and (.decision.message | contains("while IFS= read -r") and contains("NEPROVEDLA"))' >/dev/null \
+  && printf '%s' "$z" | jq -e --arg c "$zsh_cmd" '.rez == "13" and .aid == "ag-dlg" and .typ == "dev-pipeline:implement" and .nastroj == "Bash" and .prikaz == $c' >/dev/null && ok || ko "dlg-agent-bash: $o | $z"
+o=$(drun "$(pr $SID '' '' Bash 'rm -rf "$d"')"); z=$(dialogy | tail -1)
+printf '%s' "$o" | jq -e '.hookSpecificOutput.decision.behavior == "deny"' >/dev/null \
+  && printf '%s' "$z" | jq -e '.typ == "orchestrator" and .aid == "" and .rez == "-"' >/dev/null && ok || ko "dlg-orchestrator: $o | $z"
+o=$(drun "$(pr $SID ag-dlg2 dev-pipeline:fix Write "$proj/.claude/settings.json")"); z=$(dialogy | tail -1)
+printf '%s' "$o" | jq -e '.hookSpecificOutput.decision | .behavior == "deny" and (.message | contains("otázku pro orchestrátora") and (contains("IFS") | not))' >/dev/null \
+  && printf '%s' "$z" | jq -e '.nastroj == "Write" and .rez == "-" and (.prikaz | endswith(".claude/settings.json"))' >/dev/null && ok || ko "dlg-write: $o | $z"
+o=$(drun "$(pr $SID '' '' Write "$proj/docs/x.md")")
+printf '%s' "$o" | jq -e '.hookSpecificOutput.decision.message | contains("vize-spory")' >/dev/null && ok || ko "dlg-orchestrator-write: $o"
+pred=$(dialogy | wc -l)
+[ -z "$(drun "$(pr $OTHER ag-dlg dev-pipeline:implement Bash "$zsh_cmd")")" ] && [ "$(dialogy | wc -l)" -eq "$pred" ] && ok || ko "dlg-jina-session"
+mkdir -p "$tmp/bezbehu/docs"
+[ -z "$(drun "$(pr $SID ag-dlg dev-pipeline:implement Bash "$zsh_cmd")" "$tmp/bezbehu")" ] && [ ! -e "$tmp/bezbehu/docs/.kontext.jsonl" ] && ok || ko "dlg-mimo-beh"
+[ -z "$(drun 'nejde o json')" ] && [ "$(dialogy | wc -l)" -eq "$pred" ] && ok || ko "dlg-necitelny-vstup"
+drun "$(pr $SID ag-dlg dev-pipeline:implement Bash "$(printf 'x%.0s' $(seq 1 300))")" >/dev/null
+[ "$(dialogy | tail -1 | jq -r '.prikaz | length')" = 200 ] && ok || ko "dlg-prikaz-200"
+# Claude Code volá hook pro jeden dialog dvakrát: druhé volání do 10 s zamítne taky, ale záznam nepřidá
+while [ $(( $(date +%s) % 10 )) -ge 8 ]; do sleep 0.5; done   # obě volání v témž desetisekundovém okně hooku
+pred=$(dialogy | wc -l); o1=$(drun "$(pr $SID ag-dlg3 dev-pipeline:implement Bash 'echo ${(P)k}')"); o2=$(drun "$(pr $SID ag-dlg3 dev-pipeline:implement Bash 'echo ${(P)k}')")
+printf '%s%s' "$o1" "$o2" | grep -c '"behavior": "deny"' | grep -qx 2 && [ "$(dialogy | wc -l)" -eq $((pred + 1)) ] && ok || ko "dlg-dvojite-volani: $(dialogy | wc -l) / $pred"
 echo "pass=$pass fail=$fail"; [ $fail -eq 0 ]

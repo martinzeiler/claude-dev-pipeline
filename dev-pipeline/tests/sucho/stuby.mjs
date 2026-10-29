@@ -46,6 +46,8 @@ export function parsujLabel(label) {
     let x
     if ((x = /^řez (\d+)$/.exec(c))) o.rez = x[1]
     else if (c === 'kolečko') o.kolecko = true
+    // Štítek pokusu (1.10.0): deploy, verify a E2E od pokusu 2 nesou za řezem :p<n>.
+    else if ((x = /^p(\d+)$/.exec(c))) o.pokusStitku = Number(x[1])
     else if ((x = /^část (.+)$/.exec(c))) o.cast = x[1]
     else if (c === 'kontrakt' || c === 'integrace' || c === 'oprava') o.role = c
     else if (/^\d+$/.test(c)) o.cisla.push(Number(c))
@@ -139,8 +141,10 @@ export function vychozi(label, prompt, opts, stav) {
     }
     // Stav obnovy (1.8.0, § 2.3): výchozí stub nic nedokládá, blok běží celý pokus (obnova scénáře 14, 37, 42–44, 111 to předpokládají).
     case 'obnova-stav': return { commit_rezu: '', head_shodny: false, nasazeni_dolozeno: false, provedene_kroky: [] }
-    // Sběr dluhu kolečka (1.8.0, § 2.6): bez položek se vlna nekoná.
+    // Sběr dluhu kolečka (1.8.0, § 2.6): bez položek se vlna nekoná (od 1.10.0 i v dalších várkách, label dluh:kolečko:N).
     case 'dluh': return { balicky: [], celkem: 0 }
+    // Rozdělení větve do oblastí pro code-review kolečka (1.10.0): výchozí jedna oblast, review jde jedním reviewerem jako dřív.
+    case 'oblasti': return { oblasti: [{ nazev: 'sucho', cesty: ['apps/sucho'], radku: 900 }], vsechny_adresare: ['apps/sucho'] }
     case 'commit': return { stav: 'commit-only', commit: hash(`${label}#${stav ? stav.pocty[label] : 0}`), security_commity: [], duvod: '' }
     case 'e2e': case 'kriteria': return e2ePass(l.pismeno ? 4 : (Number(a.kriteria) || 8), { report_path })
     case 'e2e-scénáře': return { e2e_path: `${cwd}/docs/e2e/kolecko.md`, kriterii: 5, plochy: ['sucho'] }

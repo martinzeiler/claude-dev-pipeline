@@ -19,7 +19,7 @@ Role přidávej podle toho, čeho se vize dotýká (platby, i18n, SEO, výkon, o
 2. **Oprava vize**: rozpor mezi dvěma místy vize nebo mezi vizí a přílohou, který rozhodneš z už učiněných rozhodnutí.
 3. **Technický detail**, který PRD agent dohledá v kódu a prd-check ověří (jméno sloupce, pořadí migrace, chování trasy, přesné počty); do vize se nepíše.
 
-Koš 1 předlož uživateli, koš 2 zapracuj, koš 3 zahoď. Značky BLOKUJE a ZDRŽUJE od agentů jsou vstup triáže, ne podmínka dalšího kola.
+Koš 1 předlož uživateli, koš 2 zapracuj (z kola 1, další kola viz níže), koš 3 zahoď. Značky BLOKUJE a ZDRŽUJE od agentů jsou vstup triáže, ne podmínka dalšího kola.
 
 **Do koše 3 nikdy, i když je agent značí „zdržuje“:** Ne-cíl v rozporu s požadavkem nebo kritériem; kritérium, jehož ověření vyžaduje zápis nebo prostředí mimo Povolení; nemechanické pravidlo pro hromadný zápis do produkce (párování, import, mazání podle pravidla); kritérium závislé na řezu, který plán staví později; čekání na čas (koš 1 vždy). PRD agent je nerozhodne, jen vyloží po svém a spor se vrátí v běhu. Patří do koše 2, a když je nejde rozhodnout z učiněných rozhodnutí (Povolení by se muselo rozšířit, Ne-cíl změnit), do koše 1.
 
@@ -29,8 +29,8 @@ Koš 1 předlož uživateli, koš 2 zapracuj, koš 3 zahoď. Značky BLOKUJE a Z
 
 ## Další kola
 
-Další kolo pusť jen tehdy, když koš 1 posledního kola nebyl prázdný, a jen s rolemi, které ho naplnily. Do zadání jim dej číslo kola, seznam míst změněných od minulého kola a **doslova věty, které vložila triáž**, s pokynem „tyto věty čti jako nové a jejich tvrzení o kódu a datech ověř proti kódu“; před spuštěním kola zkontroluj, že zadání nese věty doslova, ne jen seznam sekcí.
+Další kolo pusť jen tehdy, když koš 1 posledního kola nebyl prázdný, a jen s rolemi, které ho naplnily. **Od kola 2 hledají agenti jen koš 1 a mezery v Povolení:** do zadání patří „hlásíš jen to, co by vyžadovalo rozhodnutí uživatele, změnu Povolení nebo by běh zastavilo“. Koš 2 se zapracovává jen z kola 1; z pozdějšího kola jen rozpor, který způsobila věta vložená triáží. Opravy z dalších kol tělo vize nafukují a díry, kvůli kterým kolo běží, stejně neuzavřou. Do zadání jim dej číslo kola, seznam míst změněných od minulého kola a **doslova věty, které vložila triáž**, s pokynem „tyto věty čti jako nové a jejich tvrzení o kódu a datech ověř proti kódu“; před spuštěním kola zkontroluj, že zadání nese věty doslova, ne jen seznam sekcí.
 
-Kolo, po jehož triáži zůstane koš 1 prázdný, je poslední: zapracuj koš 2 a vizi ulož. Věty, které koš 2 posledního kola vložil, už žádné kolo nepřečte: jejich tvrzení o kódu, knihovně a datech ověř sám jedním dotazem nebo agentem `pruzkum`.
+Kolo, po jehož triáži zůstane koš 1 prázdný, je poslední: zapracuj, co z koše 2 smíš (výše), a vizi ulož. Věty, které koš 2 posledního kola vložil, už žádné kolo nepřečte: jejich tvrzení o kódu, knihovně a datech ověř sám jedním dotazem nebo agentem `pruzkum`.
 
 Po každém kole napiš uživateli jednou větou, kolik nálezů šlo do kterého koše (všechny tři zvlášť) a jestli pouštíš další kolo a proč. **Čtvrté a každé další kolo jen s jeho souhlasem.** Každé kolo čte i text, který přidalo zapracování předchozích, takže smyčka bez tohoto pravidla nemá pevný bod.

@@ -17,8 +17,8 @@ export default {
     k.navrat(v, { ok: true, vysledek: 'hotovo', pokusy: 2 })
     k.nic(/^implement:řez 05:.*:2$/, 'dorovnání nepouští opravu ani části')
     k.pocet(/^verify:/, 1, 'brána jen v pokusu 1')
-    k.pocet(/^deploy:řez 05:1$/, 2, 'nasazení v pokusu 1 a dorovnání')
-    const d = k.s(/^deploy:řez 05:1$/)[1]
+    k.pocet(/^deploy:řez 05:(p2:)?1$/, 2, 'nasazení v pokusu 1 a dorovnání (od 1.10.0 se štítkem pokusu)')
+    const d = k.s(/^deploy:řez 05:(p2:)?1$/)[1]
     k.obsahuje(d, 'Dorovnání: minulý pokus selhal jen na krocích po nasazení', 'větu dorovnání')
     return k.chyby
   },

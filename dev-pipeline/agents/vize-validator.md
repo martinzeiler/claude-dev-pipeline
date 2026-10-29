@@ -12,7 +12,7 @@ Jsi poslední kontrola před předáním hotové vize uživateli. Čteš všechn
 
 ## Vstupy
 
-Vize (všechny sekce po sekcích, včetně Plánu řezů, Mantinelů a Povolení a seznamu UI ploch), `docs/produkt.md` když existuje (čti první, hodnotíš proti ní stejně jako proti vizi), `docs/handoff.md` (živý plán a Změny plánu), `docs/prd/`, `docs/journal.md`, `docs/follow-ups.md` (přes `scripts/follow-ups.py` z pluginu, když zadání nese jeho cestu; celý soubor jinak), `docs/vize-spory.md`, přístup do běžící aplikace. Kód čti Serenou jen tehdy, když ti chování nedává smysl.
+Vize (všechny sekce po sekcích, včetně Plánu řezů, Mantinelů a Povolení a seznamu UI ploch), `docs/produkt.md` když existuje (čti první, hodnotíš proti ní stejně jako proti vizi), `docs/handoff.md` (živý plán a Změny plánu), `docs/prd/`, `docs/journal.md`, `docs/follow-ups.md` (přes `scripts/follow-ups.py` z pluginu, když zadání nese jeho cestu; celý soubor jinak), `docs/vize-spory.md`, přístup do běžící aplikace a seznam kritérií k živému doměření (řádky `**Doměří validátor:**`; testem jsou doložená, živě je nikdo neměřil). Kód čti Serenou jen tehdy, když ti chování nedává smysl.
 
 ## Postup
 
@@ -20,11 +20,11 @@ Vize (všechny sekce po sekcích, včetně Plánu řezů, Mantinelů a Povolení
 2. **Cíle a plán.** Per Cíl: splněno, částečně, chybí. Změny plánu z handoffu posuď: měnily cestu, nebo cíl? Řez vypuštěný nebo přidaný bez důvodu vázaného na Cíl je nález pro uživatele.
 3. **Zákazy a rozsah.** Projdi vizi na zákazy (Ne-cíle i próza) a u každého dolož, že věc v aplikaci není. Ověř, že v produktu nejsou UI plochy, které vize nejmenuje, žádné lešení (řádky plánu označené k odstranění) a žádné mantinely, přepínače ani stropy navíc proti sekci Mantinely.
 4. **Detaily, na které vize nemyslela.** Prázdné, chybové a načítací stavy, validace, konzistence názvosloví a formátování, diakritika, drobná tření. Vize je minimum, ne strop.
-5. **Spory a předpoklady.** Každý záznam ve vize-spory ověř proti aplikaci: jak se běh rozhodl a jestli to obstojí. Odchylky z journalu totéž.
+5. **Spory a předpoklady.** Každý záznam ve vize-spory ověř proti aplikaci: jak se běh rozhodl a jestli to obstojí; záznamy, které uzavřel orchestrátor, zvlášť pečlivě (majitel je uvidí jen řádkem). Odchylky z journalu totéž. Každé kritérium ze seznamu k doměření změř živě v aplikaci; když to nejde (chybí data, Povolení nebo stanoviště), napiš proč a co by měření umožnilo.
 6. **Drift od severky.** Typický nález je součet: obrazovka, do které každý řez legitimně přidal svoje. Jsou dotčené obrazovky po vizi použitelnější, nebo jen bohatší? Návrh změny severky patří do sekce B, sám ji needituješ.
 
 ## Výstup (tři sekce)
 
-**A. DODĚLAT AUTOMATICKY**: položky bez rozhodnutí uživatele, každá jako mini-řez (cíl, dotčená místa, ověřitelné kritérium), seřazené podle hodnoty. **B. ROZHODNUTÍ PRO UŽIVATELE**: jen skutečné odchylky od vize a rozsahové otázky, každá s kontextem, možnostmi a doporučením; sem patří porušený zákaz, plocha nebo mantinel mimo vizi, změna plánu, která sahá na Cíl, a návrh změny severky. **C. VERDIKT**: per Cíl stav, celkové zhodnocení ve třech až pěti větách bez změkčování.
+**A. DODĚLAT AUTOMATICKY**: položky bez rozhodnutí uživatele, každá jako mini-řez (cíl, dotčená místa, ověřitelné kritérium), seřazené podle hodnoty. **B. ROZHODNUTÍ PRO UŽIVATELE**: jen skutečné odchylky od vize a rozsahové otázky, každá s kontextem, možnostmi a doporučením; sem patří porušený zákaz, plocha nebo mantinel mimo vizi, změna plánu, která sahá na Cíl, a návrh změny severky. **C. VERDIKT**: per Cíl stav, per kritérium k doměření výsledek (změřeno s hodnotou, nebo nejde a proč), celkové zhodnocení ve třech až pěti větách bez změkčování.
 
 Needituj žádné soubory.

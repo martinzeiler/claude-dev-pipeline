@@ -2,22 +2,30 @@
 """Kostra závěrečné zprávy běhu (docs/zaverecna-zprava.md) z dokumentů běhu; orchestrátor doplní jen prózu.
 
 Použití:
-  zprava.py <cwd> --plugin-root <root> [--vystup docs/zaverecna-zprava.md] [--bez-cisel] [--session <dir>]
+  zprava.py <cwd> --plugin-root <root> [--vystup docs/zaverecna-zprava.md] [--bez-cisel] [--prepsat-cisla] [--session <dir>]
 
 Co skládá: hlavičku (vize, verze pluginu, od–do a délka), pevný blok Cílů se značkami a názvy do 5 slov z vize (C vždy,
-F a R, když je vize má), tabulku řezů z docs/handoff.md (řez, název, stav, pokusy z výsledků bloků, Dveře · Dosah ze
-zápisů nasazení docs/e2e/rez-NN-nasazeni*.md, poznámka), čísla běhu z `co-dela.sh --zprava` (cena, délka, agenti,
-restarty, compacty orchestrátora, předávky, bloky), follow-ups podle osudu a seznam [rozhodnutí] (scripts/follow-ups.py)
-a OTÁZKY jako dotazník ze docs/vize-spory.md: každý záznam bez řádku „**Rozhodnuto majitelem:** „<citace>““ (starší tvar:
-„Co by to rozhodlo“ = „rozhodnuto majitelem“) jako
-blok s účelem, navrženou odpovědí, řádkem „Proti vizi“ (když ho záznam nese) a prázdným řádkem „Odpověď:“; nejdřív
-záznamy s „Proti vizi“ a s rozhodnutím, pak ostatní. Sekce „Spory ve vizi“ je seznam všech záznamů.
+ve tvaru „**C1** text“ i „**C1 Název.** text“; F a R, když je vize má; bez C varování), sekci Rozhodni (próza
+orchestrátora a dotazník ze docs/vize-spory.md: každý otevřený záznam jako blok s účelem, navrženou odpovědí, řádkem
+„Proti vizi“ a prázdným řádkem „Odpověď:“; nejdřív záznamy s „Proti vizi“ a s rozhodnutím, pak ostatní), sekci Měl bys
+vědět (Změny plánu z handoffu a záznamy vize-spory s řádkem „**Měl bys vědět:**“), sekci Rozhodl orchestrátor (záznamy
+s řádkem „**Uzavřel orchestrátor:**“, jeden řádek na záznam, spojené duplicity vynechá), tabulku řezů z docs/handoff.md
+(řez, název, stav, pokusy z výsledků bloků, Dveře · Dosah ze zápisů nasazení docs/e2e/rez-NN-nasazeni*.md, poznámka),
+čísla běhu z `co-dela.sh --zprava` (cena, délka, agenti, restarty, compacty orchestrátora, předávky, bloky, zamítnuté
+dialogy), follow-ups podle osudu s [rozhodnutí] pro majitele (scripts/follow-ups.py;
+položky „rozhodne orchestrátor:“ jen počtem) a seznam všech záznamů vize-spory. Otevřený záznam = bez řádku
+„**Rozhodnuto majitelem:**“ (starší tvar: „rozhodnuto majitelem“ v „Co by to rozhodlo“), „**Uzavřel orchestrátor:**“
+i „**Měl bys vědět:**“.
 
-Sekce pro orchestrátora (Stav Cílů, Zastavení a obnovy, ROZHODNUTÍ PRO TEBE) stojí mezi značkami
+Sekce pro orchestrátora (Stav Cílů, Rozhodni, Zastavení a obnovy) stojí mezi značkami
 <!-- orchestrátor: <název> --> … <!-- /orchestrátor -->; při opakovaném běhu skript kostru přepíše a tyto sekce
-i vyplněné odpovědi pod „Odpověď:“ zachová. Nic nepočítá z hlavy: co nezjistí, napíše „nezjištěno“.
-  --bez-cisel   nevolá co-dela.sh (rychlý náhled kostry)
-  --session     adresář session orchestrátora pro co-dela.sh, když docs/.orchestrator-run už neexistuje
+i vyplněné odpovědi pod „Odpověď:“ zachová (sekce starého názvu ROZHODNUTÍ PRO TEBE přejde do Rozhodni). Když čísla
+teď zjistit nejde (--bez-cisel, nebo co-dela.sh po úklidu běhu nic nevrátí), převezme hlavičku, Řezy a Čísla běhu
+z minulé verze zprávy, pokud je měla; --prepsat-cisla je přepíše i tak. Nic nepočítá z hlavy: co nezjistí, napíše
+„nezjištěno“.
+  --bez-cisel      nevolá co-dela.sh (rychlý náhled kostry)
+  --prepsat-cisla  nepřebírá čísla z minulé verze zprávy
+  --session        adresář session orchestrátora pro co-dela.sh, když docs/.orchestrator-run už neexistuje
 Návratové kódy: 0 zapsáno · 2 chybí vstup (cwd/docs, handoff).
 """
 import json
@@ -31,11 +39,13 @@ ZNACKA_ORCH = re.compile(r"<!-- orchestrátor: (.*?) -->\n(.*?)<!-- /orchestrát
 SEKCE_ORCH = [
     ("Stav Cílů", "(doplň: ke každému Cíli jedna věta se stavem; u Cíle s verdiktem měření 2–3 věty: jak se měřilo, co rozhodlo, "
                   "příklad a odkaz na sekci zdůvodnění; přeskočené nebo změněné části plánu s důvodem)"),
+    ("Rozhodni", "(doplň: jen položky, které mění Cíl, Ne-cíl, Rozhodnutí, Povolení nebo mantinel vize, a právní či obsahové "
+                 "věci, každá s doporučením; sem patří i návrh změny docs/produkt.md; otázky z dotazníku níže ani follow-upy "
+                 "sem neopisuj; bez položek napiš „nic“)"),
     ("Zastavení a obnovy", "(doplň: každé zastavení s délkou stání a s tím, co obnova změnila; výpadek spojení jen jako informace; "
                            "bez zastavení napiš „žádné“)"),
-    ("ROZHODNUTÍ PRO TEBE", "(doplň: jen položky, které mění Cíl, Ne-cíl, Rozhodnutí nebo mantinel vize, každá s doporučením; "
-                            "sem patří i návrh změny docs/produkt.md; follow-upy ani měřicí otázky sem nepatří)"),
 ]
+STARE_NAZVY = {"ROZHODNUTÍ PRO TEBE": "Rozhodni"}
 
 
 def nacti(cesta):
@@ -101,17 +111,17 @@ def cile(vize_txt):
     """[(značka, název do 5 slov)] pro C vždy, F (nadpisy nebo odrážky nejvyšší úrovně) a R, když je vize má."""
     out, videne = [], set()
     for l in vize_txt.splitlines():
-        m = re.match(r"^\s*[-*]\s*\*\*(C\d+)\*\*\s*(.+)$", l) or re.match(r"^#{2,5}\s*(C\d+)\b[.:]?\s*(.*)$", l)
+        # odrážka „**C1** text“, nebo „**C1 Název.** text“ (název uvnitř tučného); „**F1.1 …**“ není F1
+        for p in ("C", "F"):
+            m = (re.match(r"^\s*[-*]\s*\*\*(" + p + r"\d+)\*\*\s*(.+)$", l)
+                 or re.match(r"^\s*[-*]\s*\*\*(" + p + r"\d+)(?![.\d])[.:]?\s*([^*]+)\*\*\s*(.*)$", l)
+                 or re.match(r"^#{2,5}\s*(" + p + r"\d+)\b(?!\.\d)[.:]?\s*(.*)$", l))
+            if m:
+                z = m.group(1)
+                if z not in videne:
+                    videne.add(z); out.append((z, slov(m.group(2) if m.group(2).strip() else (m.group(3) if m.lastindex >= 3 else ""))))
+                break
         if m:
-            z = m.group(1)
-            if z not in videne:
-                videne.add(z); out.append((z, slov(m.group(2))))
-            continue
-        m = re.match(r"^#{2,5}\s*(F\d+)\b[.:]?\s*(.*)$", l) or re.match(r"^\s*[-*]\s*\*\*(F\d+)\*\*\s*(.+)$", l)
-        if m:
-            z = m.group(1)
-            if z not in videne:
-                videne.add(z); out.append((z, slov(m.group(2))))
             continue
         m = re.match(r"^\s*[-*]\s*\*\*(R\d+)\b[.:]?\s*([^*]*)\*\*\s*(.*)$", l) or re.match(r"^\s*[-*]\s*\*\*(R\d+)\*\*\s*(.+)$", l)
         if m:
@@ -166,11 +176,44 @@ def vize_spory(cwd):
         z["hledal"] = p.get("hledal jsem ve vizi", "")
         z["proti"] = p.get("proti vizi", "")
         z["rozhodnuto"] = p.get("rozhodnuto majitelem", "")
-        # otevřená otázka = záznam bez řádku **Rozhodnuto majitelem:** (zapisuje orchestrátor citací); starší tvar
-        # „rozhodnuto majitelem“ v Co by to rozhodlo platí jako druhá možnost
-        z["otazka"] = not (z["rozhodnuto"].strip() or re.search(r"rozhodnuto majitelem", z["co"], re.I))
-        z["titul"] = slov(re.split(r"(?<=[.;:])\s", z["rozpor"], 1)[0], 12) if z["rozpor"] else "(bez rozporu)"
+        z["uzavrel"] = p.get("uzavřel orchestrátor", "")
+        z["vedet"] = p.get("měl bys vědět", "")
+        # otevřená otázka = záznam bez řádku **Rozhodnuto majitelem:** (zapisuje orchestrátor citací; starší tvar
+        # „rozhodnuto majitelem“ v Co by to rozhodlo platí jako druhá možnost), bez **Uzavřel orchestrátor:**
+        # (uzavřel sám, i bezpředmětné a spojené duplicity) a bez **Měl bys vědět:** (informace, ne otázka)
+        z["otazka"] = not (z["rozhodnuto"].strip() or re.search(r"rozhodnuto majitelem", z["co"], re.I)
+                           or z["uzavrel"].strip() or z["vedet"].strip())
+        zaklad = z["rozpor"] or z["vedet"]
+        z["titul"] = slov(re.split(r"(?<=[.;:])\s", zaklad, 1)[0], 12) if zaklad else "(bez rozporu)"
     return zaznamy
+
+
+def zmeny_planu(cwd):
+    """Odrážky sekce „Změny plánu“ z docs/handoff.md (orchestrátor je píše s důvodem)."""
+    out, uvnitr = [], False
+    for l in nacti(os.path.join(cwd, "docs", "handoff.md")).splitlines():
+        if l.startswith("## "):
+            uvnitr = l[3:].strip().lower().startswith("změny plánu")
+            continue
+        if uvnitr and re.match(r"^\s*[-*]\s+\S", l):
+            out.append(re.sub(r"^\s*[-*]\s+", "", l).strip())
+    return out
+
+
+def sekce_zpravy(txt):
+    """{nadpis ## : text sekce bez nadpisu} a řádek hlavičky („vize: …“) ze stávající zprávy."""
+    sekce, akt, buf, hlavicka = {}, None, [], None
+    for l in txt.splitlines() + ["## konec"]:
+        if l.startswith("## "):
+            if akt is not None:
+                sekce[akt] = "\n".join(buf).strip("\n")
+            akt, buf = l[3:].strip(), []
+            continue
+        if akt is None and hlavicka is None and l.startswith("vize: `"):
+            hlavicka = l
+        if akt is not None:
+            buf.append(l)
+    return sekce, hlavicka
 
 
 def spust(prikaz, cwd):
@@ -189,7 +232,7 @@ def spust(prikaz, cwd):
 def existujici(cesta):
     """(sekce orchestrátora podle názvu, odpovědi podle titulu otázky) ze stávající zprávy."""
     txt = nacti(cesta)
-    sekce = {m.group(1).strip(): m.group(2).strip("\n") for m in ZNACKA_ORCH.finditer(txt)}
+    sekce = {STARE_NAZVY.get(m.group(1).strip(), m.group(1).strip()): m.group(2).strip("\n") for m in ZNACKA_ORCH.finditer(txt)}
     odpovedi, titul, sbiram, buf = {}, None, False, []
     for l in txt.splitlines() + ["## konec"]:
         if l.startswith("### "):
@@ -227,12 +270,12 @@ def main(argv):
         print(__doc__.strip())
         return 0
     cwd = os.path.abspath(argv[0])
-    opt = {"plugin-root": None, "vystup": "docs/zaverecna-zprava.md", "bez-cisel": False, "session": None}
+    opt = {"plugin-root": None, "vystup": "docs/zaverecna-zprava.md", "bez-cisel": False, "prepsat-cisla": False, "session": None}
     i = 1
     while i < len(argv):
         a = argv[i]
-        if a == "--bez-cisel":
-            opt["bez-cisel"] = True
+        if a in ("--bez-cisel", "--prepsat-cisla"):
+            opt[a[2:]] = True
         elif a in ("--plugin-root", "--vystup", "--session") and i + 1 < len(argv):
             opt[a[2:]] = argv[i + 1]
             i += 1
@@ -276,6 +319,12 @@ def main(argv):
     spory = vize_spory(cwd)
     vystup = opt["vystup"] if os.path.isabs(opt["vystup"]) else os.path.join(cwd, opt["vystup"])
     sekce_stare, odpovedi_stare = existujici(vystup)
+    # Po úklidu běhu (marker smazaný) co-dela.sh čísla nevrátí: hlavička, Řezy a Čísla běhu se převezmou z minulé verze
+    # zprávy, pokud je měla; --prepsat-cisla je přepíše i tak.
+    stare_sekce, stara_hlavicka = sekce_zpravy(nacti(vystup))
+    stara_cisla = stare_sekce.get("Čísla běhu", "")
+    prevzit = (not cisla and not opt["prepsat-cisla"] and bool(stara_cisla.strip())
+               and not stara_cisla.strip().startswith("- nezjištěno"))
 
     out = []
     out.append(f"# Závěrečná zpráva: {slug or 'běh vize'}")
@@ -283,100 +332,47 @@ def main(argv):
     od = fmt_cas(cisla.get("od")) if cisla else fmt_cas(marker.get("started")) if marker else (h["start"] or "nezjištěno")
     do = fmt_cas(cisla.get("do")) if cisla else "nezjištěno"
     delka = f"{cisla['delka_h']} h" if cisla and cisla.get("delka_h") is not None else "nezjištěno"
-    out.append(f"vize: `{vize_rel or 'nezjištěno'}` · plugin dev-pipeline {verze} · běh {od} až {do} ({delka})"
-               + (f" · větev `{marker.get('branch') or h['branch']}`" if (marker.get("branch") or h["branch"]) else ""))
+    if prevzit and stara_hlavicka:
+        out.append(stara_hlavicka)
+    else:
+        out.append(f"vize: `{vize_rel or 'nezjištěno'}` · plugin dev-pipeline {verze} · běh {od} až {do} ({delka})"
+                   + (f" · větev `{marker.get('branch') or h['branch']}`" if (marker.get("branch") or h["branch"]) else ""))
     out.append("")
     out.append("<!-- kostru skládá scripts/zprava.py z dokumentů běhu; sekce mezi značkami orchestrátor píše orchestrátor, zbytek skript při dalším spuštění přepíše -->")
     out.append("")
 
+    def orch(nazev):
+        out.append(f"<!-- orchestrátor: {nazev} -->")
+        out.append(sekce_stare.get(nazev) or dict(SEKCE_ORCH)[nazev])
+        out.append("<!-- /orchestrátor -->")
+        out.append("")
+
     out.append("## Cíle vize")
     out.append("")
     cl = cile(vize_txt)
+    bez_c = bool(vize_txt) and not any(z.startswith("C") for z, _ in cl)
+    if bez_c:
+        out.append("- (Cíle C se z vize nepodařilo přečíst: zkontroluj tvar „**C1 Název.** text“; níže jen F a R)")
+        print("zprava: varování: vize nemá Cíle ve tvaru **C1** ani **C1 Název.**", file=sys.stderr)
     if cl:
         for z, nazev in cl:
             out.append(f"- **{z}** ({nazev})")
-    else:
+    elif not bez_c:
         out.append("- (Cíle se z vize nepodařilo přečíst: nezjištěno)")
     out.append("")
     out.append("## Stav Cílů")
     out.append("")
-    out.append(f"<!-- orchestrátor: {SEKCE_ORCH[0][0]} -->")
-    out.append(sekce_stare.get(SEKCE_ORCH[0][0]) or SEKCE_ORCH[0][1])
-    out.append("<!-- /orchestrátor -->")
-    out.append("")
+    orch("Stav Cílů")
 
-    out.append("## Řezy")
+    out.append("## Rozhodni")
     out.append("")
-    out.append("| řez | název | stav | pokusy | dveře · dosah | pozn. |")
-    out.append("|---|---|---|---|---|---|")
-    rezy_c = (cisla or {}).get("rezy") or {}
-    for r in h["radky"]:
-        rc = rezy_c.get(r["rez"]) or {}
-        pokusy = rc.get("pokusy") if rc else None
-        dvd = dd.get(r["rez"]) or (f"{rc.get('dvere')} · {rc.get('dosah')}" if rc.get("dvere") and rc.get("dosah") else "")
-        out.append(f"| {r['rez']} | {r['nazev']} | {r['stav'] or (rc.get('vysledek') or '')} | {pokusy if pokusy is not None else ''} | {dvd} | {r['pozn']} |")
-    if not h["radky"]:
-        out.append("| | (tabulka plánu v docs/handoff.md nenalezena) | | | | |")
-    kol = (cisla or {}).get("kolecko")
-    if kol:
-        out.append("")
-        out.append(f"Kolečko: {'hotovo' if kol.get('ok') else 'selhalo'}" + (f" ({kol.get('faze')})" if kol.get("faze") else "")
-                   + (f": {kol.get('detail')}" if kol.get("detail") else ""))
-    out.append("")
-
-    out.append("## Čísla běhu")
-    out.append("")
-    if cisla:
-        cm = ", ".join(f"{m} ${c:,.0f}" for m, c in sorted(cisla.get("cena_podle_modelu", {}).items(), key=lambda x: -x[1]))
-        out.append(f"- cena: ${cisla.get('cena_usd', 0):,.0f}" + (f" ({cm})" if cm else ""))
-        out.append(f"- délka: {od} až {do} ({delka}); agentů {cisla.get('agentu', 'nezjištěno')}")
-        out.append(f"- restartů po stallu {cisla.get('restartu_stall', 0)} (ztráta ~{cisla.get('ztrata_restartu_min', 0)} min), po limitu {cisla.get('restartu_limit', 0)}; předávek {cisla.get('predavek', 0)}")
-        out.append(f"- compactů orchestrátora {cisla.get('compactu_orchestratora', 0)}, compactů agentů {cisla.get('compactu_agentu', 0)}")
-        b = cisla.get("bloky") or {}
-        pb = ", ".join(f"{k} {v.get('hotovo', 0)}/{v.get('hotovo', 0) + v.get('selhalo', 0)}" for k, v in sorted((b.get("podle_bloku") or {}).items()))
-        out.append(f"- bloky: hotovo {b.get('hotovo', 0)}, selhalo {b.get('selhalo', 0)}" + (f" ({pb})" if pb else ""))
-    else:
-        out.append("- nezjištěno (co-dela.sh --zprava nevrátil čísla; spusť ho zvlášť, nebo zprávu bez čísel)")
-    out.append("")
-
-    for nazev, vychozi in SEKCE_ORCH[1:]:
-        out.append(f"## {nazev}")
-        out.append("")
-        out.append(f"<!-- orchestrátor: {nazev} -->")
-        out.append(sekce_stare.get(nazev) or vychozi)
-        out.append("<!-- /orchestrátor -->")
-        out.append("")
-
-    out.append("## Follow-ups")
-    out.append("")
-    if fu:
-        pocty = {}
-        for ob in (fu.get("pocty") or {}).values():
-            for osud, n in ob.items():
-                pocty[osud] = pocty.get(osud, 0) + n
-        poradi = ["rozhodnutí", "oprava", "nápad", "obsah", "bez osudu"]
-        out.append(f"{fu.get('otevrene', 0)} otevřených ("
-                   + ", ".join(f"{k} {pocty.get(k, 0)}" for k in poradi if pocty.get(k)) + f"), {fu.get('uzavrene', 0)} uzavřených; "
-                   f"přehled: `python3 {os.path.relpath(os.path.join(root, 'scripts', 'follow-ups.py'), cwd)} {os.path.relpath(cwd, cwd) or '.'}`")
-        rozh = [p for p in fu.get("polozky", []) if p.get("osud") == "rozhodnutí"]
-        if rozh:
-            out.append("")
-            out.append("[rozhodnutí] (jediné položky, které potřebují majitele):")
-            for p in rozh:
-                hlava = "kolečko" if p.get("rez") == "kolecko" else f"řez {p.get('rez')}"
-                out.append(f"- {hlava} · {p.get('oblast')}: {p.get('text')}")
-    else:
-        out.append("nezjištěno (docs/follow-ups.md chybí nebo follow-ups.py selhal)")
-    out.append("")
-
-    out.append("## Otázky s navrženou odpovědí")
-    out.append("")
+    orch("Rozhodni")
     otazky = [z for z in spory if z["otazka"]]
     def poradi_otazek(z):
         return (0 if z["proti"] else 1 if re.search(r"rozhodnut", z["rozpor"] + z["co"], re.I) else 2, z["datum"])
     otazky.sort(key=poradi_otazek)
     if otazky:
-        out.append("Odpověz pod „Odpověď:“ přímo v tomto souboru; další session odpovědi přečte odtud. Nejdřív otázky, jejichž navržená odpověď jde proti znění vize, pak ty s rozhodnutím, pak ostatní.")
+        out.append("Otázky, které orchestrátor neuzavřel sám. Odpověz pod „Odpověď:“ přímo v tomto souboru; další session odpovědi přečte odtud. Nejdřív otázky, jejichž navržená odpověď jde proti znění vize, pak ty s rozhodnutím, pak ostatní.")
         out.append("")
         for z in otazky:
             titul = f"{z['rez']} · {z['titul']}"
@@ -392,16 +388,129 @@ def main(argv):
             out.append("Odpověď: " + stara if stara else "Odpověď:")
             out.append("")
     else:
-        out.append("Žádné: každý záznam vize-spory je rozhodnutý majitelem, nebo soubor chybí.")
+        out.append("Otázky: žádné otevřené (každý záznam vize-spory rozhodl majitel nebo uzavřel orchestrátor, nebo soubor chybí).")
         out.append("")
+
+    out.append("## Měl bys vědět")
+    out.append("")
+    zp_plan = zmeny_planu(cwd)
+    vedet = [z for z in spory if z["vedet"].strip()]
+    if zp_plan:
+        out.append("Změny plánu (z handoffu):")
+        for r in zp_plan:
+            out.append(f"- {r}")
+        out.append("")
+    if vedet:
+        out.append("Ze záznamů vize-spory:")
+        for z in vedet:
+            out.append(f"- {z['datum']} · {z['rez']}: {z['vedet']}")
+        out.append("")
+    if not zp_plan and not vedet:
+        out.append("Nic: plán se neměnil a žádný záznam vize-spory nenese „Měl bys vědět“.")
+        out.append("")
+
+    out.append("## Rozhodl orchestrátor")
+    out.append("")
+    uzavrene = [z for z in spory if z["uzavrel"].strip() and not z["rozhodnuto"].strip()
+                and not re.match(r"spojeno\b", z["uzavrel"].strip(), re.I)]
+    if uzavrene:
+        out.append("Jeden řádek na záznam; obrátit jde citací (odpověz orchestrátorovi, zapíše „Rozhodnuto majitelem“).")
+        for z in uzavrene:
+            out.append(f"- {z['datum']} · {z['rez']}: {z['titul']} → {z['uzavrel']}")
+    else:
+        out.append("Nic.")
+    out.append("")
+
+    out.append("## Řezy")
+    out.append("")
+    if prevzit and stare_sekce.get("Řezy", "").strip():
+        out.append(stare_sekce["Řezy"].strip("\n"))
+    else:
+        out.append("| řez | název | stav | pokusy | dveře · dosah | pozn. |")
+        out.append("|---|---|---|---|---|---|")
+        rezy_c = (cisla or {}).get("rezy") or {}
+        for r in h["radky"]:
+            rc = rezy_c.get(r["rez"]) or {}
+            pokusy = rc.get("pokusy") if rc else None
+            dvd = dd.get(r["rez"]) or (f"{rc.get('dvere')} · {rc.get('dosah')}" if rc.get("dvere") and rc.get("dosah") else "")
+            out.append(f"| {r['rez']} | {r['nazev']} | {r['stav'] or (rc.get('vysledek') or '')} | {pokusy if pokusy is not None else ''} | {dvd} | {r['pozn']} |")
+        if not h["radky"]:
+            out.append("| | (tabulka plánu v docs/handoff.md nenalezena) | | | | |")
+        kol = (cisla or {}).get("kolecko")
+        if kol:
+            out.append("")
+            out.append(f"Kolečko: {'hotovo' if kol.get('ok') else 'selhalo'}" + (f" ({kol.get('faze')})" if kol.get("faze") else "")
+                       + (f": {kol.get('detail')}" if kol.get("detail") else ""))
+    out.append("")
+
+    out.append("## Čísla běhu")
+    out.append("")
+    if prevzit:
+        out.append(stara_cisla.strip("\n"))
+    elif cisla:
+        cm = ", ".join(f"{m} ${c:,.0f}" for m, c in sorted(cisla.get("cena_podle_modelu", {}).items(), key=lambda x: -x[1]))
+        out.append(f"- cena: ${cisla.get('cena_usd', 0):,.0f}" + (f" ({cm})" if cm else ""))
+        out.append(f"- délka: {od} až {do} ({delka}); agentů {cisla.get('agentu', 'nezjištěno')}")
+        out.append(f"- restartů po stallu {cisla.get('restartu_stall', 0)} (ztráta ~{cisla.get('ztrata_restartu_min', 0)} min), po limitu {cisla.get('restartu_limit', 0)}; předávek {cisla.get('predavek', 0)}")
+        out.append(f"- compactů orchestrátora {cisla.get('compactu_orchestratora', 0)}, compactů agentů {cisla.get('compactu_agentu', 0)}")
+        b = cisla.get("bloky") or {}
+        pb = ", ".join(f"{k} {v.get('hotovo', 0)}/{v.get('hotovo', 0) + v.get('selhalo', 0)}" for k, v in sorted((b.get("podle_bloku") or {}).items()))
+        out.append(f"- bloky: hotovo {b.get('hotovo', 0)}, selhalo {b.get('selhalo', 0)}" + (f" ({pb})" if pb else ""))
+    else:
+        out.append("- nezjištěno (co-dela.sh --zprava nevrátil čísla; spusť ho zvlášť, nebo zprávu bez čísel)")
+    if not prevzit and cisla and cisla.get("dialogu_zamitnuto") is not None:
+        out.append(f"- zamítnutých dialogů v běhu {cisla['dialogu_zamitnuto']} (hook dialog-v-behu.sh)")
+    out.append("")
+
+    out.append("## Zastavení a obnovy")
+    out.append("")
+    orch("Zastavení a obnovy")
+
+    out.append("## Follow-ups")
+    out.append("")
+    if fu:
+        pocty = {}
+        for ob in (fu.get("pocty") or {}).values():
+            for osud, n in ob.items():
+                pocty[osud] = pocty.get(osud, 0) + n
+        poradi = ["rozhodnutí", "oprava", "nápad", "obsah", "bez osudu"]
+        out.append(f"{fu.get('otevrene', 0)} otevřených ("
+                   + ", ".join(f"{k} {pocty.get(k, 0)}" for k in poradi if pocty.get(k)) + f"), {fu.get('uzavrene', 0)} uzavřených; "
+                   f"přehled: `python3 {os.path.relpath(os.path.join(root, 'scripts', 'follow-ups.py'), cwd)} {os.path.relpath(cwd, cwd) or '.'}`")
+        rozh = [p for p in fu.get("polozky", []) if p.get("osud") == "rozhodnutí"]
+        orch_rozh = [p for p in rozh if re.match(r"\s*rozhodne orchestrátor\b", p.get("text") or "", re.I)]
+        maj_rozh = [p for p in rozh if p not in orch_rozh]
+        if maj_rozh:
+            out.append("")
+            out.append("[rozhodnutí] pro majitele:")
+            for p in maj_rozh:
+                hlava = "kolečko" if p.get("rez") == "kolecko" else f"řez {p.get('rez')}"
+                out.append(f"- {hlava} · {p.get('oblast')}: {p.get('text')}")
+        if orch_rozh:
+            out.append("")
+            out.append(f"[rozhodnutí] „rozhodne orchestrátor“: {len(orch_rozh)} (orchestrátor je ve finále převede na mini-řez nebo nápad)")
+    else:
+        out.append("nezjištěno (docs/follow-ups.md chybí nebo follow-ups.py selhal)")
+    out.append("")
 
     out.append("## Spory ve vizi")
     out.append("")
-    rozhodnute = sum(1 for z in spory if not z["otazka"])
-    out.append(f"{len(spory)} záznamů v docs/vize-spory.md ({len(otazky)} otázek výše, {rozhodnute} rozhodnutých majitelem).")
+    rozhodnute = sum(1 for z in spory if z["rozhodnuto"].strip() or re.search(r"rozhodnuto majitelem", z["co"], re.I))
+    uzavreno = sum(1 for z in spory if z["uzavrel"].strip() and not z["rozhodnuto"].strip())
+    out.append(f"{len(spory)} záznamů v docs/vize-spory.md ({len(otazky)} otázek v Rozhodni, {rozhodnute} rozhodnutých majitelem, "
+               f"{uzavreno} uzavřených orchestrátorem, {len(vedet)} pro informaci).")
     for z in spory:
-        out.append(f"- {z['datum']} · {z['rez']} · {z['agent']}: {z['titul']}"
-                   + ("" if z["otazka"] else (f" (rozhodnuto majitelem: {z['rozhodnuto']})" if z["rozhodnuto"] else " (rozhodnuto majitelem)")))
+        if z["otazka"]:
+            stav = ""
+        elif z["rozhodnuto"].strip():
+            stav = f" (rozhodnuto majitelem: {z['rozhodnuto']})"
+        elif re.search(r"rozhodnuto majitelem", z["co"], re.I):
+            stav = " (rozhodnuto majitelem)"
+        elif z["uzavrel"].strip():
+            stav = f" (uzavřel orchestrátor: {z['uzavrel']})"
+        else:
+            stav = " (pro informaci)"
+        out.append(f"- {z['datum']} · {z['rez']} · {z['agent']}: {z['titul']}{stav}")
     out.append("")
 
     with open(vystup, "w", encoding="utf-8") as f:
@@ -410,7 +519,8 @@ def main(argv):
     vychozi = dict(SEKCE_ORCH)
     zachovano = sum(1 for k, v in sekce_stare.items() if v.strip() and v.strip() != vychozi.get(k, ""))
     print(f"{rel}: {os.path.getsize(vystup)} B; Cílů {len(cl)}, řezů {len(h['radky'])}, otázek {len(otazky)} z {len(spory)} záznamů, "
-          f"follow-ups {fu.get('otevrene', 'nezjištěno') if fu else 'nezjištěno'}, čísla {'ano' if cisla else 'ne'}; "
+          f"uzavřel orchestrátor {uzavreno}, follow-ups {fu.get('otevrene', 'nezjištěno') if fu else 'nezjištěno'}, "
+          f"čísla {'ano' if cisla else 'z minulé zprávy' if prevzit else 'ne'}; "
           f"doplň sekce: {', '.join(n for n, _ in SEKCE_ORCH)}"
           + (f"; zachováno {zachovano} sekcí a {len(odpovedi_stare)} odpovědí" if sekce_stare or odpovedi_stare else ""))
     return 0

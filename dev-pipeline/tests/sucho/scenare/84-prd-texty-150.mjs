@@ -27,7 +27,7 @@ export default {
     k.obsahuje(ar, 'počet položek × čas na položku', 'odhad doby měřidla nad populací (§ 1.2)')
     k.obsahuje(ar, 'část pod ~500 řádků nezakládej'); k.obsahuje(ar, 'včetně testů, fixtur a měřidel')
     const ks = k.jeden('prd-check:řez 05:1')
-    k.obsahuje(ks, 'počet položek × čas na položku', 'měřidlo nad populací jako nález kontroly'); k.obsahuje(ks, '~500–800 změněných řádků'); k.obsahuje(ks, 'nález „rozděl část“')
+    k.obsahuje(ks, 'počet položek × čas na položku', 'měřidlo nad populací jako nález kontroly'); k.obsahuje(ks, '~500–800 změněných řádků'); k.obsahuje(ks, 'jmenuj jen jako neblokující nález: blok ji dělí před autory, po nich se počet částí nemění', 'přerostlá část po autorech jen jako nález')
     k.obsahuje(k.jeden('prd-check:řez 05:část K1:1'), 'Kontrakt a tabulku Části posuzuj jen v tom, co tvoje část z Kontraktu používá')
     for (const f of [k.jeden('prd-fix:řez 05'), k.jeden('prd-fix:řez 05:část K1')]) {
       k.obsahuje(f, 'Návrh v reportu je hypotéza stejně jako nález'); k.obsahuje(f, 'soubor nepřepisuj celý (Write)')

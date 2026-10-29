@@ -17,7 +17,8 @@ export default {
     const a = k.jeden('args:řez 05')
     k.agent(a, 'dev-pipeline:nacteni-args', 'sonnet', 'low')
     k.obsahuje(a, `${CWD}/docs/.stavba-05.json`, 'cestu souboru args')
-    k.obsahuje(a, `${CWD}/docs/.run-args.json`, 'stálé args běhu')
+    // Od 1.10.0 (spec H1) vkládá stálá pole do souboru bloku args-bloku.py: agent čte jen soubor bloku.
+    k.neobsahuje(a, '.run-args.json', 'druhý soubor (stálá pole jsou v souboru bloku)')
     k.ok(a && /^Řez 05:/.test(a.prompt), 'zadání načítacího agenta začíná „Řez 05:“ (hlídač)')
     return k.chyby
   },

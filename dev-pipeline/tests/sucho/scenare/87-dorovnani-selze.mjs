@@ -7,7 +7,7 @@ export default {
   blok: 'blok-stavby',
   args: argsStavby(),
   odpoved(label, p, o, stav) {
-    if (label === 'deploy:řez 05:1' && stav.pocty[label] <= 2) return stub(label, { kroky_po_nasazeni: [{ id: 4, krok: 'OVERENI-87 health', stav: 'selhalo', duvod: '500 z /api/health' }] })
+    if (/^deploy:řez 05:(p2:)?1$/.test(label)) return stub(label, { kroky_po_nasazeni: [{ id: 4, krok: 'OVERENI-87 health', stav: 'selhalo', duvod: '500 z /api/health' }] })
     return null
   },
   over(v, volani) {

@@ -1,5 +1,5 @@
 {
-  "description": "dev-pipeline: guardy běhu (blast radius, guard běhu s pamětí a obrázky, hlídač kontextu subagentů, fronta těžkých příkazů), Stop hook proti stání, PreCompact varování, injekce plánu po compactu a uložení session_id při /orchestrate.",
+  "description": "dev-pipeline: guardy běhu (blast radius, guard běhu s pamětí a obrázky, hlídač kontextu subagentů, fronta těžkých příkazů), zamítnutí dialogů ke schválení v běhu (PermissionRequest), Stop hook proti stání, PreCompact varování, injekce plánu po compactu a uložení session_id při /orchestrate.",
   "hooks": {
     "PreToolUse": [
       {
@@ -46,6 +46,18 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/hlidac-kontextu.sh\"",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/dialog-v-behu.sh\"",
+            "timeout": 10
           }
         ]
       }

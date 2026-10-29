@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Funkční testy scripts/args-bloku.py nad dočasnými soubory: pokračování bloku PRD přes skript (základ z minulého volání),
 # odmítnutí neschváleného výsledku PRD, profil do stavby, záložní cesta přes soubor .output z notifikace, odmítnutí obnova
-# v --doplnit (s návodem na pokus), vynechání prázdných hodnot, _pole a podpříkaz rozhodnuti. Spusť: dev-pipeline/tests/skripty/args-bloku.sh
+# v --doplnit (s návodem na pokus), vynechání prázdných hodnot, _pole, podpříkaz rozhodnuti, odmítnutí args pro řez, jehož blok
+# běží (kód 6, --i-kdyz-bezi), stálá pole .run-args.json v souboru bloku a bez_review kolečka z výsledků stavby. Spusť: dev-pipeline/tests/skripty/args-bloku.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); plugin=$(cd "$here/../.." && pwd)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/args-bloku-test.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
@@ -112,7 +113,8 @@ o=$(ab stavba "$proj" 5 --prd-run wf_full-2); [ $? -eq 2 ] && printf '%s' "$o" |
 jq -n '{vize:"/p/docs/vize/v.md", produkt:"/p/docs/produkt.md", ne_cile:"y"}' > "$proj/docs/.run-args.json"
 o=$(ab --help); [ $? -eq 0 ] && printf '%s' "$o" | grep -q 'args-bloku.py stavba' && ok || ko "help: $o"
 
-# 13. (1.7.0) prázdné hodnoty (null, "", [], {}) se nepíšou, rez vždy; _pole = klíče souboru ∪ neprázdné klíče .run-args.json
+# 13. (1.7.0) prázdné hodnoty (null, "", [], {}) se nepíšou, rez vždy; soubor nese i neprázdná stálá pole .run-args.json
+# (spec H1, agent opisuje jediný soubor); _pole = klíče sloučeného souboru
 jq -n '{vize:"/p/docs/vize/v.md", produkt:"", ne_cile:"y", rozhodnuti_majitele:["2026-10-06 12:50 bez čekání"], rychle_kontroly:"pnpm verify:arch", _pole:["stare"]}' > "$proj/docs/.run-args.json"
 o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"prd_stale":[],"mazane_pozdeji":null,"hypotezy":{"text":[]},"profil":"","max_pokusu":1,"runtime_dopad":false}'); rc=$?
 k=$(j '[has("prd_stale"), has("mazane_pozdeji"), .hypotezy.ids, .hypotezy.text, has("profil"), .max_pokusu, .runtime_dopad, .rez]' "$proj/docs/.stavba-05.json")
@@ -122,10 +124,14 @@ p=$(j '._pole' "$proj/docs/.stavba-05.json")
 ex=$(jq -c --argjson f "$(jq -c 'del(._pole) | keys' "$proj/docs/.stavba-05.json")" -n '$f + ["ne_cile","rozhodnuti_majitele","rychle_kontroly","vize"] | unique')
 [ "$p" = "$ex" ] && ! printf '%s' "$p" | grep -q -e '"produkt"' -e '"_pole"' -e '"stare"' && ok || ko "pole-sjednoceni: $p (čekáno $ex)"
 printf '%s' "$o" | grep -q '_pole' && ko "pole-ve-vypisu: $o" || ok
-# rozhodnutí majitele a rychlé kontroly jsou stálá pole: ze stavby z výsledku PRD se vynechají, blok je bere z .run-args.json
+k=$(j '[.vize, .ne_cile, .rychle_kontroly, .rozhodnuti_majitele, has("produkt"), (._pole == (del(._pole) | keys))]' "$proj/docs/.stavba-05.json")
+[ "$k" = '["/p/docs/vize/v.md","y","pnpm verify:arch",["2026-10-06 12:50 bez čekání"],false,true]' ] && ok || ko "stala-v-souboru: $k"
+o=$(ab prd "$proj" 5 --doplnit "{\"plan_row\":$ROW,\"ne_cile\":\"z doplnit\"}"); [ "$(j '.ne_cile' "$proj/docs/.prd-05.json")" = '"z doplnit"' ] && ok || ko "stala-prednost-doplnit: $o"
+# rozhodnutí majitele a rychlé kontroly jsou stálá pole: ze stavby z výsledku PRD se vynechají (mohla zastarat) a soubor je
+# nese z .run-args.json
 jq -n "{status:\"completed\", workflowName:\"blok-prd\", result:{ok:true, rez:\"05\", stavba:{rez:\"05\", prd_path:\"/p/z.md\", rozhodnuti_majitele:[\"x\"], rychle_kontroly:\"y\", obnova:{}}}}" > "$wfd/wf_stala-7.json"
 o=$(ab stavba "$proj" 5 --prd-run wf_stala-7); rc=$?
-[ $rc -eq 0 ] && [ "$(j '[has("rozhodnuti_majitele"), has("rychle_kontroly"), has("obnova")]' "$proj/docs/.stavba-05.json")" = '[false,false,false]' ] && ok || ko "stala-ze-stavby: rc=$rc $o"
+[ $rc -eq 0 ] && [ "$(j '[.rozhodnuti_majitele, .rychle_kontroly, has("obnova")]' "$proj/docs/.stavba-05.json")" = '[["2026-10-06 12:50 bez čekání"],"pnpm verify:arch",false]' ] && ok || ko "stala-ze-stavby: rc=$rc $o"
 # bez .run-args.json: _pole jen klíče souboru
 rm -f "$proj/docs/.run-args.json"
 o=$(ab kolecko "$proj" --doplnit '{"base":"main"}'); rc=$?
@@ -146,6 +152,58 @@ o=$(ab rozhodnuti "$proj" --text 'x'); [ $? -eq 2 ] && [ "$(cat "$proj/docs/.run
 rm -f "$proj/docs/.run-args.json"
 o=$(ab rozhodnuti "$proj" --text 'bez souboru'); rc=$?
 [ $rc -eq 0 ] && printf '%s' "$o" | grep -q 'založen' && [ "$(j '.rozhodnuti_majitele | length' "$proj/docs/.run-args.json")" = 1 ] && ok || ko "rozhodnuti-bez-souboru: rc=$rc $o"
+
+# běžící blok téhož typu a řezu (co-dela.sh --bezici nad session z markeru): kód 6 a soubor se nezapíše; jiný řez, jiný
+# typ, doběhlý blok, blok bez známého řezu a --i-kdyz-bezi projdou; zombie (journal i agenti mlčí přes 2 h, stejně vypadá
+# čekání na usage limit) blokuje s vlastní hláškou
+jq -n '{session_id:"sess-x", started:"2026-10-29T10:00:00Z", vize:"docs/vize/v.md", slug:"v"}' > "$proj/docs/.orchestrator-run"
+sx="$tmp/tr/-p/sess-x"; mkdir -p "$sx/workflows/scripts"
+bezi() { # wf blok label(prázdný = jen launched)
+  mkdir -p "$sx/subagents/workflows/$1"; printf "phases: [\n  { title: 'Vstup' },\n]\n" > "$sx/workflows/scripts/$2-$1.js"
+  { jq -cn '{type:"launched"}'; [ -n "$3" ] && jq -cn --arg l "$3" '{type:"started", agentId:"a-\($l)", key:"k", label:$l, phase:"Vstup"}'; } > "$sx/subagents/workflows/$1/journal.jsonl"
+}
+bezi wf_bezi-7 blok-prd 'args:řez 07'
+o=$(ab prd "$proj" 7 --doplnit "{\"plan_row\":$ROW}"); rc=$?
+[ $rc -eq 6 ] && printf '%s' "$o" | grep -q 'co-dela.sh --kratce' && printf '%s' "$o" | grep -q 'wf_bezi-7' && [ ! -e "$proj/docs/.prd-07.json" ] && ok || ko "bezi-stejny-rez: rc=$rc $o"
+o=$(ab prd "$proj" 7 --i-kdyz-bezi --doplnit "{\"plan_row\":$ROW}"); [ $? -eq 0 ] && [ -e "$proj/docs/.prd-07.json" ] && ok || ko "bezi-i-kdyz: $o"
+o=$(ab prd "$proj" 8 --doplnit "{\"plan_row\":$ROW}"); [ $? -eq 0 ] && ok || ko "bezi-jiny-rez: $o"
+o=$(ab stavba "$proj" 7 --prd-run wf_full-2); [ $? -eq 4 ] && ok || ko "bezi-jiny-typ (projde kontrolou, padne až na řezu výsledku): $o"
+jq -n '{status:"completed", workflowName:"blok-prd", result:{ok:true}}' > "$sx/workflows/wf_bezi-7.json"
+touch -t 202610290900 "$sx/subagents/workflows/wf_bezi-7/journal.jsonl"
+o=$(ab prd "$proj" 7 --doplnit "{\"plan_row\":$ROW}"); [ $? -eq 0 ] && ok || ko "dobehly-neblokuje: $o"
+bezi wf_bezi-8 blok-prd ''
+o=$(ab prd "$proj" 9 --doplnit "{\"plan_row\":$ROW}"); [ $? -eq 0 ] && ok || ko "bez-rezu-neblokuje: $o"
+rm -rf "$sx/subagents/workflows/wf_bezi-8"
+# rez z args stavového souboru obnoveného běhu (journal o víc než 5 s novější než stavový soubor = běží)
+bezi wf_bezi-10 blok-stavby ''
+jq -n '{status:"completed", workflowName:"blok-stavby", args:{rez:"11", args_file:"docs/.stavba-11.json"}, result:{ok:true, vysledek:"zastaveno"}}' > "$sx/workflows/wf_bezi-10.json"
+touch -t 202610290900 "$sx/workflows/wf_bezi-10.json"
+o=$(ab stavba "$proj" 11 --prd-run wf_full-2); [ $? -eq 6 ] && ok || ko "rez-z-args-obnovy: $o"
+rm -rf "$sx/subagents/workflows/wf_bezi-10" "$sx/workflows/wf_bezi-10.json" "$sx/workflows/scripts/blok-stavby-wf_bezi-10.js"
+# zombie: journal i agent bez výsledku mlčí přes 2 h; blokuje, hláška zmíní usage limit a --i-kdyz-bezi
+bezi wf_bezi-11 blok-prd 'args:řez 12'
+touch -t 202610280900 "$sx/subagents/workflows/wf_bezi-11/journal.jsonl"
+o=$(ab prd "$proj" 12 --doplnit "{\"plan_row\":$ROW}"); rc=$?
+[ $rc -eq 6 ] && printf '%s' "$o" | grep -q 'mlčí přes 2 h' && printf '%s' "$o" | grep -q 'usage limit' && printf '%s' "$o" | grep -q -- '--i-kdyz-bezi' && ok || ko "zombie-blokuje: rc=$rc $o"
+o=$(ab prd "$proj" 12 --i-kdyz-bezi --doplnit "{\"plan_row\":$ROW}"); [ $? -eq 0 ] && ok || ko "zombie-i-kdyz: $o"
+rm -rf "$sx/subagents/workflows/wf_bezi-11"
+bezi wf_bezi-9 blok-kolecko 'thermo:kolečko'
+o=$(ab kolecko "$proj" --doplnit '{"base":"main"}'); [ $? -eq 6 ] && ok || ko "bezi-kolecko: $o"
+rm -rf "$sx/subagents/workflows/wf_bezi-9"
+
+# kolecko: bez_review ze souborů výsledku stavby (.vysledek-stavba-NN.json i -zastaveno.json, podle řezu, commit jednou,
+# rez ze souboru, jinak z jména); --doplnit přepíše
+jq -n '{rez:"07", vysledek:"hotovo", bez_review:[{commit:"bbb", popis:"oprava po E2E 40 ř."}, {commit:"aaa", popis:"znovu"}]}' > "$proj/docs/.vysledek-stavba-07.json"
+jq -n '{rez:"05", vysledek:"hotovo", bez_review:[{commit:"aaa", popis:"fix brány po review"}]}' > "$proj/docs/.vysledek-stavba-05.json"
+jq -n '{bez_review:[{commit:"ddd", popis:"pokus 1 nasadil"}], follow_ups:[]}' > "$proj/docs/.vysledek-stavba-10-zastaveno.json"
+jq -n '{rez:"08", vysledek:"hotovo"}' > "$proj/docs/.vysledek-stavba-08.json"
+o=$(ab kolecko "$proj" --doplnit '{"base":"main"}'); rc=$?
+k=$(j '[(.bez_review | map(.rez + ":" + .commit)), (._pole | index("bez_review") != null)]' "$proj/docs/.kolecko.json")
+[ $rc -eq 0 ] && [ "$k" = '[["05:aaa","07:bbb","10:ddd"],true]' ] && printf '%s' "$o" | grep -q 'bez_review: 3 commitů' && ok || ko "kolecko-bez-review: rc=$rc $o $k"
+o=$(ab kolecko "$proj" --doplnit '{"base":"main","bez_review":[{"commit":"ccc","popis":"ručně"}]}'); [ "$(j '[.bez_review[].commit]' "$proj/docs/.kolecko.json")" = '["ccc"]' ] && ok || ko "kolecko-bez-review-doplnit: $o"
+rm -f "$proj/docs/.vysledek-stavba-"*.json
+o=$(ab kolecko "$proj" --doplnit '{"base":"main"}'); [ "$(j 'has("bez_review")' "$proj/docs/.kolecko.json")" = 'false' ] && ok || ko "kolecko-bez-review-zadne: $o"
+rm -f "$proj/docs/.orchestrator-run"
 
 echo "args-bloku: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

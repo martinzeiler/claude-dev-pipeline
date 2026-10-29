@@ -18,7 +18,7 @@ Serena (`mcp__serena__*`) je výchozí cesta k symbolům, referencím a editaci 
 
 ## Pasti tohoto stroje
 
-- Shell je `zsh`: `${PIPESTATUS[0]}` je prázdné, správně `${pipestatus[1]}`; nekvotovaná expanze nedělá word splitting (`${=SEZNAM}`, pole, nebo `while IFS= read -r`).
+- Shell je `zsh`: `${PIPESTATUS[0]}` je prázdné, správně `${pipestatus[1]}`; nekvotovaná expanze proměnné nedělá word splitting, seznam ulož do pole (`X=($(cmd))`) nebo čti `while IFS= read -r`. Zsh příznaky expanze (`${=x}`, `${(f)…}`, `${(P)x}`) parser Claude Code nepřečte a příkaz pošle člověku ke schválení i s `--dangerously-skip-permissions`; složitější postup patří do skriptu spuštěného `zsh <soubor>`.
 - Roura přepíše návratovku posledním členem: `set -o pipefail`, nebo `cmd > log 2>&1; echo $?`.
 - `grep` a `find` jsou v Bashi Claude Code funkce nad ugrepem a bfs a respektují `.gitignore`: nula zásahů není nula výskytů (`rg --no-ignore`); `rg --files-from` neexistuje.
 - GNU coreutils mají předponu `g`: `gtimeout`, ne `timeout`.

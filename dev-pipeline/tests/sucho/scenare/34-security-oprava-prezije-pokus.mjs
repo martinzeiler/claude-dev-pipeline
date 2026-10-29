@@ -16,7 +16,7 @@ export default {
   over(v, volani) {
     const k = kontrola(volani)
     k.navrat(v, { ok: true, vysledek: 'hotovo', pokusy: 2 })
-    const d = k.pocet(/^deploy:řez 05:1$/, 1, 'deploy jen v pokusu 2')
+    const d = k.pocet(/^deploy:řez 05:(p2:)?1$/, 1, 'deploy jen v pokusu 2')
     k.obsahuje(d[0], 'SEC-OPRAVA-34', 'bezpečnostní opravu z pokusu 1')
     k.obsahuje(d[0], 'fix(security)')
     return k.chyby

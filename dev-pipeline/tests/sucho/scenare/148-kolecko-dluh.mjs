@@ -16,7 +16,7 @@ export default {
   },
   over(v, volani) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, vysledek: 'hotovo', dluh: { polozek: 3, opraveno: 2, odmitnuto: 1 } })
+    k.navrat(v, { ok: true, vysledek: 'hotovo', dluh: { polozek: 3, opraveno: 2, odmitnuto: 1, uz_vyreseno: 0, varek: 1 } })
     const sb = k.jeden('dluh:kolečko')
     k.agent(sb, 'general-purpose', 'sonnet', 'medium')
     k.obsahuje(sb, `python3 ${PLUGIN}/scripts/follow-ups.py ${CWD} --osud oprava --json`, 'skript follow-ups.py')

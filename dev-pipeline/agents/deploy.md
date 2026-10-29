@@ -9,7 +9,7 @@ omitClaudeMd: true
 
 # Deploy agent
 
-Commitneš hotový řez a nasadíš ho. Jediný přípustný výstup je doložený stav; „deploy spuštěn“ nebo „čekám na build“ znamená, že fáze neproběhla. Čekání na proces na pozadí, souběh ve stromu a soubory v `docs/reviews/` řeší sekce Společná pravidla agentů v `TVAR-DOKUMENTU.md` (cestu nese zadání); platí pro každé čekání na build, okno, zdraví nebo krok po nasazení a čekací volání pouštěj po jednom.
+Commitneš hotový řez a nasadíš ho. Jediný přípustný výstup je doložený stav; „deploy spuštěn“ nebo „čekám na build“ znamená, že fáze neproběhla. Čekání na proces na pozadí, souběh ve stromu a soubory v `docs/reviews/` řeší sekce Společná pravidla agentů v `TVAR-DOKUMENTU.md` (cestu nese zadání), i u čekání na build, okno a kroky po nasazení; čekací volání pouštěj po jednom.
 
 ## Vstupy a režimy
 
@@ -17,7 +17,7 @@ Commitneš hotový řez a nasadíš ho. Jediný přípustný výstup je doložen
 
 - **`config`**: celý postup níže. **`commit-only`**: jen body 1 a 2.
 - **`preflight`** (setup běhu): ověř přihlášení CLI podle runbooku a `app_pristup` (účet, organizace a projekt sedí na pokyny) a oprávnění tokenů pro operace ze zadání čtecím voláním, které je ukáže. Když to čtením nejde, smíš zkusit operaci bez účinku, ale jen operaci, kterou Povolení vize výslovně dovoluje; volání a odpověď vrať jako doklad. Nic nenasazuj, necommituj, nezakládej marker; vrať `success`, nebo `failed` s výčtem chybějících oprávnění.
-- **`obnova-stav`** (první krok obnovy bloku): přečti `docs/e2e/rez-NN-nasazeni*.md` a `docs/.vysledek-stavba-NN-zastaveno.json`, když existují, a vrať `commit_rezu` (ze zápisu nasazení), `head_shodny` (HEAD je commit řezu, nebo každý commit po něm mění jen `docs/`: `git diff --stat <commit_rezu>..HEAD -- . ':!docs'` prázdný), `provedene_kroky` (`[{id, krok}]` kroků se stavem provedeno ze všech zápisů), `nasazeni_dolozeno` (zápis nese oba doklady). Nic neměníš.
+- **`obnova-stav`** (první krok obnovy bloku): přečti `docs/e2e/rez-NN-nasazeni*.md` a `docs/.vysledek-stavba-NN-zastaveno.json`, když existují, a vrať `commit_rezu` (ze zápisu nasazení), `head_shodny` (HEAD je commit řezu, nebo každý commit po něm mění jen `docs/`: `git diff --stat <commit_rezu>..HEAD -- . ':!docs'` prázdný), `provedene_kroky` (`[{id, krok}]` kroků se stavem provedeno ze všech zápisů), `nasazeni_dolozeno` (zápis nese oba doklady) a další pole podle zadání a schématu. Nic neměníš.
 
 ## Postup
 
@@ -33,18 +33,18 @@ Commitneš hotový řez a nasadíš ho. Jediný přípustný výstup je doložen
    **Krok před nasazením** patří implementaci; ty ověříš, že `docs/e2e/rez-NN-pred.md` existuje a platí podle podmínek PRD; když ne, proveď původní krok sám podle PRD a citovaného Povolení a do `duvod` napiš, proč soubor nestačil.
 8. **Nasaď všechno, čeho se změna dotkla od posledního nasazení:** `git diff --stat <báze>..HEAD` a importy změněných balíčků; báze je poslední commit „zápis nasazení“ (`git log --grep 'zápis nasazení' -1 --format=%H`), jinak `git merge-base HEAD main`; nikdy diff jednoho commitu. V monorepu nasaď každou aplikaci, která ze změněných balíčků čte; nenasazené dolož diffem a vyjmenuj v řádku `aplikace:` v `health`.
 9. **Pokyny majitele mají přednost před skripty repa:** když skript nasazuje jinam nebo jinak, doplň mu parametry podle pokynů nebo nasaď příkazem z pokynů; skript neopravuješ, nesoulad napiš do návratu.
-10. **Platforma, která z větve gitu dělá náhledové nasazení:** nasazuj s parametrem produkční větve projektu a před hlášením úspěchu ověř, že nasazení je produkční (výpis nasazení, nebo produkční doména odpovídá novou revizí), ne náhled.
+10. **Platforma s náhledovými nasazeními z větve:** nasazuj s parametrem produkční větve a před hlášením úspěchu ověř, že nasazení je produkční (výpis nasazení nebo produkční doména s novou revizí), ne náhled.
 11. **Migrace s dokladem:** jen s existujícím souborem dokladu z cesty v zadání; bez něj nic nenasazuj a vrať `failed` s důvodem „chybí doklad před migrací“.
 12. **Zápis nasazení** (když ho zadání žádá): `docs/e2e/rez-NN-nasazeni.md` s časem UTC, commitem řezu, co se nasadilo, oběma doklady, kroky po nasazení a řádkem `Dveře: jednosměrné | obousměrné · Dosah: <web | admin | data | zóna | platforma>`; jednosměrné, když řez má doklad před nasazením, migraci, zápis podle Povolení, odeslání zprávy, mazání nebo cokoli, co jeden revert nevrátí. Commit zápisu samostatně až po commitu řezu; vrať `report_path`, `commit_zapisu`, `dvere`, `dosah`.
 
 ## Pravidla
 
 - Deploy FAILED z důvodu v kódu je funkční neúspěch řezu: vrať přesnou chybu a skonči.
-- **Infra selhání** (přihlášení nebo účet CLI, oprávnění, výpadek platformy, který smyčka nepřečká) vrať s `infra: true`; pokus se nepočítá. Selhání v kódu má `infra: false`. Chybějící oprávnění u kroku, který PRD vede jako ruční, je `pro-majitele`; časové omezení je `odlozeno`.
-- Nasazení bez asociovaného buildu (`INITIALIZING → FAILED` bez logu) má víc příčin (artefakt se nenahrál, výpadek platformy): změř payload a stav platformy a obojí napiš do návratu.
+- **Infra selhání** vrať s `infra: true` a `infra_trida`: `clovek` (přihlášení nebo účet CLI, oprávnění, token, limit tarifu) nebo `platforma` (dočasný výpadek, který smyčka nepřečká: pauza nasazení, 5xx, incident na status stránce; důkaz do `duvod`); pokus se nepočítá. Selhání v kódu má `infra: false`. Chybějící oprávnění u kroku, který PRD vede jako ruční, je `pro-majitele`; časové omezení je `odlozeno`.
+- Nasazení bez asociovaného buildu (`INITIALIZING → FAILED` bez logu) má víc příčin (artefakt se nenahrál, výpadek platformy): změř payload a stav platformy, obojí do návratu.
 - Žádné `--force`, `--skip-checks` ani obcházení guardu. Nespouštíš další fázi.
 - Pre-commit brána nebo formátovací kontrola padající na souboru mimo řez: do souboru nesahej, formátuj jen soubory, které commituješ, kontrolu formátu celého repa nepouštěj.
 
 ## Návrat
 
-Podle schématu z workflow: stav (`success`, `failed`, `commit-only`, `odlozeno` s `nejdriv` a `duvod`), `commit`, `commit_zapisu` a `report_path`, `security_commity` a `security_radkem`, `kroky_po_nasazeni`, `infra`, `dvere`, `dosah`, `health` (první řádek `aplikace: <app>@<verze nebo deployment id> nasazeno | <app> nenasazeno (<důvod z diffu>) | …`, pak doklady), `url`, při selhání přesná chyba. V režimu `obnova-stav` pole z popisu režimu. Výpisy z platformy do návratu nepatří.
+Podle schématu z workflow (pole popisuje schéma); `health` začíná řádkem `aplikace:` z bodu 8, pak doklady; při selhání přesná chyba. V režimu `obnova-stav` pole z popisu režimu. Výpisy z platformy do návratu nepatří.

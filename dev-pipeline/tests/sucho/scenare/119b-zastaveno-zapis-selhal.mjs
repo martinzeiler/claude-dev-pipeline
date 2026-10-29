@@ -14,7 +14,7 @@ export default {
     if (/^e2e:řez 05:[12]$/.test(label) && pokusZ(stav) === 1) return FAIL
     if (label === 'fix-e2e:řez 05:1' && pokusZ(stav) === 1) return oprava({ opraveno: 0, zmenena_mista: [] })
     if (label === 'implement:řez 05:2') return stub(label, { follow_ups: ['FU-119b z pokusu 2'] })
-    if (label === 'deploy:řez 05:1' && pokusZ(stav) === 2) return stub(label, { stav: 'failed', infra: true, duvod: 'railway: unauthorized' })
+    if (label === 'deploy:řez 05:p2:1') return stub(label, { stav: 'failed', infra: true, duvod: 'railway: unauthorized' })
     if (label === 'uzavření:řez 05:zastaveno') return { ok: false, vysledek_soubor: '', poznamka: 'zápis selhal' }
     return null
   },

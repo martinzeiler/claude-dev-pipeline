@@ -231,8 +231,24 @@ const ODEBRANI = /odeb(er|rat|rán)|vyjm|přesu|rozděl|do řezu|vyřaď|vyřad/
 const sloucCasti = (puvodni, nove) => {
   const n = new Map(objekty(nove).map(normCast).map(c => [c.id, c]))
   const cizi = [...n.keys()].filter(id => !puvodni.some(c => c.id === id))
-  if (cizi.length) log(`zapracování kostry vrátilo části mimo tabulku architekta (${cizi.join(', ')}): ignoruji, nemají autora ani kontrolu`)
+  if (cizi.length) log(`zapracování kostry vrátilo části mimo tabulku architekta (${cizi.join(', ')}): nemají autora ani kontrolu`)
   return puvodni.map(c => n.has(c.id) ? { ...n.get(c.id), nazev: n.get(c.id).nazev || c.nazev, prd_path: c.prd_path } : c)
+}
+// Tabulka Části po zapracování (běh zaklad-dat, řez 18: zapracování rozdělilo kostru na K1–K7, blok nové části zahodil a stavbě
+// vrátil čtyři části s novými definicemi). Agent vrací id z frontmatteru kostry; blok je porovná jako množinu s tabulkou, kterou
+// zná (ocekavane: části po architektovi a odebrání; malý řez prázdné, takže jeho rozdělení na části je rozdíl). Id se normalizují
+// (frontmatter „casti: K1,K2“ i položka „K1, K2“, velká písmena). Bez casti_v_kostre se jen zaloguje a měří se id navíc v casti.
+// jedina = id jediné zbylé části po odebrání (řez je pak bez částí a frontmatter smí to id ještě nést). Rozdíl je ok: false.
+const idsCasti = v => [...new Set((Array.isArray(v) ? v : (v ? [v] : [])).flatMap(x => S(x).split(/[\s,;]+/)).map(x => x.trim().toUpperCase()).filter(Boolean))]
+const rozdilTabulky = (o, ocekavane, jedina = '') => {
+  if (!o) return ''
+  const blok = idsCasti(ocekavane)
+  const vKostre = idsCasti(o.casti_v_kostre)
+  if (!vKostre.length) log('zapracování nevrátilo casti_v_kostre: tabulka Částí se měří jen podle id navíc v casti')
+  const kostra = vKostre.length ? vKostre : idsCasti(objekty(o.casti).map(c => c.id))
+  const navic = kostra.filter(id => !blok.includes(id) && !idsCasti(jedina).includes(id))
+  const chybi = vKostre.length ? blok.filter(id => !kostra.includes(id)) : []
+  return navic.length || chybi.length ? `zapracování změnilo tabulku Částí (kostra: ${kostra.join(', ') || '–'}, blok: ${blok.join(', ') || '–'}); počet ani id částí zapracování nemění` : ''
 }
 // Sekce E2E s počtem kritérií (§ 1.7), od 1.6.0 i s odhadem minut verifikace a příznakem bez_soubehu (spec 1.6.0 § 1.9): blok stavby
 // podle doby skládá souběžné verifikátory (v běhu web-rijen trvala jedna skupina řezu 4 34,5 min, druhá 11,6 min; řez 10 šel
@@ -294,6 +310,8 @@ const PRD_SCHEMA = {
     zmenena_mista: arr('jen při zapracování nálezů: sekce nebo kritéria PRD/E2E, která se změnila (u kostry místa v Kontraktu a Částech s předponou sekce: „Kontrakt: …“, „Části: …“)'),
     odmitnute: ODMITNUTE,
     casti_odebrane: arr('jen při zapracování nálezů orchestrátora: id částí, které nález výslovně žádá odebrat; jinak prázdné'),
+    casti_v_kostre: arr('jen při zapracování a opravě kostry: id částí z frontmatteru casti: kostry po tvé úpravě (K1, K2, …); bez částí prázdné'),
+    casti_nalezy: arr('jen při zapracování: část, která je podle tebe přerostlá, chybí nebo by se měla rozdělit (id nebo název: proč); tabulku Části kvůli ní neměň'),
     oblasti: arr('dotčené moduly nebo oblasti kódu (stejný slovník jako návrat stavby: modul, ne soubor); orchestrátor podle nich pozná překryv s uzavřenými řezy'),
     doklad_pred: { type: 'boolean', description: 'true = PRD předepisuje doklad stavu před nasazením (migrace mění, přesouvá nebo maže existující data, nebo je nevratná; kritérium potřebuje jako protějšek stav, který nasazení sdíleného backendu přepíše; populace nad daty, která řez mění, se zmrazí před prvním zápisem; nebo pokyny majitele žádají doklad před každou migrací)' },
     doklad_popis: str('co se před nasazením zachytí (tabulky, počty, vzorky, dotazy, zmrazená populace); prázdné bez dokladu'),
@@ -392,7 +410,7 @@ async function hlidejCasti(vady, prevezmi, poAutorech) {
   log(`tabulka Části: ${vady.join('; ')}; zapracování kostry s nálezem`)
   const o = await runSePredavkou(`${ramec}
 
-Úkol: oprav tabulku Části v kostře PRD řezu ${NN} (${prd.prd_path}): ${vady.join(' | ')}. Každá část má jedinečné id (K1, K2, …) a závislosti zavisi_na bez cyklu; co si části potřebují předat oběma směry, patří do Kontraktu (sdílené typy, schéma, signatury rozhraní), ne do vzájemné závislosti. ${poAutorech ? `PRD částí už existují (docs/prd/rez-${NN}-cast-K.md): počet částí neměň, id měň jen u duplicity (soubor části pak přejmenuj podle nového id); soubory, kritéria a závislosti mezi částmi přesunout smíš.` : 'Autoři částí ještě nepsali: části smíš sloučit, rozdělit a přečíslovat.'} Oprav kostru (tabulku Části, Kontrakt, frontmatter casti) a vrať casti podle opravené tabulky a změněná místa; nic jiného neměň. Edituj dotčená místa (Edit); soubor nepřepisuj celý (Write), přepis ztrácí text.${kostraCteni(false)} Na kód odkazuj souborem a jménem symbolu, nikdy číslem řádku.`,
+Úkol: oprav tabulku Části v kostře PRD řezu ${NN} (${prd.prd_path}): ${vady.join(' | ')}. Každá část má jedinečné id (K1, K2, …) a závislosti zavisi_na bez cyklu; co si části potřebují předat oběma směry, patří do Kontraktu (sdílené typy, schéma, signatury rozhraní), ne do vzájemné závislosti. ${poAutorech ? `PRD částí už existují (docs/prd/rez-${NN}-cast-K.md): počet částí neměň, id měň jen u duplicity (soubor části pak přejmenuj podle nového id); soubory, kritéria a závislosti mezi částmi přesunout smíš.` : 'Autoři částí ještě nepsali: části smíš sloučit, rozdělit a přečíslovat.'} Oprav kostru (tabulku Části, Kontrakt, frontmatter casti) a vrať casti podle opravené tabulky, id z frontmatteru casti: v casti_v_kostre a změněná místa; nic jiného neměň. Edituj dotčená místa (Edit); soubor nepřepisuj celý (Write), přepis ztrácí text.${kostraCteni(false)} Na kód odkazuj souborem a jménem symbolu, nikdy číslem řádku.`,
     { label: `prd-fix:řez ${NN}`, phase: poAutorech ? 'Zapracování' : 'PRD', agentType: 'dev-pipeline:prd', schema: PRD_SCHEMA, model: 'opus', effort: 'high' })
   if (o) sporyVse.push(...seznam(o.spory))
   if (!o || !Array.isArray(o.casti)) return `tabulka Části: ${vady.join('; ')}; ${o ? 'zapracování kostry nevrátilo casti' : nic(`prd-fix:řez ${NN}`, 'zapracování kostry')}`
@@ -448,7 +466,8 @@ const reEsc = s => S(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const kostraCteni = (jenSvoje, kriteria = []) => ` Kostru čti po sekcích (Read s offset/limit), ne celou: mapu sekcí si udělej sám (rg -n '^## ' ${prd.prd_path})${jenSvoje ? ' a čti jen sekce, které potřebuješ' : ''}.${kriteria.length ? ` Ze sekce akceptačních kritérií čti jen svá kritéria podle ID (rg -n '\\b(${kriteria.map(reEsc).join('|')})\\b' ${prd.prd_path}).` : ''}`
 // Strop velikosti části a Kontraktu (řádky včetně testů, fixtur a měřidel), nad kterým kontrola část vrací stavbě jmenovitě (casti_nad_stropem).
 const STROP_CASTI = 1200
-// Rozdělení řezu před autory (spec 1.8.0 § 2.11): skutečnost bývá 1,5× odhad architekta; blok to spočítá sám a při překročení
+// Rozdělení řezu před autory (spec 1.8.0 § 2.11): skutečnost bývá ~2× odhad architekta (SKUTECNOST_NASOBEK), řez se dělí už při
+// 1,5 × odhad nad ~8 k, protože už ten je nad mezí; blok to spočítá sám a při překročení
 // skončí po architektovi i bez rozdelit_navrh (jedno levné volání jen pro návrh), aby nezaplatil autory, kontroly a zapracování.
 const ROZDELIT_RADKU = 8000
 const ROZDELIT_CASTI = 12
@@ -546,6 +565,7 @@ const navratStupen = ({ fin, fix = null, faze = '', kontrola = null, hypotezy = 
     casti_pocet: casti.length,
     casti_prehled: kratce(casti.map(c => `${c.id} ${c.odhad_radku || '?'} ř.${c.zavisi_na.length ? ` ← ${c.zavisi_na.join(',')}` : ''}`).join(' · '), L.prehled),
     casti_nad_stropem: castiNad,
+    ...(seznam(fix && fix.casti_nalezy).length ? { casti_nalezy: omez(fix.casti_nalezy, L) } : {}),
     rozdelit_navrh: kratce((fix && fix.rozdelit_navrh) || prd.rozdelit_navrh, L.rozdelit),
     cekani,
     // Kritéria, která projekt nemá odkud změřit (spec 1.8.0 § 2.2): orchestrátor se zeptá majitele, stavba je nedostane jako měřitelná.
@@ -642,7 +662,7 @@ ${appPristup ? `Pokyny majitele k prostředí (přístup, nasazení, doklady): $
   if (rozdelitNutne && !S(prd.rozdelit_navrh).trim()) {
     const n = await runSePredavkou(`${ramec}
 
-Úkol: navrhni rozdělení řezu ${NN} na dva řezy. Kostru PRD ${prd.prd_path} napsal architekt s částmi ${casti.map(c => `${c.id} (~${c.odhad_radku} ř.${c.zavisi_na.length ? `, závisí na ${c.zavisi_na.join(', ')}` : ''})`).join(', ')}; skutečnost bývá ${ODHAD_NASOBEK}× odhad, takže řez vychází na ~${odhadSkutecnost} řádků (strop ~${ROZDELIT_RADKU}) ${casti.length > ROZDELIT_CASTI ? `a ${casti.length} částí (strop ${ROZDELIT_CASTI})` : ''}. Vrať jen rozdelit_navrh: které části do kterého řezu podle rizika a závislostí a co zůstane v Kontraktu; kostru needituj.${kostraCteni(true)}`,
+Úkol: navrhni rozdělení řezu ${NN} na dva řezy. Kostru PRD ${prd.prd_path} napsal architekt s částmi ${casti.map(c => `${c.id} (~${c.odhad_radku} ř.${c.zavisi_na.length ? `, závisí na ${c.zavisi_na.join(', ')}` : ''})`).join(', ')}; skutečnost bývá ~${SKUTECNOST_NASOBEK}× odhad a řez se dělí už při ${ODHAD_NASOBEK} × odhad nad ~${ROZDELIT_RADKU} řádků, protože už ten je nad mezí: tady ${ODHAD_NASOBEK} × odhad dává ~${odhadSkutecnost} řádků ${casti.length > ROZDELIT_CASTI ? `a ${casti.length} částí (strop ${ROZDELIT_CASTI})` : ''}. Vrať jen rozdelit_navrh: které části do kterého řezu podle rizika a závislostí a co zůstane v Kontraktu; kostru needituj.${kostraCteni(true)}`,
       { label: `prd-fix:řez ${NN}:rozdělit`, phase: 'PRD', agentType: 'dev-pipeline:prd', schema: ROZDELIT_SCHEMA, model: 'opus', effort: 'high' })
     prd.rozdelit_navrh = S(n && n.rozdelit_navrh).trim() || `blok: ${ODHAD_NASOBEK} × odhad částí = ${odhadSkutecnost} ř. (strop ${ROZDELIT_RADKU}), částí ${casti.length}; architekt návrh rozdělení nevrátil`
   }
@@ -717,7 +737,7 @@ PRD: ${prd.prd_path} · E2E: ${prd.e2e_path} · řádek plánu: ${JSON.stringify
 Report zapiš do ${reportCesta(kolo)} ${vratJen} ${navrhKontroly}
 ${kolo !== 1 ? delta(zmenena, blok) : !casti.length
     ? `Kolo 1 kontroluje jen to, co jde ověřit proti kódu a prostředí: osa B technická validita proti skutečnému kódu (Serena: symboly, trasy, schéma existují, postup sedí s architekturou a doktrínou CLAUDE.md, precedent v repu) a osa C měřitelnost a splnitelnost kritérií: každé kritérium s měřidlem (rg, počet, skript, dotaz) SPUSŤ teď nad dnešním stromem a výsledek zapiš do reportu; ${vadnaKriteria}. ${vystupK1} ${spolecneK1}`
-    : `Kostra nese kritéria, Kontrakt a tabulku Části; technický postup částí je v jejich souborech a kontrolují ho souběžně kontroly částí (osa B není tvoje). Kolo 1 kontroluje jen to, co jde ověřit proti kódu a prostředí: osu C (měřitelnost a splnitelnost všech kritérií: ${vadnaKriteria}; měřidla SPUSŤ teď nad dnešním stromem jen u kritérií, která žádná část nemá, kritéria částí změří kontroly částí) a dělení částí: tabulku Části a Kontrakt, žádný soubor ve dvou částech (sdílený soubor patří do Kontraktu), každé kritérium má svou část, Kontrakt pokrývá, co části potřebují sdílet (sdílené typy, schéma a migrace, signatury rozhraní mezi částmi, registrace tras), odhad každé části ~500–${PREROSTLA} změněných řádků včetně testů, fixtur a měřidel v odhadu architekta (část nad ~${PREROSTLA} je nález „rozděl část“: skutečnost bývá ${SKUTECNOST_NASOBEK}× odhad), závislosti bez cyklu; nejdelší cesta závislostí podle tabulky je ${cestaText(casti) || 'bez závislostí'}: cesta přes 3 a víc částí nad ~${PREROSTLA} ř. v odhadu architekta je nález „posuň rozhraní do Kontraktu“ (části na ní stavějí za sebou); Kontrakt nese typy, rozhraní, schéma a sdílené konstanty do ~${PREROSTLA} řádků (odhad architekta ${Number(prd.kontrakt_odhad_radku) || 'chybí'}), přerostlý Kontrakt nebo Kontrakt s chováním (logika, validace, skripty), které patří částem, je nález. Soubory částí čti jen tam, kde to potřebuješ k úplnosti Kontraktu.${kontraktDoplnit.length ? ` Autoři částí hlásí, co Kontrakt nepokrývá (hypotézy, ověř): ${spojCele(kontraktDoplnit)}.` : ''} ${vystupK1} ${spolecneK1}`}${casti.length ? kostraCteni(false) : ''}`
+    : `Kostra nese kritéria, Kontrakt a tabulku Části; technický postup částí je v jejich souborech a kontrolují ho souběžně kontroly částí (osa B není tvoje). Kolo 1 kontroluje jen to, co jde ověřit proti kódu a prostředí: osu C (měřitelnost a splnitelnost všech kritérií: ${vadnaKriteria}; měřidla SPUSŤ teď nad dnešním stromem jen u kritérií, která žádná část nemá, kritéria částí změří kontroly částí) a dělení částí: tabulku Části a Kontrakt, žádný soubor ve dvou částech (sdílený soubor patří do Kontraktu), každé kritérium má svou část, Kontrakt pokrývá, co části potřebují sdílet (sdílené typy, schéma a migrace, signatury rozhraní mezi částmi, registrace tras), odhad každé části ~500–${PREROSTLA} změněných řádků včetně testů, fixtur a měřidel v odhadu architekta (část nad ~${PREROSTLA} jmenuj jen jako neblokující nález: blok ji dělí před autory, po nich se počet částí nemění; skutečnost bývá ${SKUTECNOST_NASOBEK}× odhad), závislosti bez cyklu; nejdelší cesta závislostí podle tabulky je ${cestaText(casti) || 'bez závislostí'}: cesta přes 3 a víc částí nad ~${PREROSTLA} ř. v odhadu architekta je nález „posuň rozhraní do Kontraktu“ (části na ní stavějí za sebou); Kontrakt nese typy, rozhraní, schéma a sdílené konstanty do ~${PREROSTLA} řádků (odhad architekta ${Number(prd.kontrakt_odhad_radku) || 'chybí'}), přerostlý Kontrakt nebo Kontrakt s chováním (logika, validace, skripty), které patří částem, je nález. Soubory částí čti jen tam, kde to potřebuješ k úplnosti Kontraktu.${kontraktDoplnit.length ? ` Autoři částí hlásí, co Kontrakt nepokrývá (hypotézy, ověř): ${spojCele(kontraktDoplnit)}.` : ''} ${vystupK1} ${spolecneK1}`}${casti.length ? kostraCteni(false) : ''}`
 const checkCastPrompt = (kolo, c, zmenena, blok) => `${ramec}
 
 Úkol: prd-check kolo ${kolo} části ${c.id} (${c.nazev}) řezu ${NN}.
@@ -768,9 +788,9 @@ if (kostraFixNutny) {
     kontraktDoplnit.length ? `Autoři částí hlásí, co Kontrakt nepokrývá a část to potřebuje sdílet (každé ověř, co platí, doplň do Kontraktu): ${spojCele(kontraktDoplnit)}.` : '',
   ].filter(Boolean).join(' ')
   const castiPravidla = rezim === 'zapracovani'
-    ? `Má-li PRD části (tabulka Části, soubory docs/prd/rez-${NN}-cast-K.md), smíš upravit i soubory částí, kterých se nález týká; změněná místa v souboru části uveď s předponou části (K2: …). Část odeber (vrať její id v casti_odebrane a vyjmi ji z tabulky) jen tehdy, když to nález orchestrátora výslovně žádá; jinak počet a id částí neměň. Když po odebrání zbývá jediná část, řez je bez částí: technický postup té části přenes do kostry, tabulku Části a sekci Kontrakt zruš, frontmatter casti vyprázdni, vrať casti prázdné a odhad_radku celého řezu přepočítej.`
+    ? `Má-li PRD části (tabulka Části, soubory docs/prd/rez-${NN}-cast-K.md), smíš upravit i soubory částí, kterých se nález týká; změněná místa v souboru části uveď s předponou části (K2: …). Část odeber (vrať její id v casti_odebrane a vyjmi ji z tabulky) jen tehdy, když to nález orchestrátora výslovně žádá; jinak počet a id částí neměň. Část nerozděluj a novou nezakládej, ani když o to nález žádá (nová část by neměla autora ani kontrolu): přerostlou, chybějící nebo dělenou část vrať v casti_nalezy. Id částí z frontmatteru casti: po své úpravě vrať v casti_v_kostre. Když po odebrání zbývá jediná část, řez je bez částí: technický postup té části přenes do kostry, tabulku Části a sekci Kontrakt zruš, frontmatter casti vyprázdni, vrať casti prázdné a odhad_radku celého řezu přepočítej.`
     : casti.length
-      ? 'Soubory částí needituj, sjednotí je jejich zapracování. Počet a id částí neměň (nová část by neměla autora ani kontrolu); soubory, kritéria a závislosti mezi částmi přesunout smíš. Změněná místa v Kontraktu a Částech uveď s předponou sekce (Kontrakt: …, Části: …), podle nich se části sjednotí s kostrou.'
+      ? 'Soubory částí needituj, sjednotí je jejich zapracování. Počet a id částí neměň (nová část by neměla autora ani kontrolu); soubory, kritéria a závislosti mezi částmi přesunout smíš. Přerostlou, chybějící nebo dělenou část vrať v casti_nalezy a id částí z frontmatteru casti: po své úpravě v casti_v_kostre. Změněná místa v Kontraktu a Částech uveď s předponou sekce (Kontrakt: …, Části: …), podle nich se části sjednotí s kostrou.'
       : 'Řez bez částí na části nedělej (části by neměly autora ani kontrolu); casti vrať prázdné.'
   const fixPrompt = `${ramec}
 
@@ -784,6 +804,7 @@ ${castiPravidla}${casti.length ? kostraCteni(false) : ''} ${krokyCislovane} ${kr
       // Odebrání části: jen id, která zapracování vrátí v casti_odebrane, a každé jen když ho nějaký nález orchestrátora jmenuje
       // spolu se slovem odebrání (odebrat, vyjmout, přesunout, rozdělit, „do řezu“, vyřadit). Odebrání bez takového nálezu je ok: false
       // (orchestrátor rozhodne), ne tichá stavba částí, které zapracování už z tabulky vyňalo.
+      let jedina = ''
       const odebrane = seznam(fix.casti_odebrane).map(normId).filter(id => casti.some(c => c.id === id))
       const jmenuje = (n, id) => new RegExp(`(?<![\\p{L}\\p{N}])${reEsc(id)}(?![\\p{L}\\p{N}])`, 'u').test(n)
       const bezNalezu = odebrane.filter(id => !nalezyOrch.some(n => ODEBRANI.test(n) && jmenuje(n, id)))
@@ -796,23 +817,32 @@ ${castiPravidla}${casti.length ? kostraCteni(false) : ''} ${krokyCislovane} ${kr
         casti = casti.filter(c => !odebrane.includes(c.id))
         log(`části odebrané na žádost nálezu orchestrátora: ${odebrane.join(', ')}; zbývají ${casti.map(c => c.id).join(', ') || 'žádné (malý řez)'}`)
         // Jediná zbylá část není rozdělení (N11, jako normCasti): řez jde stavbě bez částí, bez kontraktu a integrace.
-        if (casti.length === 1) { log(`zbývá jediná část ${casti[0].id}: řez je bez částí, stavba ho staví jednou implementací`); casti = [] }
+        if (casti.length === 1) { jedina = casti[0].id; log(`zbývá jediná část ${casti[0].id}: řez je bez částí, stavba ho staví jednou implementací`); casti = [] }
         // Odhad řádků bez odebraných částí, když ho zapracování samo nepřepočítalo.
         if (fix.odhad_radku == null && Number(prd.odhad_radku) > 0) prd.odhad_radku = Math.max(0, Number(prd.odhad_radku) - odebranyOdhad)
       }
       // S předchozím návratem drží počet a id částí sloucCasti (zadání je měnit nedovoluje); bez něj vrací části zapracování.
       const sPuvodnimi = casti.length > 0
-      const prevezmi = o => { const v = []; casti = sPuvodnimi ? sloucCasti(casti, o.casti) : normCasti(o.casti, v); return vadyCasti(casti, v) }
+      // Tabulka, kterou blok zná: části předchozího návratu po odebrání (malý řez prázdná); bez puvodni ji blok nezná.
+      const ocekavane = casti.map(c => c.id)
+      let posledni = fix
+      const prevezmi = o => { posledni = o; const v = []; casti = sPuvodnimi ? sloucCasti(casti, o.casti) : normCasti(o.casti, v); return vadyCasti(casti, v) }
       const chyba = await hlidejCasti(prevezmi(fix), prevezmi, true)
       if (chyba) return { ok: false, rez: NN, duvod: chyba, prd_path: prd.prd_path, predavky: predavekCelkem }
+      const zmenaTabulky = puvodni ? rozdilTabulky(posledni, ocekavane, jedina) : ''
+      if (!puvodni) log('zapracování bez puvodni: tabulku Částí blok nezná, rozdíl se neměří')
+      if (zmenaTabulky) { log(`${zmenaTabulky}; blok končí, rozhodne orchestrátor`); return { ok: false, rez: NN, duvod: zmenaTabulky, prd_path: prd.prd_path, predavky: predavekCelkem } }
     } else if (casti.length) {
       // Změnilo-li zapracování Kontrakt nebo Části, sjednotí se s kostrou všechny části, ne jen ty s nálezy.
       const pred = JSON.stringify(casti)
-      let opravaZmenena = []
+      let opravaZmenena = [], posledni = fix
+      const ocekavane = casti.map(c => c.id)
       casti = sloucCasti(casti, fix.casti)
       // Zapracování smí přesunout závislosti mezi částmi: cyklus hlídá blok i tady (autoři už psali, id a počet zůstávají).
-      const chyba = await hlidejCasti(vadyCasti(casti), o => { opravaZmenena = seznam(o.zmenena_mista); casti = sloucCasti(casti, o.casti); return vadyCasti(casti) }, true)
+      const chyba = await hlidejCasti(vadyCasti(casti), o => { posledni = o; opravaZmenena = seznam(o.zmenena_mista); casti = sloucCasti(casti, o.casti); return vadyCasti(casti) }, true)
       if (chyba) return { ok: false, rez: NN, duvod: chyba, prd_path: prd.prd_path, predavky: predavekCelkem }
+      const zmenaTabulky = rozdilTabulky(posledni, ocekavane)
+      if (zmenaTabulky) { log(`${zmenaTabulky}; blok končí, rozhodne orchestrátor`); return { ok: false, rez: NN, duvod: zmenaTabulky, prd_path: prd.prd_path, predavky: predavekCelkem } }
       kostraZmenena = seznam([...seznam(fix.zmenena_mista), ...opravaZmenena]).filter(x => /kontrakt|části/i.test(x))
       if (!kostraZmenena.length && JSON.stringify(casti) !== pred) kostraZmenena = ['tabulka Části (soubory, kritéria nebo závislosti částí)']
     } else if (objekty(fix.casti).length) log('zapracování vrátilo části u malého řezu: ignoruji, nemají autora ani kontrolu')
@@ -1010,8 +1040,10 @@ return navratBloku({
 })
 
 // ---------- args ze souboru ----------
-// Deklarace funkce: volá se na začátku skriptu, proto nesmí sahat na konstanty definované níž (stavy TDZ). Agent opisuje hodnoty
-// ze dvou souborů; skript hlídá číslo řezu (stavba 8 běhu web-rijen dostala args řezu 7 a nikdo to nepoznal) a povinná pole.
+// Deklarace funkce: volá se na začátku skriptu, proto nesmí sahat na konstanty definované níž (stavy TDZ). Stálá pole běhu
+// z docs/.run-args.json vkládá do souboru bloku už args-bloku.py, agent opisuje jeden soubor (běh zaklad-dat: agent, který
+// slučoval dva soubory, vynechal mapa_vize u PRD 09 i 12). Skript hlídá číslo řezu (stavba 8 běhu web-rijen dostala args
+// řezu 7 a nikdo to nepoznal) a povinná pole.
 async function nactiArgs(volani) {
   const T = v => String(v == null ? '' : v)
   const nnVolani = T(volani.rez).trim() ? T(volani.rez).trim().padStart(2, '0') : ''
@@ -1028,13 +1060,13 @@ async function nactiArgs(volani) {
       profil: s(''), prd_lehke: { type: 'boolean' }, kontrakt_prd: s(''), kontrakt_rez: s(''), mapa_vize: s('mapa sekcí vize'),
       rezim: s(''), prd_path: s(''), e2e_path: s(''), nalezy: { type: 'array', items: { type: 'string' } },
       puvodni: { type: 'object', description: 'předchozí návrat bloku PRD, celý objekt beze změny' }, od_faze: s(''),
-      rozhodnuti_majitele: { type: 'array', items: { type: 'string' }, description: 'rozhodnutí majitele z .run-args.json, celé pole beze změny' },
-      _pole: { type: 'array', items: { type: 'string' }, description: 'seznam polí ze souboru řezu (pole _pole), opsaný přesně' },
+      rozhodnuti_majitele: { type: 'array', items: { type: 'string' }, description: 'rozhodnutí majitele, celé pole beze změny' },
+      _pole: { type: 'array', items: { type: 'string' }, description: 'seznam polí souboru (pole _pole), opsaný přesně' },
       chyba: s('jen když soubor args chybí nebo není platný JSON: proč; jinak nevyplňuj'),
     },
   }
   const prompt = `Řez ${nnVolani}: načtení args bloku PRD.
-Přečti ${soubor} a ${volani.cwd}/docs/.run-args.json (když existuje). Vrať jejich sloučení: pole souboru řezu mají přednost před .run-args.json. Hodnoty opiš přesně, nic nezkracuj, nepřeformuluj ani nedoplňuj; pole, které v souborech není, vynech. Pole, které schéma nemá, vynech; hodnotu nikdy nepřesouvej do jiného pole; pole _pole opiš přesně. Když ${soubor} chybí nebo není platný JSON, vyplň jen cwd, rez a chyba. Jiné soubory nečti, nic nespouštěj ani needituj.`
+Přečti ${soubor} a vrať jeho pole; pole _pole opiš přesně. Hodnoty opiš přesně, nic nezkracuj, nepřeformuluj ani nedoplňuj; pole, které v souboru není, vynech. Pole, které schéma nemá, vynech; hodnotu nikdy nepřesouvej do jiného pole. Když ${soubor} chybí nebo není platný JSON, vyplň jen cwd, rez a chyba. Jiné soubory nečti, nic nespouštěj ani needituj.`
   const nacti = async p => {
     let x = null
     for (let i = 0; i <= 2 && !x; i++) {
@@ -1043,11 +1075,10 @@ Přečti ${soubor} a ${volani.cwd}/docs/.run-args.json (když existuje). Vrať j
     }
     return x
   }
-  // Kontrola opisu (spec 1.7.0 § 1.4): skript zapíše do souboru _pole (klíče souboru a .run-args.json bez prázdných hodnot). Načítací
+  // Kontrola opisu (spec 1.7.0 § 1.4): skript zapíše do souboru _pole (klíče sloučeného souboru bez prázdných hodnot). Načítací
   // agent v běhu sonnet-5-5 ztratil kontrakt_rez (PRD 03), vymyslel rezim „config“ z deploy_mode (PRD 06) a ve stavbě obnova: {}.
-  // Sémantika je ve všech třech blocích stejná (review 1.7.0, N4 a plan-check 7): pole volání se nekontrolují; prázdná hodnota je
-  // chybějící pole; stálé pole mimo _pole není navíc, protože .run-args.json smí orchestrátor změnit po složení souboru bloku
-  // (args-bloku.py rozhodnuti, změna pokynů k prostředí); druhé načtení se měří proti _pole prvního.
+  // Sémantika je ve všech třech blocích stejná: pole volání se nekontrolují; prázdná hodnota je chybějící pole a do args nejde;
+  // stálé pole mimo _pole není navíc (rozhodnutí majitele z obnovy); druhé načtení se měří proti _pole prvního.
   const VOLANI = ['cwd', 'plugin_root', 'rez', 'args_file']
   const STALA = ['app_pristup', 'runbook', 'deploy_mode', 'deploy_okno', 'ne_cile', 'mapa_vize', 'vize', 'produkt', 'rozhodnuti_majitele', 'rychle_kontroly']
   const prazdne = v => v == null || v === '' || (Array.isArray(v) && !v.length) || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length)
@@ -1068,7 +1099,7 @@ Přečti ${soubor} a ${volani.cwd}/docs/.run-args.json (když existuje). Vrať j
     let d = rozdil(r, pole1)
     if (d.chybi.length || d.navic.length) {
       log(`args:řez ${nnVolani}: opis nesedí (chybí: ${d.chybi.join(', ') || '–'}; navíc: ${d.navic.join(', ') || '–'}), načítám znovu`)
-      const r2 = await nacti(`${prompt}\nMinule chybělo: ${d.chybi.join(', ') || 'nic'}, navíc bylo: ${d.navic.join(', ') || 'nic'}. Chybějící pole opiš ze souboru; pole navíc vrať jen tehdy, když v souborech opravdu je. Pole z .run-args.json opiš i tehdy, když v _pole nejsou. Hodnotu nikdy nepřesouvej do jiného pole a nic nedoplňuj.`)
+      const r2 = await nacti(`${prompt}\nMinule chybělo: ${d.chybi.join(', ') || 'nic'}, navíc bylo: ${d.navic.join(', ') || 'nic'}. Chybějící pole opiš ze souboru; pole navíc vrať jen tehdy, když v souboru opravdu je. Hodnotu nikdy nepřesouvej do jiného pole a nic nedoplňuj.`)
       if (!r2 || T(r2.chyba).trim()) return { ok: false, rez: nnVolani, duvod: `args_file: opis nesedí (chybí: ${d.chybi.join(', ') || '–'}; navíc: ${d.navic.join(', ') || '–'}) a nové načtení nevrátilo platný výsledek` }
       r = r2
       d = rozdil(r, pole1)

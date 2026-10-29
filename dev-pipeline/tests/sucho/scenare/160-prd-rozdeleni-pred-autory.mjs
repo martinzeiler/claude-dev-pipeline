@@ -22,7 +22,7 @@ export default {
     const n = k.jeden('prd-fix:řez 05:rozdělit')
     k.agent(n, 'dev-pipeline:prd', 'opus', 'high')
     k.pole(n, ['rozdelit_navrh', 'predavka'], 'ROZDELIT_SCHEMA')
-    k.obsahuje(n, 'skutečnost bývá 1.5× odhad, takže řez vychází na ~9000 řádků (strop ~8000)', 'výpočet 1,5× v zadání')
+    k.obsahuje(n, 'skutečnost bývá ~2× odhad a řez se dělí už při 1.5 × odhad nad ~8000 řádků, protože už ten je nad mezí: tady 1.5 × odhad dává ~9000 řádků', 'násobky v zadání (~2× skutečnost, dělení při 1,5×)')
     k.obsahuje(n, 'Vrať jen rozdelit_navrh', 'jen návrh, kostru needituje')
     k.nic(/^prd-část:|^prd-check:|^prd-fix:řez 05$/, 'autoři, kontroly a zapracování po rozdělení před autory')
     k.ok(logy.some(l => l.includes('rozdělení před autory: 1.5 × odhad částí 6000 ř. = 9000 ř. (strop 8000), částí 6 (strop 12)')), 'log výpočtu rozdělení')

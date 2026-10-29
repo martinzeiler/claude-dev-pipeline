@@ -106,7 +106,7 @@ c=$(cd "$proj" && CLAUDE_CONFIG_DIR="$tmp/cfg" bash "$plugin/scripts/co-dela.sh"
 # 2. kostra zprávy
 o=$(zp); rc=$?
 z="$proj/docs/zaverecna-zprava.md"
-[ $rc -eq 0 ] && [ -f "$z" ] && printf '%s' "$o" | grep -q 'Cílů 5, řezů 2, otázek 2 z 4 záznamů, follow-ups 2, čísla ano' && ok || ko "zprava-vystup: rc=$rc $o"
+[ $rc -eq 0 ] && [ -f "$z" ] && printf '%s' "$o" | grep -q 'Cílů 5, řezů 2, otázek 2 z 4 záznamů, uzavřel orchestrátor 0, follow-ups 2, čísla ano' && ok || ko "zprava-vystup: rc=$rc $o"
 grep -q '^- \*\*C1\*\* (Seznamy, ve kterých se hledá…)' "$z" && grep -q '^- \*\*F2\*\* (Česká URL a historie slugů)' "$z" && grep -q '^- \*\*R1\*\* (Abeceda obrací redakční pořadí zemí)' "$z" && ok || ko "zprava-cile: $(grep -n '^\- \*\*' "$z")"
 grep -q '^| 01 | Řazení a výběr | hotovo | 2 | jednosměrné · data | 421c0b45 · E2E 32/34 |' "$z" && ok || ko "zprava-rez-01: $(grep '^| 01' "$z")"
 grep -q '^| 02 | Česká URL | selhalo (E2E, 1 pokus) | 1 |  | cc43abb0 nasazeno |' "$z" && ok || ko "zprava-rez-02: $(grep '^| 02' "$z")"
@@ -115,9 +115,9 @@ grep -q 'plugin dev-pipeline [0-9]' "$z" && grep -q 'větev `vize/v`' "$z" && ok
 # otázky: Proti vizi první, rozhodnuto majitelem vynecháno, prázdná Odpověď
 prvni=$(grep -n '^### ' "$z" | head -1); printf '%s' "$prvni" | grep -q 'řez 02 · popis fotky je mezi AI texty' && ok || ko "otazky-poradi: $prvni"
 [ "$(grep -c '^### ' "$z")" = 2 ] && grep -q '^Proti vizi: ř. 366' "$z" && grep -q '^Hledal jsem ve vizi: §6 mantinel 10' "$z" && [ "$(grep -c '^Odpověď:$' "$z")" = 2 ] && ok || ko "otazky-tvar: $(grep -n '^###\|^Proti\|^Odpověď' "$z")"
-grep -q '^4 záznamů v docs/vize-spory.md (2 otázek výše, 2 rozhodnutých majitelem)' "$z" && grep -q 'fasety mají 404 místo 301 (rozhodnuto majitelem: „ano, 301“)' "$z" && ok || ko "spory-souhrn: $(grep -n 'záznamů\|fasety' "$z")"
+grep -q '^4 záznamů v docs/vize-spory.md (2 otázek v Rozhodni, 2 rozhodnutých majitelem, 0 uzavřených orchestrátorem, 0 pro informaci)' "$z" && grep -q 'fasety mají 404 místo 301 (rozhodnuto majitelem: „ano, 301“)' "$z" && ok || ko "spory-souhrn: $(grep -n 'záznamů\|fasety' "$z")"
 grep -q '^2 otevřených (rozhodnutí 1, oprava 1), 0 uzavřených' "$z" && grep -q '^- řez 01 · web: Majitel rozhodne' "$z" && ok || ko "follow-ups: $(grep -n 'otevřených\|Majitel' "$z")"
-grep -q '<!-- orchestrátor: Stav Cílů -->' "$z" && grep -q '<!-- orchestrátor: ROZHODNUTÍ PRO TEBE -->' "$z" && ok || ko "sekce-orchestratora"
+grep -q '<!-- orchestrátor: Stav Cílů -->' "$z" && grep -q '<!-- orchestrátor: Rozhodni -->' "$z" && grep -q '^\[rozhodnutí\] pro majitele:' "$z" && ok || ko "sekce-orchestratora"
 grep -q 'příští' "$z" && ko "dovetek-priste" || ok
 
 # 3. opakované spuštění zachová sekce orchestrátora a odpovědi
@@ -131,9 +131,86 @@ open(p, "w", encoding="utf-8").write(s)
 PY
 o=$(zp --bez-cisel); rc=$?
 [ $rc -eq 0 ] && grep -q '^C1 hotovo, C2 selhalo.$' "$z" && grep -q '^Odpověď: nech popis.$' "$z" && [ "$(grep -c '^Odpověď:$' "$z")" = 1 ] && printf '%s' "$o" | grep -q 'zachováno 1 sekcí a 1 odpovědí' && ok || ko "opakovani: rc=$rc $o $(grep -n '^Odpověď\|^C1 hotovo' "$z")"
-grep -q '^- nezjištěno (co-dela.sh --zprava nevrátil čísla' "$z" && ok || ko "bez-cisel: $(grep -n 'nezjištěno' "$z")"
+grep -q '^- cena: \$14 ' "$z" && grep -q '^| 01 | Řazení a výběr | hotovo | 2 |' "$z" && printf '%s' "$o" | grep -q 'čísla z minulé zprávy' && ok || ko "bez-cisel-prevzeti: $o $(grep -n '^- cena\|^| 01' "$z")"
+o=$(zp --bez-cisel --prepsat-cisla); grep -q '^- nezjištěno (co-dela.sh --zprava nevrátil čísla' "$z" && printf '%s' "$o" | grep -q 'čísla ne' && ok || ko "prepsat-cisla: $o $(grep -n 'nezjištěno' "$z")"
 
-# 4. bez handoffu i markeru: kód 2; --help
+# 4. rozhodování orchestrátora: Uzavřel orchestrátor (i spojená duplicita a bezpředmětné) není v dotazníku, je v Rozhodl
+# orchestrátor (spojené ne); Měl bys vědět je informace; Změny plánu z handoffu; dialogy jen z co-dela.sh --zprava; follow-ups
+# „rozhodne orchestrátor:“ jen počtem; stará sekce ROZHODNUTÍ PRO TEBE přejde do Rozhodni
+cat >> "$proj/docs/vize-spory.md" <<'EOF'
+
+## 2026-10-19 | řez 02 | prd architekt
+**Rozpor nebo předpoklad:** vize neříká, jestli „13 měsíců“ počítá běžný měsíc.
+**Jak jsem se zachoval:** podle návrhu: 13 kalendářních měsíců včetně běžného.
+**Co by to rozhodlo:** majitel řekne výklad.
+**Uzavřel orchestrátor:** navržená odpověď platí (2026-10-19)
+
+## 2026-10-19 | řez 02 | implement
+**Rozpor nebo předpoklad:** totéž jako výklad 13 měsíců, jiná část.
+**Jak jsem se zachoval:** podle návrhu: kalendářní měsíce.
+**Uzavřel orchestrátor:** spojeno s 2026-10-19 řez 02 prd architekt (2026-10-19)
+
+## 2026-10-20 | řez 02 | e2e-verifier
+**Rozpor nebo předpoklad:** kritérium AK3 nejde změřit bez pozastavené kampaně.
+**Jak jsem se zachoval:** podle návrhu: kritérium vynecháno.
+**Uzavřel orchestrátor:** bezpředmětné: řez 03 (2026-10-21)
+
+## 2026-10-20 | řez 02 | orchestrátor
+**Měl bys vědět:** oprava po E2E řezu 02 šla do produkce bez review, projde ji kolečko.
+EOF
+python3 - "$proj/docs/handoff.md" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p, encoding="utf-8").read()
+s += "\n## Změny plánu\n\n- 2026-10-18 řez 02: rozdělen na 02 a 03 (izolace migrace).\n\n## Poznámky pro navázání\n\n- nic\n"
+open(p, "w", encoding="utf-8").write(s)
+PY
+printf '%s\n' '{"ts":"2026-10-18T01:00:00Z","rez":"02","aid":"a9","typ":"dev-pipeline:e2e-verifier","udalost":"dialog","nastroj":"Bash","prikaz":"x"}' \
+  '{"ts":"2026-10-18T01:05:00Z","rez":"02","aid":"","typ":"orchestrator","udalost":"dialog","nastroj":"Bash","prikaz":"y"}' \
+  '{"ts":"2026-10-18T01:06:00Z","rez":"02","aid":"a9","typ":"dev-pipeline:e2e-verifier","udalost":"mereni","kontext":1}' > "$proj/docs/.kontext.jsonl"
+printf '%s\n' '- [řez 02 · api] [rozhodnutí] rozhodne orchestrátor: TTL úlohy 30 min, nebo 60.' >> "$proj/docs/follow-ups.md"
+sed -i.bak 's/<!-- orchestrátor: Rozhodni -->/<!-- orchestrátor: ROZHODNUTÍ PRO TEBE -->/' "$z"
+python3 - "$z" <<'PY'
+import re, sys
+p = sys.argv[1]; s = open(p, encoding="utf-8").read()
+s = re.sub(r"(<!-- orchestrátor: ROZHODNUTÍ PRO TEBE -->\n).*?(\n<!-- /orchestrátor -->)", r"\1Freshlabels: doporučuji stránkování.\2", s, flags=re.S)
+open(p, "w", encoding="utf-8").write(s)
+PY
+o=$(zp --bez-cisel --prepsat-cisla); rc=$?
+[ $rc -eq 0 ] && printf '%s' "$o" | grep -q 'otázek 2 z 8 záznamů, uzavřel orchestrátor 3' && ok || ko "uzavrene-pocty: rc=$rc $o"
+roz=$(sed -n '/^## Rozhodl orchestrátor/,/^## Řezy/p' "$z")
+printf '%s' "$roz" | grep -q '13 měsíců.*→ navržená odpověď platí (2026-10-19)' && printf '%s' "$roz" | grep -q 'AK3 nejde změřit.*→ bezpředmětné: řez 03' && ! printf '%s' "$roz" | grep -q 'spojeno s' && ok || ko "rozhodl-orchestrator: $roz"
+[ "$(grep -c '^### ' "$z")" = 2 ] && ! grep -q '^### .*13 měsíců' "$z" && ok || ko "dotaznik-bez-uzavrenych: $(grep -n '^### ' "$z")"
+ved=$(sed -n '/^## Měl bys vědět/,/^## Rozhodl orchestrátor/p' "$z")
+printf '%s' "$ved" | grep -q '^- 2026-10-18 řez 02: rozdělen na 02 a 03' && printf '%s' "$ved" | grep -q '^- 2026-10-20 · řez 02: oprava po E2E řezu 02 šla do produkce bez review' && ok || ko "mel-bys-vedet: $ved"
+! grep -q 'zamítnutých dialogů' "$z" && ok || ko "dialogy-bez-cisel: $(grep -n 'dialog' "$z")"
+o=$(zp --prepsat-cisla); grep -q '^- zamítnutých dialogů v běhu 2 (hook dialog-v-behu.sh)$' "$z" && ok || ko "dialogy-z-co-dela: $o $(grep -n 'dialog' "$z")"
+grep -q '^\[rozhodnutí\] „rozhodne orchestrátor“: 1 ' "$z" && ! grep -q '^- řez 02 · api: rozhodne orchestrátor' "$z" && grep -q '^- řez 01 · web: Majitel rozhodne' "$z" && ok || ko "fu-rozhodne-orchestrator: $(grep -n 'rozhodne\|Majitel' "$z")"
+grep -q '^Freshlabels: doporučuji stránkování.$' "$z" && grep -q '<!-- orchestrátor: Rozhodni -->' "$z" && ! grep -q 'ROZHODNUTÍ PRO TEBE' "$z" && ok || ko "stara-sekce-rozhodnuti: $(grep -n 'Rozhodni\|ROZHODNUTÍ\|Freshlabels' "$z")"
+grep -q '8 záznamů v docs/vize-spory.md (2 otázek v Rozhodni, 2 rozhodnutých majitelem, 3 uzavřených orchestrátorem, 1 pro informaci)' "$z" && ok || ko "spory-souhrn-2: $(grep -n 'záznamů v docs' "$z")"
+
+# 5. Cíle ve tvaru „**C1 Název.**“ a F s názvem v tučném; „**F1.1 …**“ není F1; vize bez C varuje
+cat > "$proj/docs/vize/v.md" <<'EOF'
+# Vize v
+
+## 2. Cíle
+
+- **C1 Konektor přes OAuth.** Uživatel organizace připojí Surya jako vlastní konektor.
+- **C2 Karta schválí a provede.** Odpověď nese kartu.
+
+## 5. Funkční požadavky
+
+- **F1 Autorizační server.** text
+- **F1.1 Chráněný zdroj.** Volání bez tokenu vrací 401.
+### F2 Česká URL
+### F2.1 Podbod
+EOF
+o=$(zp --bez-cisel --prepsat-cisla); rc=$?
+[ $rc -eq 0 ] && grep -q '^- \*\*C1\*\* (Konektor přes OAuth)$' "$z" && grep -q '^- \*\*C2\*\* (Karta schválí a provede)$' "$z" && grep -q '^- \*\*F1\*\* (Autorizační server)$' "$z" && grep -q '^- \*\*F2\*\* (Česká URL)$' "$z" && [ "$(grep -c '^- \*\*F' "$z")" = 2 ] && ok || ko "cile-nazev-v-tucnem: $(grep -n '^- \*\*' "$z")"
+printf '%s\n' '# Vize v' '' '- **F1 Jen F.** text' '- **R1 Riziko.** text' > "$proj/docs/vize/v.md"
+o=$(zp --bez-cisel --prepsat-cisla); rc=$?
+[ $rc -eq 0 ] && printf '%s' "$o" | grep -q 'varování: vize nemá Cíle' && grep -q '^- (Cíle C se z vize nepodařilo přečíst' "$z" && grep -q '^- \*\*F1\*\* (Jen F)$' "$z" && ok || ko "bez-c-varovani: $o $(grep -n '^- ' "$z" | head -4)"
+
+# 6. bez handoffu i markeru: kód 2; --help
 rm -rf "$tmp/prazdny"; mkdir -p "$tmp/prazdny/docs"
 o=$(python3 -I "$plugin/scripts/zprava.py" "$tmp/prazdny" --plugin-root "$plugin" --bez-cisel 2>&1); [ $? -eq 2 ] && ok || ko "bez-handoffu: $o"
 o=$(python3 -I "$plugin/scripts/zprava.py" --help); [ $? -eq 0 ] && printf '%s' "$o" | grep -q -- '--bez-cisel' && ok || ko "help"

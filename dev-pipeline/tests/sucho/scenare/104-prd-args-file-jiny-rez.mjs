@@ -17,7 +17,7 @@ export default {
     k.pocet(/./, 1, 'jen načtení args')
     const n = k.jeden('args:řez 05')
     k.agent(n, 'dev-pipeline:nacteni-args', 'sonnet', 'low')
-    k.obsahuje(n, `${CWD}/docs/.prd-05.json`, 'absolutní cestu k args_file'); k.obsahuje(n, `${CWD}/docs/.run-args.json`, 'stálé args běhu')
+    k.obsahuje(n, `${CWD}/docs/.prd-05.json`, 'absolutní cestu k args_file'); k.neobsahuje(n, '.run-args.json', 'druhý soubor (stálá pole vkládá args-bloku.py)')
     k.ok(n && n.prompt.startsWith('Řez 05:'), 'zadání načtení začíná „Řez 05:“ (hlídač kontextu)')
     return k.chyby
   },

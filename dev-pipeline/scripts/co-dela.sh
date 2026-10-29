@@ -8,10 +8,14 @@
 #                              fáze i/N s trváním a hotové fáze, živí agenti bez šumu argumentů, hotové a selhané bloky za 30 min
 #   co-dela.sh --status        segment pro status line; JSON status line na stdin (transcript_path), bez nového řádku;
 #                              za časem „· fronta N“, jen když ve frontě těžkých příkazů něco čeká
+#   co-dela.sh --bezici        běžící bloky Workflow jako JSON [{wf, name, rez, zombie}] (args-bloku.py nepustí druhý běh
+#                              téhož bloku a řezu; zombie = journal i agenti bez výsledku mlčí přes 2 h, mrtvý blok nebo
+#                              čekání na usage limit); bez markeru nebo adresáře session []
 #   co-dela.sh --zprava        čísla běhu pro závěrečnou zprávu jako JSON (scripts/zprava.py je vkládá do kostry): cena a
 #                              tokeny z transkriptů orchestrátora i agentů (usage z posledního záznamu každé zprávy, ceník
 #                              podle rodiny modelu), od–do a délka, počet agentů, restarty, compacty orchestrátora i agentů,
-#                              předávky, hotové a selhané bloky, výsledek a pokusy per řez, výsledek kolečka
+#                              předávky, dialogy zamítnuté hookem dialog-v-behu.sh, hotové a selhané bloky, výsledek
+#                              a pokusy per řez, výsledek kolečka
 #   co-dela.sh --session <dir>       ruční použití: adresář session ~/.claude/projects/<slug>/<session_id>
 #   co-dela.sh --transcript <p.jsonl> ruční použití: transkript session (adresář = cesta bez .jsonl)
 #   co-dela.sh --ted <ISO 8601>      „teď“ pro testy nad zmrazenou kopií session (výchozí skutečný čas)
@@ -38,6 +42,7 @@
 #     (kontext a čtení N kB z pole cteni_bajtu stráže čtení),
 #     v souhrnu nejvyšší kontext podle typu agenta a compacty, jen za agenty této session; compacty orchestrátora
 #     zvlášť ze záznamů hooku session-start při compactu (aid orchestrator), z nich je bere i závěrečná zpráva.
+#   Zamítnuté dialogy ke schválení ze záznamů udalost dialog (hook dialog-v-behu.sh) za celý běh; kontext agenta neměří.
 #   Fronta těžkých příkazů: scripts/tezky.py stav (co drží, co čeká); status line čte stavový soubor fronty napřímo
 #     (bez podprocesu a zámku) a počítá jen čekající se živým PID.
 #   Kontext běhu (název řezu, hotové řezy) z docs/handoff.md v cwd; fáze bloku ze skriptu workflows/scripts/<blok>-<wf>.js.
@@ -55,6 +60,7 @@ while [ $# -gt 0 ]; do
     --kratce) mode=kratce ;;
     --status) mode=status ;;
     --zprava) mode=zprava ;;
+    --bezici) mode=bezici ;;
     --session) shift; sess="${1:-}" ;;
     --transcript) shift; sess="${1%.jsonl}" ;;
     --ted) shift; ted="${1:-}" ;;
@@ -82,6 +88,7 @@ fi
 if [ -z "$sess" ]; then
   marker="docs/.orchestrator-run"
   if [ ! -f "$marker" ]; then
+    [ "$mode" = bezici ] && { echo '[]'; exit 0; }
     echo "co-dela: v $(pwd) není docs/.orchestrator-run, běh vize tu neběží (ruční použití: --session <dir> nebo --transcript <p.jsonl>)"
     exit 0
   fi
@@ -91,6 +98,7 @@ if [ -z "$sess" ]; then
 fi
 
 if [ ! -d "$sess" ]; then
+  [ "$mode" = bezici ] && { echo '[]'; exit 0; }
   [ "$mode" = status ] || echo "co-dela: adresář session $sess neexistuje (session zatím nespustila žádného agenta)"
   exit 0
 fi
@@ -251,6 +259,17 @@ def rez_z(labels):
             return m.group(1)
     return None
 
+def args_rez(state):
+    """rez z args stavového souboru Workflow (args bývají objekt i řetězec JSON), jinak None."""
+    a = (state or {}).get("args") if isinstance(state, dict) else None
+    if isinstance(a, str):
+        try:
+            a = json.loads(a)
+        except ValueError:
+            a = None
+    r = a.get("rez") if isinstance(a, dict) else None
+    return str(r) if r not in (None, "") else None
+
 def rez_int(x):
     m = re.match(r"0*(\d+)", str(x or ""))
     return int(m.group(1)) if m else None
@@ -294,6 +313,8 @@ def citelny(label):
         elif i == 1 and re.fullmatch(r"řez\s*\S+|kolečko|báze", k):
             hlava += " " + k
             rez = rez_int(k[3:].strip()) if k.startswith("řez") else None
+        elif i == 2 and re.fullmatch(r"p\d+", k):
+            dal.append(f"pokus {k[1:]}")
         elif re.fullmatch(r"K\d+", k):
             nazev = nazvy_casti(rez).get(k) if rez is not None else None
             dal.append(f"část {k}" + (f" ({one_line(nazev, 30)})" if nazev else ""))
@@ -417,7 +438,7 @@ def kontext_agentu():
     posledni, podle_typu, compactu = {}, {}, {}
     for e in jsonl(tail_lines(os.path.join(os.getcwd(), "docs", ".kontext.jsonl"), 2 * 1024 * 1024)):
         aid = e.get("aid") if isinstance(e, dict) else None
-        if aid not in ids:
+        if aid not in ids or e.get("udalost") == "dialog":
             continue
         posledni[aid] = e
         typ = str(e.get("typ") or "?")
@@ -430,6 +451,12 @@ def compacty_orchestratoru():
     1.6.x je psal pre-compact). Soubor patří běžící vizi (setup ho při nové vizi archivuje), proto se počítají všechny."""
     return sum(1 for e in jsonl(tail_lines(os.path.join(os.getcwd(), "docs", ".kontext.jsonl"), 2 * 1024 * 1024))
                if isinstance(e, dict) and e.get("aid") == "orchestrator" and e.get("udalost") == "compact")
+
+def dialogy_behu():
+    """Dialogy ke schválení, které v běhu zamítl hook dialog-v-behu.sh (záznamy udalost dialog v docs/.kontext.jsonl);
+    soubor patří běžící vizi, proto se počítají všechny."""
+    return sum(1 for e in jsonl(tail_lines(os.path.join(os.getcwd(), "docs", ".kontext.jsonl"), 8 * 1024 * 1024))
+               if isinstance(e, dict) and e.get("udalost") == "dialog")
 
 def predavky_z_logu():
     """(předávek za běh, {řez: předávek}) ze záznamů udalost predavka v docs/.kontext.jsonl (hook hlídač píše jeden na
@@ -589,7 +616,19 @@ for wf in sorted(_wfs):
         "faze": faze, "cur": cur, "faze_start": faze_start, "hotove_faze": hotove, "pokus": max(pokusy) if pokusy else None,
         "restarty": restarty, "selhani": len(failed_ids), "obnova": obnova,
         "predavky": sum(1 for e in by_key.values() if NASTUPCE.search(e.get("label") or "")),
+        "journal_mt": journal_mt, "args_rez": args_rez(state),
     })
+
+# ---------- --bezici: běžící bloky jako JSON (args-bloku.py podle nich odmítne složit args pro řez, jehož blok běží) ----------
+# rez z labelů agentů, jinak z args stavového souboru (obnovený běh); zombie = journal i všichni agenti bez výsledku
+# mlčí přes ZOMBIE (spadlá session nebo proces, ale stejně i blok čekající na usage limit): args-bloku.py ho dál počítá
+# jako běžící a jen změní hlášku.
+ZOMBIE = 2 * 3600
+if mode == "bezici":
+    print(json.dumps([{"wf": w["wf"], "name": w["name"], "rez": w["rez"] or w["args_rez"],
+                       "zombie": bool(w["journal_mt"]) and now - w["journal_mt"] > ZOMBIE and all(a["ticho"] > ZOMBIE for a in w["live"])}
+                      for w in running], ensure_ascii=False))
+    sys.exit(0)
 
 # ---------- samostatní agenti ----------
 standalone, opustene = [], 0
@@ -723,7 +762,7 @@ if mode == "zprava":
         "agentu": len(agenti_t), "orchestrator_transkript": os.path.exists(orch_t),
         "restartu_stall": restarty["stall"], "restartu_limit": restarty["limit"], "ztrata_restartu_min": round(restarty["ztrata"] / 60),
         "compactu_orchestratora": compacty_orchestratoru(), "compactu_agentu": compactu_ag, "predavek": predavek_celkem,
-        "bloky": bloky, "rezy": rezy, "kolecko": kolecko,
+        "dialogu_zamitnuto": dialogy_behu(), "bloky": bloky, "rezy": rezy, "kolecko": kolecko,
     }, ensure_ascii=False, indent=1))
     sys.exit(0)
 
@@ -853,6 +892,9 @@ if kontext_typ or predavek:
     souhrn.append(f"předávek {predavek}")
 if compactu_orch:
     souhrn.append(f"compactů orchestrátora {compactu_orch}")
+dialogu = dialogy_behu()
+if dialogu:
+    souhrn.append(f"zamítnutých dialogů {dialogu}")
 if souhrn:
     out.append("kontext agentů: " + " · ".join(souhrn))
 

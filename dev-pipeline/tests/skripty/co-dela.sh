@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Funkční testy scripts/co-dela.sh nad syntetickou session: předávky jen z docs/.kontext.jsonl (za běh a za řez přes
 # všechny bloky), bez logu záloha z výsledků bloků, název části z docs/.stavba-NN.json u labelu agenta, compacty
-# orchestrátora z logu a --zprava (čísla běhu jako JSON).
+# orchestrátora z logu, zamítnuté dialogy (hook dialog-v-behu.sh) a --zprava (čísla běhu jako JSON).
 # Spusť: dev-pipeline/tests/skripty/co-dela.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); plugin=$(cd "$here/../.." && pwd)
@@ -35,6 +35,9 @@ jq -n '{rez:"05", casti:[{id:"K1", nazev:"evidence nákladů"}, {id:"K2", nazev:
   jq -cn '{ts:"2026-10-06T08:04:00Z", rez:"04", aid:"x4", typ:"implement", kontext:250000, max:250000, compactu:0, udalost:"predavka", soubor:"docs/reviews/predavka-x4.md"}'
   jq -cn '{ts:"2026-10-06T08:05:00Z", rez:"kolecko", aid:"x5", typ:"fix", kontext:250000, max:250000, compactu:0, udalost:"predavka", soubor:"docs/reviews/predavka-x5.md"}'
   jq -cn '{ts:"2026-10-06T08:06:00Z", rez:"-", aid:"orchestrator", typ:"orchestrator", udalost:"compact", trigger:"auto"}'
+  # zamítnuté dialogy (hook dialog-v-behu.sh): záznam živého agenta jeho kontext nepřepíše
+  jq -cn '{ts:"2026-10-06T08:07:00Z", rez:"05", aid:"a1", typ:"implement", udalost:"dialog", nastroj:"Bash", prikaz:"X=(${(f)x})"}'
+  jq -cn '{ts:"2026-10-06T08:08:00Z", rez:"-", aid:"", typ:"orchestrator", udalost:"dialog", nastroj:"Write", prikaz:"/p/.claude/settings.json"}'
 } > "$proj/docs/.kontext.jsonl"
 
 cd_run() { (cd "$proj" && CLAUDE_CONFIG_DIR="$tmp/cfg" bash "$plugin/scripts/co-dela.sh" "$@" 2>&1); }
@@ -44,9 +47,16 @@ printf '%s' "$o" | grep -q 'implement řez 05 · část K2 (runner: thinking a e
 # 1.9.0: čtení živého agenta z pole cteni_bajtu posledního záznamu (stráž čtení hlídače kontextu)
 printf '%s' "$o" | grep -q 'kontext 90k · čtení 50 kB' && ok || ko "cteni-kb: $o"
 printf '%s' "$o" | grep -q '^▶ stavba řezu 05 .* · předávek řezu 2$' && ok || ko "predavky-rezu-na-bloku: $o"
-printf '%s' "$o" | grep -q 'předávek 5 · compactů orchestrátora 1$' && ok || ko "predavky-z-logu: $o"
+printf '%s' "$o" | grep -q 'předávek 5 · compactů orchestrátora 1 · zamítnutých dialogů 2$' && ok || ko "predavky-z-logu: $o"
 
 o=$(cd_run --kratce); printf '%s' "$o" | grep -q 'část K2 (runner' && printf '%s' "$o" | grep -q 'předávek 5' && ok || ko "kratce: $o"
+# --bezici: běžící bloky jako JSON s příznakem zombie (doběhlá stavba řezu 04 v něm není); bez markeru prázdné pole
+o=$(cd_run --bezici); [ "$(printf '%s' "$o" | jq -c '.')" = '[{"wf":"wf_bezi-1","name":"blok-stavby","rez":"05","zombie":false}]' ] && ok || ko "bezici: $o"
+# zombie: journal i jediný agent bez výsledku mlčí přes 2 h
+touch -t 202610050800 "$sess/subagents/workflows/wf_bezi-1/journal.jsonl" "$sess/subagents/workflows/wf_bezi-1/agent-a1.jsonl"
+o=$(cd_run --bezici); [ "$(printf '%s' "$o" | jq -c '.[0].zombie')" = 'true' ] && ok || ko "bezici-zombie: $o"
+touch "$sess/subagents/workflows/wf_bezi-1/journal.jsonl" "$sess/subagents/workflows/wf_bezi-1/agent-a1.jsonl"
+o=$(cd "$tmp" && bash "$plugin/scripts/co-dela.sh" --bezici 2>&1); [ "$o" = '[]' ] && ok || ko "bezici-bez-markeru: $o"
 o=$(jq -cn --arg t "$sess.jsonl" '{transcript_path:$t}' | (cd "$proj" && CLAUDE_CONFIG_DIR="$tmp/cfg" bash "$plugin/scripts/co-dela.sh" --status 2>&1))
 case "$o" in "▶ 1 · implement:řez 05:K2:1 · "*) ok ;; *) ko "status: $o" ;; esac
 
@@ -69,10 +79,11 @@ jq -cn '{type:"assistant", message:{id:"b1", model:"claude-sonnet-5-5", usage:{i
 {
   jq -cn '{ts:"2026-10-06T08:06:00Z", rez:"-", aid:"orchestrator", typ:"orchestrator", udalost:"compact", trigger:"auto"}'
   jq -cn '{ts:"2026-10-06T08:04:00Z", rez:"04", aid:"x4", typ:"implement", kontext:250000, max:250000, compactu:0, udalost:"predavka", soubor:"docs/reviews/predavka-x4.md"}'
+  jq -cn '{ts:"2026-10-06T08:09:00Z", rez:"04", aid:"x4", typ:"implement", udalost:"dialog", nastroj:"Bash", prikaz:"rm -rf $d"}'
 } > "$proj/docs/.kontext.jsonl"
 z=$(cd_run --zprava); rc=$?
-k=$(printf '%s' "$z" | jq -r '[.cena_usd, .cena_podle_modelu["claude-opus-5-5"], .cena_podle_modelu["claude-sonnet-5-5"], .agentu, .compactu_orchestratora, .predavek, .bloky.hotovo, .rezy["04"].vysledek, .rezy["04"].pokusy, .od] | @csv' 2>/dev/null)
-[ $rc -eq 0 ] && [ "$k" = '13.1,12.0,1.1,2,1,1,1,"hotovo",,"2026-10-06T07:30:00Z"' ] && ok || ko "zprava-json: rc=$rc $k $z"
+k=$(printf '%s' "$z" | jq -r '[.cena_usd, .cena_podle_modelu["claude-opus-5-5"], .cena_podle_modelu["claude-sonnet-5-5"], .agentu, .compactu_orchestratora, .predavek, .bloky.hotovo, .rezy["04"].vysledek, .rezy["04"].pokusy, .od, .dialogu_zamitnuto] | @csv' 2>/dev/null)
+[ $rc -eq 0 ] && [ "$k" = '13.1,12.0,1.1,2,1,1,1,"hotovo",,"2026-10-06T07:30:00Z",1' ] && ok || ko "zprava-json: rc=$rc $k $z"
 rm -f "$sess.jsonl"
 
 # 1.9.0: nové labely dávek balíčku a polovin Kontraktu po stropu předávek se vypisují čitelně, pokus z labelu poloviny

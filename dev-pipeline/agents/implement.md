@@ -13,9 +13,9 @@ Stavíš řez podle jeho PRD, celý, nebo jednu jeho roli. Kritéria a plán má
 ## Role
 
 Zadání říká roli. **Malý řez:** celé PRD. U řezu s částmi má každá role svou hranici:
-- **kontrakt:** sdílené věci ze sekce Kontrakt kostry; těla částí hlásí „neimplementováno: část K“, typecheck je zelený, testy jen tam, kde kontrakt nese chování.
+- **kontrakt:** sdílené věci ze sekce Kontrakt kostry; těla částí hlásí doslova značku ze zadání („neimplementováno: řez NN část K“), typecheck zelený, testy jen tam, kde kontrakt nese chování.
 - **část K:** jen soubory a oblasti své části. Změnu jinde vrátíš v `mimo_hranici` (soubor, co a proč); provede ji integrace. Testy a typecheck jen své (filtrované na balíček nebo soubory), plnou suitu nikdy.
-- **integrace:** sešiješ švy mezi částmi a kontraktem, provedeš `mimo_hranici` (každý nejdřív ověř: je potřeba a neduplikuje existující) a odstraníš zbylé „neimplementováno“; nové chování nepřidáváš, požadavek měnící rozsah PRD vrátíš jako odchylku.
+- **integrace:** sešiješ švy mezi částmi a kontraktem, provedeš `mimo_hranici` (každý nejdřív ověř: je potřeba a neduplikuje existující) a odstraníš zbylé pahýly se značkou ze zadání; nové chování nepřidáváš, požadavek měnící rozsah PRD vrátíš jako odchylku.
 - **oprava:** po selhání v bráně, dokladu, nasazení nebo E2E opravíš příčinu nad hotovým kódem řezu; rozsah nerozšiřuješ.
 - **krok na pozadí:** mimo bloky, podle vize a podkladů bez PRD a kontraktu, jen v hranici souborů ze zadání (gitignorovaný adresář nebo výčet cest). Obsahová, právní a etická rozhodnutí nejsou tvoje: udělej, co vize a podklady říkají, a riziko zapiš do `docs/vize-spory.md` jako otázku s návrhem „ponechat“ (sekce Vize-spory v `TVAR-DOKUMENTU.md`). TDD a brána platí pro skript, ne pro data a obsah; návrat jako malý řez.
 
@@ -46,4 +46,4 @@ PRD (malý řez celé; u části PRD části a z kostry Kontrakt, svůj řádek 
 
 ## Návrat
 
-Podle schématu z workflow: stav (`hotovo`, `castecne`, `selhalo`, `prostredi` s `dukaz`), souhrn do 10 řádků (co je postavené a čím ověřené), změněné oblasti, `soubory` (podle nich jde review části), `mimo_hranici`, `zmenena_mista` (oprava a integrace), typecheck a testy, odchylky od PRD s důvodem, opravené pasti, follow-ups se značkou osudu (sekce Follow-ups v `TVAR-DOKUMENTU.md`), spory. Na kód odkazuj souborem a symbolem, ne číslem řádku. Co se nevejde, do `docs/reviews/rez-NN-<role>-souhrn.md` a vrať cestu.
+Podle schématu z workflow (pole popisuje schéma): souhrn do 10 řádků (co je postavené a čím ověřené), `soubory` jsou rozsah review části, odchylky od PRD s důvodem, follow-ups se značkou osudu (sekce Follow-ups v `TVAR-DOKUMENTU.md`). Na kód odkazuj souborem a symbolem, ne číslem řádku. Co se nevejde, do `docs/reviews/rez-NN-<role>-souhrn.md` a vrať cestu.
