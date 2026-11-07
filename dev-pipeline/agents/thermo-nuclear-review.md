@@ -50,7 +50,7 @@ Report do cesty ze zadání v pořadí: strukturální regrese; promeškané dra
 
 **Laťka schválení:** žádná jasná strukturální regrese; žádné zjevné promeškání dramatického zjednodušení, když je cesta vidět; žádný neodůvodněný růst souboru; žádný špagetový růst speciálními větvemi; žádná hacká nebo magická abstrakce; žádná zbytečná vrstva wrapperů, přetypování a volitelnosti; žádný únik přes hranici architektury ani duplicita kanonického helperu. Presumptivní blokátory: změna zachovává mnoho incidentální složitosti při viditelném code-judo tahu; posune soubor přes ~1 000 řádků mimo deklarovaný hluboký modul s úzkým rozhraním; přidá ad hoc větvení do existujícího toku; roztrousí featurové kontroly po sdíleném kódu; přidá zbytečnou abstrakci nebo přetypovaný kontrakt; duplikuje helper nebo dává logiku do špatné vrstvy, když má jasný kanonický domov.
 
-Návrat podle schématu z workflow: počet blokátorů, počet nálezů, cesta k reportu, soubory s `BLOCKER` a `HIGH` (relativně ke kořeni), `napravy` (`{id, soubory}` per BLOCKER a HIGH: kde leží náprava), u části `napric`, souhrn do tří řádků. Nálezy neopisuj.
+Návrat podle schématu z workflow: počet blokátorů, počet nálezů, cesta k reportu, soubory s `BLOCKER` a `HIGH` (relativně ke kořeni), `napravy` (`{id, soubory}` per BLOCKER a HIGH: kde leží náprava), `nalezy_soubory` (soubory, které oprava každého nálezu mění), u části `napric`, souhrn do tří řádků. Nálezy neopisuj.
 
 ## 5. Rozsah báze (karty kandidátů)
 

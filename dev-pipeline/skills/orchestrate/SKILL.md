@@ -60,7 +60,7 @@ Kořen pluginu: dvě úrovně nad tímto souborem (`<plugin_root>/skills/orchest
 **Pevný blok po řezu** (nic víc, nic míň):
 ```
 Řez NN <název> hotový: commit <hash> · deploy <stav> · dveře <jednosměrné|obousměrné> · dosah <slovo> · pokusy P
-E2E <pass>/<celkem>[, částečně N][, vadná kritéria N][, prostředí N] · review K kol, N nálezů, F fix agentů · thermo N/B[, nesesouhlaseno N]
+E2E <pass>/<celkem>[, částečně N][, k doměření N][, čitelnost N][, vadná kritéria N][, prostředí N] · review K kol, N nálezů, F fix agentů · thermo N/B[, nesesouhlaseno N]
 Části N (0 = malý řez) · předávky P · kontext <nejvyšší podle typu agenta, compacty>
 Follow-ups +N · spory +N · pasti opravené N · otázky pro majitele +N
 Plán: <změna nebo „beze změny“> · hotovo A z B řezů (plán ve vizi B0)
@@ -68,11 +68,11 @@ Cíle: C1 <název do 5 slov> ✓ · C2 <název> ◐ · C3 <název> ✗
 Další: řez MM <název>
 ```
 
-**Značky ve zprávách:** každá značka v textu pro uživatele (C, F, R, S, P, U, AK, část K) nese při první zmínce v téže zprávě název do 5 slov: „C6 (cache čte ≥ 80 %)“. Výčet víc než tří značek nahraď slovním souhrnem a značky dej do závorky. Push notifikace značky nenese. Názvy máš z vize (tvar „**C6 Název.**“), názvy kritérií a částí z výsledků bloků.
+**Značky ve zprávách:** každá značka v textu pro uživatele (C, F, R, S, P, U, AK, část K) nese při první zmínce v téže zprávě název do 5 slov: „C6 (cache čte ≥ 80 %)“. Výčet víc než tří značek nahraď slovním souhrnem a značky dej do závorky. Push notifikace značky nenese.
 
 ## Změna plánu: měň cestu, ne cíl
 
-Plán ve vizi je výchozí a závazný pro PRD agenta; **ty ho smíš měnit, když to vede k Cílům lépe:** změnit pořadí, rozdělit řez, sloučit dva, přidat řez, který Cíl prokazatelně potřebuje, vypustit řez, který nic nepřidá. Každou změnu zapiš do Změn plánu s důvodem a řekni ji v nejbližší zprávě. Vize se během běhu nemění.
+Plán ve vizi je výchozí a závazný pro PRD agenta; **ty ho smíš měnit, když to vede k Cílům lépe:** změnit pořadí, rozdělit řez, sloučit dva, přidat řez, který Cíl prokazatelně potřebuje, vypustit řez, který nic nepřidá. Každou změnu zapiš do Změn plánu s důvodem a řekni ji v nejbližší zprávě.
 
 **Dělení a slučování:** velikost implementace řeší části, ne další řezy. Řez děl jen kvůli izolaci rizika (jednorázové Povolení, nevratná operace), kvůli závislostem, nebo když 1,5× odhad architekta přesáhne ~8 k změněných řádků či ~12 částí. `rozdelit_navrh` je kandidát, ne příkaz: dělíš-li, nahraď řádek dvěma podle návrhu a blok PRD spusť pro první z nich; jinak pokračuj autory. Dva malé sousední řezy smíš sloučit před jejich blokem PRD (`plan_row` nese oba), když spolu mez nepřekročí a nenesou odlišné riziko.
 
@@ -80,11 +80,13 @@ Nesmíš: měnit Cíle, Ne-cíle, Rozhodnutí ani severku; přidat rozsah, kter�
 
 ## Krok na pozadí
 
-Krok na pozadí z Provozních poznámek vize (podklady, obsah, data, které řezy spotřebují) spouštíš jako agenta `dev-pipeline:implement` v roli „krok na pozadí“: zadání do 1 200 znaků s názvem, hranicí souborů z vize (gitignorovaný adresář nebo výčet cest), výstupem, Povolením, které cituje, a větou: „Rozpor s vizí zapiš do docs/vize-spory.md s citací řádku vize (tvar a definice konzervativní volby: `<plugin_root>/skills/orchestrate/TVAR-DOKUMENTU.md`, sekce Vize-spory; obsahová, právní a etická rozhodnutí nejsou tvoje: udělej, co vize říká, riziko zapiš jako otázku s návrhem „ponechat“) a pokračuj.“ Handoff `stav běhu: běží agent krok na pozadí <název> (task <id>)` vedle běžících bloků. Předávku řeší jako každý agent na pozadí: nástupce se stejným zadáním a cestou k předávce. Výsledek (co vyrobil, kam) do journalu heredocem a do `hypotezy.text` řezů, které na něm staví. Bez hranice souborů ve vizi krok nespouštěj: je to otázka pro majitele.
+Krok na pozadí z Provozních poznámek vize (podklady, obsah, data, které řezy spotřebují) spouštíš jako agenta `dev-pipeline:implement` v roli „krok na pozadí“: zadání do 1 200 znaků s názvem, hranicí souborů z vize (gitignorovaný adresář nebo výčet cest), výstupem, Povolením, které cituje, a větou: „Rozpor s vizí zapiš do docs/vize-spory.md s citací řádku vize (tvar a definice konzervativní volby: `<plugin_root>/skills/orchestrate/TVAR-DOKUMENTU.md`, sekce Vize-spory; obsahová, právní a etická rozhodnutí nejsou tvoje: udělej, co vize říká, riziko zapiš jako otázku s návrhem „ponechat“) a pokračuj.“ Handoff `stav běhu: běží agent krok na pozadí <název> (task <id>)` vedle běžících bloků. Předávka: nástupce se stejným zadáním a cestou k předávce. Výsledek (co vyrobil, kam) do journalu heredocem a do `hypotezy.text` řezů, které na něm staví. Bez hranice souborů ve vizi krok nespouštěj: je to otázka pro majitele.
 
 ## Čekání na čas
 
-Sdílené pravidlo je v TVAR-DOKUMENTU, sekce Čekání na čas. Pro tebe: kritérium nad časem přeměř hned ručním během z Povolení (agent `e2e-verifier` se zadáním, které běh a Povolení jmenuje), ne cronem; čekání delší než ~2 h nikdy neplánuj bez souhlasu majitele (výjimka: zakázané okno, `deploy-odklad` a `deploy-vypadek`); když Povolení výrobu dat nepokrývá (`cekani`, `rozhodnuti` kolečka), kritérium doloží test a živou půlku doměří validátor (Schválení souhrnu), ne odklad.
+Sdílené pravidlo je v TVAR-DOKUMENTU, sekce Čekání na čas. Pro tebe: kritérium nad časem přeměř hned ručním během z Povolení (agent `e2e-verifier` se zadáním, které běh a Povolení jmenuje), ne cronem; čekání delší než ~2 h nikdy neplánuj bez souhlasu majitele (výjimka: zakázané okno, `deploy-odklad`, `deploy-vypadek` a `k_domereni`); když Povolení výrobu dat nepokrývá (`cekani`, `rozhodnuti` kolečka), kritérium doloží test a živou půlku doměří validátor (Schválení souhrnu), ne odklad.
+
+**`k_domereni` z návratu stavby:** na `nejdriv` jednorázový `CronCreate`, který pustí ručního `e2e-verifier` s položkou (`co_bezi`, `kontrola`). FAIL doměření je nový řádek mini-řezu s důvodem, ne obnova bloku. Dokud doměření běží, dostanou další stavby v `--doplnit` `deploy_podminky` (`[{popis, kontrola, pravidlo}]`), že běh nesmí nasazení přerušit.
 
 ## Otázky pro majitele a spory (běh se kvůli nim nezastavuje)
 
@@ -117,7 +119,7 @@ Compact neiniciuješ ani nenabízíš; po něm ti hook vrátí tabulku a `PO-COM
 
 - Běžíš s `--autocompact 400k`; stav je na disku (handoff, `docs/.run-args.json`, vize-spory). Do zadání agentů kontext, tokeny ani compact nepiš: k předávce je vyzve hook.
 - Zadání agentovi drž kolem 1 200 znaků: cesty, hranice role, formát návratu, tři až pět řádků specifik; obsah PRD, diff, report ani metodiku agenta do něj neopisuj.
-- Strukturovaný návrat čteš jednou; vlastní zprávy nečteš. `TaskOutput` jen na dokončený Workflow, jehož výsledek jsi nezpracoval. Seznamy výsledků jsou v `docs/.vysledek-*.json`.
+- Strukturovaný návrat čteš jednou; vlastní zprávy nečteš.
 - Handoff přepisuješ celý (Write) a držíš pod 4 kB; delší poznámky patří do journalu přes uzavření řezu.
 - Na běžící Workflow ani agenta nečekáš pollingem; notifikace přijde sama, cron je záchranná síť.
-- Produkční kód, testy, konfiguraci, CLAUDE.md projektu, `docs/produkt.md`, `docs/rozhodnuti.md` ani vizi needituješ; auto-paměť se během běhu nepíše.
+- Produkční kód, testy, konfiguraci, CLAUDE.md projektu, `docs/produkt.md`, `docs/rozhodnuti.md` ani vizi needituješ.

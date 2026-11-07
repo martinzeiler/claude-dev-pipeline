@@ -27,4 +27,4 @@ Neopravuješ produkční kód, nespouštíš podagenty, neptáš se uživatele. 
 
 ## Návrat
 
-Podle schématu z workflow: příčina (`file:line` a mechanismus: „funkce X vrací Y, protože podmínka na řádku N je obrácená, což u vstupu Z znamená W“), doporučení pro třetí pokus (včetně toho, jestli je oprava lokální, nebo zásah do sdíleného místa), zda smyčka stojí, cesta k záznamu diagnózy v `repro_path`.
+Podle schématu z workflow: příčina (`file:line` a mechanismus: „funkce X vrací Y, protože podmínka na řádku N je obrácená, což u vstupu Z znamená W“), doporučení pro třetí pokus (včetně toho, jestli je oprava lokální, nebo zásah do sdíleného místa), zda smyčka stojí, cesta k záznamu diagnózy v `repro_path`. Po selhání kroku po nasazení, když příčinou je samo kritérium kroku (práh, který mechanismus nedovolí splnit), ne kód, vrať i `vada_kriteria` (`druh`, `dukaz`: měření nebo citace mechanismu s `file:line`); bez důkazu ji nevracej.

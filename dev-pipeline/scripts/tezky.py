@@ -3,7 +3,8 @@
 
 Obal z hooku hooks/fronta-tezkych.sh volá `vezmi` před těžkým příkazem (suita testů, typecheck celého repa, instalace,
 build, git commit s pre-commit branou) a `vrat` po něm. Souběžné části řezu tak stroj nezahltí: myšlení agentů běží na
-serverech, 8 jader a 16 GB zatěžují jen místní příkazy. Váhy dává hook, rozpočet 6 z 8 jader.
+serverech, 8 jader a 16 GB zatěžují jen místní příkazy. Váhy dává hook, rozpočet 4 z 8 jader: zbytek bere systém, prohlížeč
+a komprese paměti a nad tímhle souběhem jedou větráky na strop.
 
   tezky.py vezmi --vaha N --pid PID [--popis TEXT]   čeká na místo (přísné FIFO); 0 = drží místo, 75 = vypršelo čekání
   tezky.py vrat --pid PID                             uvolní místo i frontu toho PID
@@ -12,7 +13,7 @@ serverech, 8 jader a 16 GB zatěžují jen místní příkazy. Váhy dává hook
 Záznam: {pid, vaha, popis, od}, od = epoch v sekundách (drzi: od kdy drží, fronta: od kdy čeká). PID je shell obalu:
 když ho zabije timeout Bash nástroje, jeho záznam se uvolní sám při dalším volání (mrtvý PID).
 Stav: ${TMPDIR:-/tmp}/dev-pipeline-tezky/stav.json pod fcntl.flock nad souborem zamek.
-Parametry z prostředí: DEV_PIPELINE_TEZKY_ROZPOCET (6), DEV_PIPELINE_TEZKY_MAX_CEKANI v sekundách (300),
+Parametry z prostředí: DEV_PIPELINE_TEZKY_ROZPOCET (4), DEV_PIPELINE_TEZKY_MAX_CEKANI v sekundách (300),
 DEV_PIPELINE_TEZKY_KROK v sekundách (2; menší jen pro testy). Jen standardní knihovna, python3 z macOS je 3.9.
 """
 import argparse
@@ -46,7 +47,7 @@ def _cislo(jmeno, vychozi):
 
 ADR = _adresar()
 STAV = os.path.join(ADR, 'stav.json')
-ROZPOCET = max(1, int(_cislo('DEV_PIPELINE_TEZKY_ROZPOCET', 6)))
+ROZPOCET = max(1, int(_cislo('DEV_PIPELINE_TEZKY_ROZPOCET', 4)))
 MAX_CEKANI = _cislo('DEV_PIPELINE_TEZKY_MAX_CEKANI', 300)
 KROK = max(0.05, _cislo('DEV_PIPELINE_TEZKY_KROK', 2))
 VYPRSELO = 75

@@ -2,9 +2,10 @@
 # dev-pipeline fronta těžkých příkazů (PreToolUse, matcher Bash).
 #
 # Aktivní JEN pro subagenta (vstup s agent_id) session, jejíž session_id nese docs/.orchestrator-run; jinak exit 0 bez výstupu.
-# Těžký příkaz (suita testů, typecheck celého repa, instalace, build, git commit s pre-commit branou) přepíše přes updatedInput
+# Těžký příkaz (suita testů, typecheck, cílené testy, instalace, build, git commit s pre-commit branou) přepíše přes updatedInput
 # na obal, který nejdřív čeká na místo v rozpočtu stroje (scripts/tezky.py, váha podle tabulky v TRIDENI); lehký projde beze
-# změny. Proč: souběžné části řezu si dělí 8 jader a 16 GB, myšlení agentů běží na serverech a stroj zatěžují jen místní
+# změny. Vitest v obalu dostane strop forků: cílený příkaz vždy, plná suita taky a běží na pozadí, protože s čekáním ve frontě
+# a se stropem forků by se do desetiminutového limitu Bash nástroje nevešla. Proč: souběžné části řezu si dělí 8 jader a 16 GB, myšlení agentů běží na serverech a stroj zatěžují jen místní
 # příkazy (bez fronty se stroj přehřívá). Přepis přes updatedInput funguje u subagenta i agenta Workflow. Obal běží ve stejném shellu jako původní příkaz, $$ je PID toho shellu; když ho zabije
 # timeout, místo uvolní tezky.py sám podle mrtvého PID.
 # E2E verifikátor těžké příkazy nesmí vůbec: ověřuje běžící aplikaci, kritéria nad kódem změřila brána.
@@ -25,37 +26,45 @@ cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)
 # Už obalený příkaz (agent zopakoval obal z výstupu, nebo hook běží dvakrát) se znovu neobaluje.
 case "$cmd" in *tezky.py*) exit 0 ;; esac
 
-# Třídění po segmentech (&&, ||, ;, |, řádky) bez těl heredoců a bez přesměrování. Výstup „váha zákaz“: váha je nejvyšší
-# váha segmentu, zákaz = 1, když by příkaz E2E verifikátor nesměl (cokoli těžkého kromě git commit, nebo git worktree add).
+# Třídění po segmentech (&&, ||, ;, |, řádky) bez těl heredoců a bez přesměrování. Výstup „váha zákaz suita plna“: váha je
+# nejvyšší váha segmentu, zákaz = 1, když by příkaz E2E verifikátor nesměl (cokoli těžkého kromě git commit, nebo git worktree
+# add), suita = 1 u váhy 4 mimo git commit, plna = 1 u suity přes skript projektu nebo turbo (holý vitest bez cesty jede v popředí).
+#   Váha odpovídá změřené spotřebě jader a paměti (tsc 1,5 až 2 jádra a 2 až 4 GB, depcruise 1 jádro).
 #   4  suita testů: pnpm test, pnpm -r test, pnpm --filter X test, turbo test, npm test, yarn test, vitest bez cesty; git commit
 #   3  typecheck nebo lint celého repa: pnpm typecheck, pnpm -r typecheck, turbo (mimo test a build), pnpm verify:arch
 #   2  instalace (pnpm install|i|add, npm ci|install), build (pnpm build, turbo build, vite|next|astro build, tsc -b),
-#      vitest nad adresářem (argument je cesta bez .test./.spec.)
-#   1  typecheck jednoho balíčku (tsc -p|--noEmit, pnpm --filter X typecheck, pnpm -C dir typecheck), cílené testy (*.test.*)
+#      typecheck jednoho balíčku (tsc -p|--noEmit, pnpm --filter X typecheck, pnpm -C dir typecheck),
+#      vitest nad adresářem (argument je cesta bez .test./.spec.), víc testových souborů (*.test.*),
+#      mutační smyčka (python3 …/mut*.py; uvnitř pouští testy, zvenku je hook nevidí), audit přes tsx (tsx …audit…)
+#   1  jeden testový soubor, depcruise
+# Předpona gtimeout|timeout N příkaz se přeskakuje jako sudo nebo env: bez toho šel příkaz mimo frontu.
 read -r -d '' TRIDENI <<'AWK'
-function zapis(v, commit) { if (v > vaha) vaha = v; if (v > 0 && !commit) zakaz = 1 }
+function zapis(v, commit) { if (v > vaha) vaha = v; if (v > 0 && !commit) zakaz = 1; if (v == 4 && !commit) suita = 1 }
 function testy(i,   j, t, soubor, adr) {
   soubor = 0; adr = 0
   for (j = i; j <= n; j++) { t = tok[j]; if (t ~ /^-/) continue
-    if (t ~ /\.(test|spec)\./) soubor = 1; else if (t ~ /\//) adr = 1 }
-  return adr ? 2 : (soubor ? 1 : 4)
+    if (t ~ /\.(test|spec)\./) soubor++; else if (t ~ /\//) adr = 1 }
+  return adr ? 2 : (soubor == 1 ? 1 : (soubor ? 2 : 4))
 }
 function nastroj(w, i,   j) {
   if (w == "vitest" || w == "jest") { if (tok[i] == "run") i++; return testy(i) }
   if (w == "turbo") {
     # Dlouho běžící úlohy (dev server, watch) by držely místo ve frontě, dokud žije jejich shell: frontou nejdou.
     for (j = i; j <= n; j++) if (tok[j] ~ /^(dev|start|serve|preview|watch)(:|$)/) return 0
-    for (j = i; j <= n; j++) if (tok[j] == "test" || tok[j] ~ /^test:/) return 4
+    for (j = i; j <= n; j++) if (tok[j] == "test" || tok[j] ~ /^test:/) { plna = 1; return 4 }
     for (j = i; j <= n; j++) if (tok[j] == "build" || tok[j] ~ /^build:/) return 2
     return 3
   }
-  if (w == "tsc") { for (j = i; j <= n; j++) if (tok[j] == "-w") return 0; for (j = i; j <= n; j++) if (tok[j] == "-b" || tok[j] == "--build") return 2; return 1 }
+  if (w == "tsc") { for (j = i; j <= n; j++) if (tok[j] == "-w" || tok[j] == "--watch") return 0; return 2 }
+  if (w == "depcruise") return 1
+  if (w == "tsx") { for (j = i; j <= n; j++) if (tok[j] ~ /audit/) return 2; return 0 }
+  if (w ~ /^python[0-9.]*$/) { for (j = i; j <= n; j++) if (tok[j] ~ /(^|\/)mut[^\/]*\.py["']?$/) return 2; return 0 }
   if ((w == "vite" || w == "next" || w == "astro") && tok[i] == "build") return 2
   return 0
 }
-function skript(s, i, filtr) {
-  if (s == "test" || s == "t" || s ~ /^test:/) return testy(i)
-  if (s == "typecheck" || s ~ /^typecheck:/ || s == "lint" || s ~ /^lint:/) return filtr ? 1 : 3
+function skript(s, i, filtr,   v) {
+  if (s == "test" || s == "t" || s ~ /^test:/) { v = testy(i); if (v == 4) plna = 1; return v }
+  if (s == "typecheck" || s ~ /^typecheck:/ || s == "lint" || s ~ /^lint:/) return filtr ? 2 : 3
   if (s == "verify:arch") return 3
   if (s == "build" || s ~ /^build:/) return 2
   return nastroj(s, i)
@@ -72,7 +81,16 @@ function segment(seg,   raw, m, k, t, i, j, w, filtr) {
   # Režim --watch běží, dokud ho někdo nezabije: místo ve frontě by držel trvale (suita brány by ho pak nikdy nedostala).
   for (j = 1; j <= n; j++) if (tok[j] ~ /^--watch(=|$)/) return
   i = 1
-  while (i <= n && (tok[i] ~ /^(sudo|env|time|nice|nohup|command|exec|do|then|else|if|while|until)$/ || tok[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)) i++
+  while (i <= n) {
+    if (tok[i] ~ /^(sudo|env|time|nice|nohup|command|exec|do|then|else|if|while|until)$/ || tok[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { i++; continue }
+    if (tok[i] ~ /^g?timeout$/) {
+      i++
+      while (i <= n && tok[i] ~ /^-/) i += (tok[i] == "-k" || tok[i] == "-s") ? 2 : 1
+      i++   # délka limitu
+      continue
+    }
+    break
+  }
   if (i > n) return
   w = jmeno(tok[i])
   if (w == "git") {
@@ -109,7 +127,7 @@ function segment(seg,   raw, m, k, t, i, j, w, filtr) {
   }
   zapis(nastroj(w, i + 1), 0)
 }
-BEGIN { vaha = 0; zakaz = 0; konec = "" }
+BEGIN { vaha = 0; zakaz = 0; suita = 0; plna = 0; konec = "" }
 {
   if (konec != "") { r = $0; gsub(/^[ \t]+|[ \t]+$/, "", r); if (r == konec) konec = ""; next }
   h = $0; gsub(/<<</, "", h)
@@ -118,9 +136,9 @@ BEGIN { vaha = 0; zakaz = 0; konec = "" }
   pocet = split(radek, segs, "\n")
   for (s = 1; s <= pocet; s++) segment(segs[s])
 }
-END { print vaha, zakaz }
+END { print vaha, zakaz, suita, plna }
 AWK
-read -r vaha zakaz <<EOF
+read -r vaha zakaz suita plna <<EOF
 $(printf '%s\n' "$cmd" | awk "$TRIDENI" 2>/dev/null)
 EOF
 
@@ -135,6 +153,13 @@ esac
 case "${vaha:-0}" in ''|*[!0-9]*|0) exit 0 ;; esac
 command -v python3 >/dev/null 2>&1 || exit 0
 
+# Strop forků vitestu (nativní proměnná vitestu): DEV_PIPELINE_TEZKY_FORKY pro cílené příkazy, DEV_PIPELINE_TEZKY_FORKY_SUITA pro
+# suitu (0 = bez stropu); git commit strop nedostane, jeho pre-commit by jinak s pomalejší suitou narazil na limit Bash nástroje.
+forky=${DEV_PIPELINE_TEZKY_FORKY:-2}
+case "$forky" in ''|*[!0-9]*|0) forky=2 ;; esac
+forky_suita=${DEV_PIPELINE_TEZKY_FORKY_SUITA:-2}
+case "$forky_suita" in ''|*[!0-9]*) forky_suita=2 ;; esac
+
 # Obal: vezmi čeká na místo (kód 75 po vypršení, pak se příkaz nespustí), vrat uvolní místo i po chybě příkazu;
 # návratový kód je kód původního příkazu. Popis pro co-dela: prvních 80 znaků příkazu, jednoduché uvozovky nahrazené.
 tezky="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tezky.py"
@@ -142,11 +167,13 @@ read -r -d '' OBAL <<'JQ'
 .tool_input as $ti
 | ($ti.command | split("\n") | join(" ") | split("'") | join("\"") | .[0:80]) as $popis
 | ([($ti.timeout // 120000), 600000] | max) as $to
-# Čekání ve frontě se počítá do timeoutu příkazu: v popředí zbude na samotný běh aspoň 420 s (suita, commit s branou).
-| (if $ti.run_in_background == true then "" else " --max-cekani \([(($to / 1000) - 420), 60] | max | floor)" end) as $mc
-| "python3 '\($py)' vezmi --vaha \($v) --pid $$ --popis '\($popis)'\($mc) && {\n\($ti.command)\n}; __dp_rc=$?; python3 '\($py)' vrat --pid $$; (exit $__dp_rc)" as $obal
+# Čekání ve frontě se počítá do timeoutu příkazu: v popředí zbude na samotný běh aspoň 420 s (commit s branou), u váhy pod 4 aspoň 300 s.
+| ($ti.run_in_background == true or $pl == 1) as $pozadi
+| (if $pozadi then "" else " --max-cekani \([(($to / 1000) - (if $v < 4 then 300 else 420 end)), 60] | max | floor)" end) as $mc
+| (if $v < 4 then "export VITEST_MAX_FORKS=\($f)\n" elif $su == 1 and $fs > 0 then "export VITEST_MAX_FORKS=\($fs)\n" else "" end) as $strop
+| "python3 '\($py)' vezmi --vaha \($v) --pid $$ --popis '\($popis)'\($mc) && {\n\($strop)\($ti.command)\n}; __dp_rc=$?; python3 '\($py)' vrat --pid $$; (exit $__dp_rc)" as $obal
 | {hookSpecificOutput:{hookEventName:"PreToolUse", permissionDecision:"allow",
-   updatedInput:($ti + {command:$obal, timeout:$to})}}
+   updatedInput:($ti + {command:$obal, timeout:$to} + (if $pozadi then {run_in_background:true} else {} end))}}
 JQ
-printf '%s' "$input" | jq -c --arg py "$tezky" --argjson v "$vaha" "$OBAL" 2>/dev/null
+printf '%s' "$input" | jq -c --arg py "$tezky" --argjson v "$vaha" --argjson su "${suita:-0}" --argjson pl "${plna:-0}" --argjson f "$forky" --argjson fs "$forky_suita" "$OBAL" 2>/dev/null
 exit 0

@@ -263,7 +263,23 @@ const normSekce = v => (Array.isArray(v) ? v : [])
   .filter(x => typeof x === 'string' ? x : x.nazev)
 // Rozhodnutí majitele, která mění provoz běhu (spec 1.7.0 § 1.4): orchestrátor je od 1.7.0 zapisuje do docs/.run-args.json, ne do
 // hypotéz každé stavby. V běhu sonnet-5-5 dorazilo majitelovo „bez čekání“ jen stavbám a autor scénářů kolečka napsal, že běh spustit nesmí.
-const rozhodnutiMajitele = seznam(a.rozhodnuti_majitele)
+// Po celých položkách se stropem 8 000 znaků (1.11.0, spec E1, jako ve stavbě): vypadnou nejstarší, nejnovější položka zůstává vždy.
+const ROZHODNUTI_STROP = 8000
+const normRozhodnuti = v => {
+  const xs = seznam(v)
+  const vybrane = []
+  let delka = 0
+  for (let i = xs.length - 1; i >= 0; i--) {
+    const d = xs[i].length + (vybrane.length ? 3 : 0)
+    if (vybrane.length && delka + d > ROZHODNUTI_STROP) break
+    vybrane.unshift(xs[i]); delka += d
+  }
+  const pryc = xs.length - vybrane.length
+  if (!pryc) return vybrane.join(' | ')
+  log(`rozhodnutí majitele nad strop ${ROZHODNUTI_STROP} znaků: vypadlo ${pryc} nejstarších položek z ${xs.length}, celý seznam je v docs/.run-args.json`)
+  return `${vybrane.join(' | ')} … a ${pryc} starších položek: docs/.run-args.json`
+}
+const rozhodnutiMajitele = normRozhodnuti(a.rozhodnuti_majitele)
 const ramec = [
   // Hook hlídače kontextu čte číslo řezu z prvního výskytu „Řez NN“ v transkriptu agenta.
   `Řez ${NN}: blok PRD.`,
@@ -272,7 +288,7 @@ const ramec = [
   // Pravidla dokumentů se čtou po sekcích, ne celá (dřív KONTRAKT ~50 kB čtený celý).
   ...(pravidlaBehu ? [`Pravidla dokumentů nečti celá: mapu sekcí dá rg -n '^## ' ${pravidlaBehu}; čti jen sekce PRD a E2E, Vize-spory a Společná pravidla agentů (ta říkají i, jak číst dokumenty běhu po sekcích).`] : []),
   `Vizi nečti celou: přečti Proč, Cíle, Ne-cíle, body vize z řádku plánu, dotčená Povolení a Mantinely a z Provozních poznámek řádek „Čekání na čas“ (grep -n "Čekání na čas" vize)${mapa ? ` (mapa sekcí: ${mapa})` : ' (mapu sekcí dá grep -n "^## " vize)'}; ostatní jen grepem podle potřeby. Kritérium, jehož čekání vize vede jako rozhodnutí majitele s odhadem hodin (řádek „Čekání na čas“), se měří po tom čekání a do cekani nepatří.`,
-  ...(rozhodnutiMajitele.length ? [`Rozhodnutí majitele pro tento běh (závazná, mají přednost před vlastním výkladem vize): ${spojCele(rozhodnutiMajitele, 3000)}.`] : []),
+  ...(rozhodnutiMajitele ? [`Rozhodnutí majitele pro tento běh (závazná, mají přednost před vlastním výkladem vize): ${rozhodnutiMajitele}.`] : []),
   // Konzervativní volba je definovaná v pravidlech dokumentů (spec 1.8.0 § 2.1): menší zásah do kódu a dat, ne menší splnění zadání.
   `Běh je autonomní: uživatele se neptáš. Rozpor nebo chybějící rozhodnutí ve vizi zapiš do docs/vize-spory.md s citací řádku vize (tvar a definice konzervativní volby: ${pravidlaBehu || 'pravidla dokumentů běhu'}, sekce Vize-spory; obsahová, právní a etická rozhodnutí nejsou tvoje: udělej, co vize říká, riziko zapiš jako otázku s návrhem „ponechat“) a pokračuj.`,
   'docs/handoff.md je stav orchestrátora, ne tvůj vstup: nečti ho; co máš vědět, je v tomto zadání.',
@@ -581,6 +597,8 @@ const navratStupen = ({ fin, fix = null, faze = '', kontrola = null, hypotezy = 
       rez: NN,
       // Profil jde stavbě odsud: args-bloku.py přenáší jen stavba a lehký řez by jinak dostal thermo a druhé kolo review.
       profil,
+      // Mini-řez nad týmž stromem: stavba nespouští refresh jen kvůli zapracovaným nálezům (spec H7).
+      ...(prdLehke ? { prd_lehke: true } : {}),
       prd_path: prd.prd_path,
       e2e_path: prd.e2e_path,
       kriteria,
@@ -1062,6 +1080,7 @@ async function nactiArgs(volani) {
       puvodni: { type: 'object', description: 'předchozí návrat bloku PRD, celý objekt beze změny' }, od_faze: s(''),
       rozhodnuti_majitele: { type: 'array', items: { type: 'string' }, description: 'rozhodnutí majitele, celé pole beze změny' },
       _pole: { type: 'array', items: { type: 'string' }, description: 'seznam polí souboru (pole _pole), opsaný přesně' },
+      _delky: { type: 'object', description: 'objekt _delky ze souboru opsaný přesně' },
       chyba: s('jen když soubor args chybí nebo není platný JSON: proč; jinak nevyplňuj'),
     },
   }
@@ -1078,15 +1097,21 @@ Přečti ${soubor} a vrať jeho pole; pole _pole opiš přesně. Hodnoty opiš p
   // Kontrola opisu (spec 1.7.0 § 1.4): skript zapíše do souboru _pole (klíče sloučeného souboru bez prázdných hodnot). Načítací
   // agent v běhu sonnet-5-5 ztratil kontrakt_rez (PRD 03), vymyslel rezim „config“ z deploy_mode (PRD 06) a ve stavbě obnova: {}.
   // Sémantika je ve všech třech blocích stejná: pole volání se nekontrolují; prázdná hodnota je chybějící pole a do args nejde;
-  // stálé pole mimo _pole není navíc (rozhodnutí majitele z obnovy); druhé načtení se měří proti _pole prvního.
+  // stálé pole mimo _pole není navíc (rozhodnutí majitele z obnovy); druhé načtení se měří proti _pole prvního; obsah pole se měří
+  // podle _delky (1.11.0, spec E2: délka kompaktního JSON v UTF-16 jednotkách), soubor bez _delky se nekontroluje.
   const VOLANI = ['cwd', 'plugin_root', 'rez', 'args_file']
   const STALA = ['app_pristup', 'runbook', 'deploy_mode', 'deploy_okno', 'ne_cile', 'mapa_vize', 'vize', 'produkt', 'rozhodnuti_majitele', 'rychle_kontroly']
   const prazdne = v => v == null || v === '' || (Array.isArray(v) && !v.length) || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length)
-  const rozdil = (x, pole) => {
+  const delkyZ = x => x._delky && typeof x._delky === 'object' && !Array.isArray(x._delky) ? x._delky : null
+  const delkaSedi = (v, n) => JSON.stringify(v).length === Number(n) || (typeof v === 'string' && /^(true|false|-?\d+(\.\d+)?)$/.test(v.trim()) && v.trim().length === Number(n))
+  const rozdil = (x, pole, delky) => {
     const ocek = pole.filter(k => !VOLANI.includes(k) && Object.prototype.hasOwnProperty.call(schema.properties, k))
-    const vraceno = Object.keys(x).filter(k => k !== '_pole' && k !== 'chyba' && !VOLANI.includes(k) && !prazdne(x[k]))
-    return { chybi: ocek.filter(k => !vraceno.includes(k)), navic: vraceno.filter(k => !pole.includes(k) && !STALA.includes(k)) }
+    const vraceno = Object.keys(x).filter(k => !['_pole', '_delky', 'chyba'].includes(k) && !VOLANI.includes(k) && !prazdne(x[k]))
+    const jinak = Object.keys(delky || {}).filter(k => vraceno.includes(k) && Object.prototype.hasOwnProperty.call(schema.properties, k) && !delkaSedi(x[k], delky[k]))
+    return { chybi: ocek.filter(k => !vraceno.includes(k)), navic: vraceno.filter(k => !pole.includes(k) && !STALA.includes(k)), jinak }
   }
+  const nesedi = d => d.chybi.length || d.navic.length || d.jinak.length
+  const textRozdilu = d => `chybí: ${d.chybi.join(', ') || '–'}; navíc: ${d.navic.join(', ') || '–'}${d.jinak.length ? `; jiný obsah: ${d.jinak.join(', ')}` : ''}`
   const bezPrazdnych = x => Object.fromEntries(Object.entries(x).filter(([k, v]) => VOLANI.includes(k) || !prazdne(v)))
   let r = await nacti(prompt)
   if (!r) return { ok: false, rez: nnVolani, duvod: `načtení ${volani.args_file} nevrátilo výsledek` }
@@ -1096,19 +1121,20 @@ Přečti ${soubor} a vrať jeho pole; pole _pole opiš přesně. Hodnoty opiš p
   const pole1 = Array.isArray(r._pole) ? r._pole.map(T) : null
   if (!pole1) log(`args:řez ${nnVolani}: soubor bez _pole (starší skript), kontrola opisu se nekoná`)
   else {
-    let d = rozdil(r, pole1)
-    if (d.chybi.length || d.navic.length) {
-      log(`args:řez ${nnVolani}: opis nesedí (chybí: ${d.chybi.join(', ') || '–'}; navíc: ${d.navic.join(', ') || '–'}), načítám znovu`)
-      const r2 = await nacti(`${prompt}\nMinule chybělo: ${d.chybi.join(', ') || 'nic'}, navíc bylo: ${d.navic.join(', ') || 'nic'}. Chybějící pole opiš ze souboru; pole navíc vrať jen tehdy, když v souboru opravdu je. Hodnotu nikdy nepřesouvej do jiného pole a nic nedoplňuj.`)
-      if (!r2 || T(r2.chyba).trim()) return { ok: false, rez: nnVolani, duvod: `args_file: opis nesedí (chybí: ${d.chybi.join(', ') || '–'}; navíc: ${d.navic.join(', ') || '–'}) a nové načtení nevrátilo platný výsledek` }
+    const delky1 = delkyZ(r)
+    let d = rozdil(r, pole1, delky1)
+    if (nesedi(d)) {
+      log(`args:řez ${nnVolani}: opis nesedí (${textRozdilu(d)}), načítám znovu`)
+      const r2 = await nacti(`${prompt}\nMinule chybělo: ${d.chybi.join(', ') || 'nic'}, navíc bylo: ${d.navic.join(', ') || 'nic'}${d.jinak.length ? `, jiný obsah než v souboru měla pole: ${d.jinak.join(', ')}` : ''}. Chybějící pole opiš ze souboru; pole navíc vrať jen tehdy, když v souboru opravdu je. Hodnotu nikdy nepřesouvej do jiného pole a nic nedoplňuj.`)
+      if (!r2 || T(r2.chyba).trim()) return { ok: false, rez: nnVolani, duvod: `args_file: opis nesedí (${textRozdilu(d)}) a nové načtení nevrátilo platný výsledek` }
       r = r2
-      d = rozdil(r, pole1)
-      if (d.chybi.length || d.navic.length) return { ok: false, rez: nnVolani, duvod: `args_file: opis nesedí (chybí: ${d.chybi.join(', ') || '–'}; navíc: ${d.navic.join(', ') || '–'})` }
+      d = rozdil(r, pole1, delkyZ(r) || delky1)
+      if (nesedi(d)) return { ok: false, rez: nnVolani, duvod: `args_file: opis nesedí (${textRozdilu(d)})` }
     }
   }
   const zVolani = { ...volani }
   delete zVolani.args_file
-  const { chyba, _pole, ...zeSouboru } = bezPrazdnych(r)
+  const { chyba, _pole, _delky, ...zeSouboru } = bezPrazdnych(r)
   log(`args:řez ${nnVolani}: načteno ${Object.keys(zeSouboru).length} polí z ${volani.args_file}${pole1 ? ', opis sedí s _pole' : ''}`)
   return { ok: true, args: { ...zeSouboru, ...zVolani } }
 }

@@ -200,9 +200,10 @@ if [ -z "$t" ] || [ ! -f "$t" ]; then
   # Řez jednou ze zadání na začátku transkriptu: rámec bloku PRD i stavby začíná „Řez NN:“; kolečko číslo řezu nemá.
   # Bez roury: grep -q/-m1 skončí po první shodě, head dostane SIGPIPE a pod pipefail vrátí roura 141, takže podmínka
   # by padla i při shodě.
-  rez=$(grep -m1 -o -E 'Řez [0-9]+' < <(head -c 200000 "$t"))
+  rez=$(grep -m1 -o -E 'Řez [0-9]+[a-z]?' < <(head -c 200000 "$t"))
   rez=${rez%%$'\n'*}; rez=${rez##* }
-  if [ -n "$rez" ]; then rez=$(printf '%02d' "$((10#$rez))")
+  # Řez s písmenem je vlastní řez (19a, ne 19); nuly se doplňují jen před číslice.
+  if [ -n "$rez" ]; then rez_c=${rez%[a-z]}; rez=$(printf '%02d%s' "$((10#$rez_c))" "${rez#"$rez_c"}")
   elif grep -q '[Kk]olečk' < <(head -c 200000 "$t"); then rez=kolecko
   else rez=-; fi
   zmena=1

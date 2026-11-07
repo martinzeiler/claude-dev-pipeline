@@ -316,7 +316,7 @@ sub_bash() {
   done < <(printf '%s\n' "$cmd" | tr ';&' '\n')
 }
 
-# docs/.verify-passed píše jen scripts/verify-marker.sh (verify agent po zelené plné bráně).
+# docs/.verify-passed píše jen scripts/verify-marker.sh (verify agent po zelené plné bráně, deploy přenosem --zvedni).
 VERIFY_MARK="docs/.verify-passed zapisuje jen scripts/verify-marker.sh po zelené plné bráně (verify agent v bloku stavby). Ručně zapsaný marker by pre-commit hooku podvrhl doklad, že suita proběhla; to není oprava, to je obcházení brány. Když je brána červená, oprav příčinu a nech verify proběhnout znovu."
 is_verify_marker_path() { case "$(abspath "$1")" in */docs/.verify-passed) return 0 ;; esac; return 1; }
 # Zápis = cílem je sám marker: přesměrování do něj, tee/touch/install/truncate s ním, cp/mv/ln s ním jako cílem, dd of=,

@@ -196,7 +196,28 @@ fi
 git add docs/handoff.md docs/journal.md docs/vize-spory.md docs/follow-ups.md docs/pojmy.md docs/rozhodnuti.md 2>/dev/null
 if ! git diff --cached --quiet; then
   [ -n "$obsah" ] && zprava="$zprava (${obsah# })"
-  git commit -q -m "$zprava" || die "commit selhal (pre-commit brána?). Archiv, stavové soubory a přepsané odkazy zůstaly v indexu a docs/.orchestrator-run existuje, takže pouhé nové spuštění setupu neprojde na čistém stromu. Oprav příčinu podle výstupu brány (kód opravuje uživatel nebo jiná session, orchestrátor ne), commitni index zprávou „$zprava“ a napiš znovu /dev-pipeline:orchestrate $vize_rel: setup vizi naváže."
+  # Výstup hooku jde přes soubor, opakování se rozhoduje podle něj: stráž blízko limitu padá timeoutem ve vlastní plné suitě
+  # a samostatně prochází. Opakuje se jednou a jen tehdy, když je timeout jediné selhání: řádek s Test timed out je, žádná
+  # asertace ani jiná chyba a řádků FAIL nejvýš tolik co timeoutů. ERR_PNPM_…_FAIL není test.
+  commit_log=$(mktemp "${TMPDIR:-/tmp}/setup-commit.XXXXXX") || die "nelze založit dočasný soubor pro výstup commitu"
+  trap 'rm -f "$commit_log"' EXIT
+  zkus_commit() { local k; git commit -q -m "$zprava" > "$commit_log" 2>&1; k=$?; cat "$commit_log"; return $k; }
+  jen_timeout() {
+    awk '/Test timed out/ { t++; next }
+      /AssertionError|expect\(received\)|Error:|Unhandled|error TS[0-9]/ { jine++ }
+      /(^|[^A-Z_])FAIL([^A-Z_]|$)/ { f++ }
+      END { exit !(t > 0 && !jine && f <= t) }' "$commit_log"
+  }
+  commit_ok=0
+  if zkus_commit; then commit_ok=1
+  elif jen_timeout; then
+    echo "commit: timeout v plné suitě, přeměř; commit se jednou opakuje"
+    zkus_commit && commit_ok=1
+  fi
+  if [ "$commit_ok" = 0 ]; then
+    predpona=""; jen_timeout && predpona="timeout v plné suitě, přeměř; opakovaný commit spadl taky. "
+    die "${predpona}commit selhal (pre-commit brána?). Archiv, stavové soubory a přepsané odkazy zůstaly v indexu a docs/.orchestrator-run existuje, takže pouhé nové spuštění setupu neprojde na čistém stromu. Oprav příčinu podle výstupu brány (kód opravuje uživatel nebo jiná session, orchestrátor ne), commitni index zprávou „${zprava}“ a napiš znovu /dev-pipeline:orchestrate $vize_rel: setup vizi naváže."
+  fi
   echo "commit: $zprava"
 fi
 

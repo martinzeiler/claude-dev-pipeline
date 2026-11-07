@@ -31,11 +31,17 @@ zastaveného bloku; bez návratu číslo z labelu posledního agenta), nikdy +1:
 pokusy, labely a reporty, aby nepřepsal reporty dřívějších pokusů. Další klíče obnovy: `od_faze`, `znacka`,
 `bez_cache` (true/false; true jen po aktualizaci pluginu nebo změně args, blok pak cache Workflow nevěří), `app_pristup`
 (nové pokyny k prostředí jen pro fáze od od_faze; `.run-args.json` ani cesta k args se při obnově nemění, cache by minula),
-`rozhodnuti_majitele`; neznámý klíč skript odmítne. `app_pristup` (v --doplnit, v obnově i v docs/.run-args.json) nad
+`rozhodnuti_majitele` (přidají se k seznamu, nenahrazují ho), `pokyn_orchestratora` (provozní pokyn, netiskne se jako rozhodnutí
+majitele, do 1 500 znaků), `jen_kriteria` (jen kolečko: přeměří jmenovaná kritéria, ostatní verdikty převezme z minulého kola);
+neznámý klíč skript odmítne. `app_pristup` (v --doplnit, v obnově i v docs/.run-args.json) nad
 1 500 znaků skončí kódem 2: nasazovací pokyny patří do runbooku projektu, args nesou odkaz a tajemství prostředí.
 Pole s prázdnou hodnotou (null, "", [], {}) se do
 souboru nepíšou (kromě rez); `_pole` je seřazený seznam klíčů sloučeného souboru (bez prázdných hodnot): blok podle něj
-pozná, že načítací agent pole vynechal nebo přidal.
+pozná, že načítací agent pole vynechal nebo přidal. `_delky` nese ke každému poli délku kompaktního JSON (ensure_ascii=False, bez
+mezer) v UTF-16 jednotkách: blok ji porovná s JSON.stringify a pozná opis s jiným obsahem.
+
+`deploy_podminky` v --doplnit stavby: pole objektů {popis, kontrola, pravidlo}; jde přímo do zadání deploye a nesplněná podmínka
+znamená odklad. Jiný tvar skončí kódem 2.
 
 Běžící blok: když v session běhu (session_id z docs/.orchestrator-run) právě běží blok téhož typu pro týž řez (u kolečka
 jakékoli kolečko), skript args nesloží a skončí kódem 6: druhý běh téhož řezu by přepisoval tentýž strom (typicky po
@@ -49,6 +55,7 @@ kolecko: commity bez review (pole bez_review v docs/.vysledek-stavba-NN.json a d
 
 rozhodnuti: rozhodnutí majitele, které mění provoz běhu, připíše do docs/.run-args.json (pole rozhodnuti_majitele, položka
 "<YYYY-MM-DD HH:MM> <citace>"); platí od dalšího složeného souboru args (soubor bloku ho nese jako stálé pole). Orchestrátor JSON ručně nepřepisuje.
+Nad strop 8 000 znaků skript vypíše, kolik nejstarších položek bloky nedostanou (vypadnou po celých položkách).
 
 Výstup: docs/.stavba-NN.json, docs/.prd-NN.json, docs/.kolecko.json; na stdout jeden řádek (cesta, velikost, pole),
 obsah nevypisuje. Návratové kódy: 0 zapsáno; 2 špatné argumenty nebo nevalidní JSON; 3 výsledek bloku PRD nenalezen
@@ -67,7 +74,7 @@ STALA = ("app_pristup", "runbook", "deploy_mode", "deploy_okno", "ne_cile", "map
          "rozhodnuti_majitele", "rychle_kontroly")
 # Pole args stavby, která dává blok PRD (výsledek bez pole `stavba` = blok před 1.6.0).
 ZE_STAVBY = ("prd_path", "e2e_path", "casti", "kontrakt_potreba", "e2e_sekce", "doklad_pred", "kriteria",
-             "runtime_dopad", "oblasti", "casti_nad_stropem", "profil", "nove_pojmy")
+             "runtime_dopad", "oblasti", "casti_nad_stropem", "profil", "prd_lehke", "nove_pojmy")
 # Pole volání bloku PRD, která pokračování (zapracování, od_faze "autori") přebírá z minulého volání téhož řezu. Šablony
 # skillu je neopakují; bez plan_row blok skončí „chybí args“ (code-review 1.6.0, N2).
 VOLANI_PRD = ("plan_row", "stav_po_minulem", "hypotezy", "follow_ups", "profil", "prd_lehke", "kontrakt_prd", "kontrakt_rez")
@@ -291,7 +298,58 @@ def prazdne(v):
 
 
 APP_PRISTUP_MAX = 1500
-OBNOVA_KLICE = ("od_faze", "znacka", "pokus", "bez_cache", "app_pristup", "rozhodnuti_majitele")
+POKYN_MAX = 1500
+ROZHODNUTI_STROP = 8000
+OBNOVA_KLICE = ("od_faze", "znacka", "pokus", "bez_cache", "app_pristup", "rozhodnuti_majitele", "pokyn_orchestratora", "jen_kriteria")
+
+
+def delka_utf16(s):
+    return len(s.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def bez_celych_float(v):
+    """1.0 je v JSON.stringify 1: délka musí sedět s tím, co blok po opisu spočítá."""
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, list):
+        return [bez_celych_float(x) for x in v]
+    if isinstance(v, dict):
+        return {k: bez_celych_float(x) for k, x in v.items()}
+    return v
+
+
+def delka_json(v):
+    """Délka kompaktního JSON v UTF-16 jednotkách: přesně JSON.stringify(v).length v bloku."""
+    return delka_utf16(json.dumps(bez_celych_float(v), ensure_ascii=False, separators=(",", ":")))
+
+
+def delka_merna(v):
+    """False, když hodnota nese číslo, které Python a JS zapíší jinak (exponent, nad 2^53, NaN): takové pole se délkou nekontroluje."""
+    if isinstance(v, bool):
+        return True
+    if isinstance(v, int):
+        return abs(v) <= 2 ** 53
+    if isinstance(v, float):
+        if v != v or v in (float("inf"), float("-inf")):
+            return False
+        return abs(v) <= 2 ** 53 if v.is_integer() else "e" not in repr(v)
+    if isinstance(v, list):
+        return all(delka_merna(x) for x in v)
+    if isinstance(v, dict):
+        return all(delka_merna(x) for x in v.values())
+    return True
+
+
+def vypadne_rozhodnuti(seznam):
+    """Kolik nejstarších položek blok nedostane: stejný výpočet jako normRozhodnuti v blocích."""
+    delka, vybrano = 0, 0
+    for x in reversed([str(y).strip() for y in seznam if str(y).strip()]):
+        d = delka_utf16(x) + (3 if vybrano else 0)
+        if vybrano and delka + d > ROZHODNUTI_STROP:
+            break
+        delka += d
+        vybrano += 1
+    return len([y for y in seznam if str(y).strip()]) - vybrano
 
 
 def over_app_pristup(v, odkud):
@@ -314,7 +372,23 @@ def over_obnovu(ob):
     rm = ob.get("rozhodnuti_majitele")
     if rm is not None and not (isinstance(rm, list) and all(isinstance(x, str) for x in rm)):
         chyba(2, "obnova.rozhodnuti_majitele musí být seznam řetězců (citace majitele pro fáze od od_faze)")
+    jk = ob.get("jen_kriteria")
+    if jk is not None and not (isinstance(jk, list) and all(isinstance(x, str) for x in jk)):
+        chyba(2, "obnova.jen_kriteria musí být seznam řetězců (značky kritérií, která kolečko přeměří)")
+    po = ob.get("pokyn_orchestratora")
+    if po is not None and not isinstance(po, str):
+        chyba(2, "obnova.pokyn_orchestratora musí být řetězec")
+    if isinstance(po, str) and len(po) > POKYN_MAX:
+        chyba(2, f"obnova.pokyn_orchestratora má {len(po)} znaků, strop je {POKYN_MAX}; delší pokyn patří do souboru v docs/, pokyn nese odkaz")
     over_app_pristup(ob.get("app_pristup"), "obnova")
+
+
+def over_podminky(v):
+    """deploy_podminky jdou přímo do zadání deploye: bez popisu by je blok tiše zahodil."""
+    if v is None:
+        return
+    if not (isinstance(v, list) and all(isinstance(x, dict) and str(x.get("popis") or "").strip() for x in v)):
+        chyba(2, "deploy_podminky musí být seznam objektů {popis, kontrola, pravidlo} s neprázdným popisem")
 
 
 def run_args(cwd):
@@ -361,6 +435,9 @@ def rozhodnuti(argv):
     seznam.append(f"{datetime.now().strftime('%Y-%m-%d %H:%M')} {text}")
     ra["rozhodnuti_majitele"] = seznam
     zapis_json(cil, ra)
+    pryc = vypadne_rozhodnuti(seznam)
+    if pryc:
+        pozn += f" (POZOR: nad strop {ROZHODNUTI_STROP} znaků bloky nedostanou {pryc} nejstarších položek, jen odkaz na docs/.run-args.json)"
     print(f"docs/.run-args.json: rozhodnuti_majitele {len(seznam)} položek{pozn}")
 
 
@@ -441,6 +518,7 @@ def main(argv):
             chyba(2, "obnova patří do volání bloku, ne do souboru (Workflow args: {cwd, plugin_root, rez, args_file, obnova: "
                      + json.dumps(ob, ensure_ascii=False) + "})")
         over_app_pristup(d.get("app_pristup"), "--doplnit")
+        over_podminky(d.get("deploy_podminky"))
         dr = d.get("rez")
         if dr is not None and druh != "kolecko" and nn(dr) != NN:
             chyba(4, f"--doplnit nese rez {nn(dr)}, ne {NN}")
@@ -500,17 +578,20 @@ def main(argv):
     # jako chybějící pole, načítací agent by je stejně vynechal a kontrola _pole by hlásila rozdíl
     data.pop("obnova", None)
     data.pop("_pole", None)
+    data.pop("_delky", None)
     data = {k: v for k, v in data.items() if k == "rez" or not prazdne(v)}
     # Stálá pole běhu do souboru bloku (spec H1): pole souboru mají přednost, .run-args.json doplní chybějící.
     for k, v in run_args(cwd).items():
-        if k not in ("_pole", "obnova") and k not in data and not prazdne(v):
+        if k not in ("_pole", "_delky", "obnova") and k not in data and not prazdne(v):
             data[k] = v
+    delky = {k: delka_json(v) for k, v in data.items() if delka_merna(v)}
     data["_pole"] = sorted(data)
+    data["_delky"] = delky
 
     jmeno = {"stavba": f".stavba-{NN}.json", "prd": f".prd-{NN}.json", "kolecko": ".kolecko.json"}[druh]
     cil = os.path.join(cwd, "docs", jmeno)
     zapis_json(cil, data)
-    print(f"docs/{jmeno}: {os.path.getsize(cil)} B; pole: {', '.join(k for k in sorted(data) if k != '_pole')}{pozn}")
+    print(f"docs/{jmeno}: {os.path.getsize(cil)} B; pole: {', '.join(k for k in sorted(data) if k not in ('_pole', '_delky'))}{pozn}")
 
 
 if __name__ == "__main__":

@@ -3,13 +3,19 @@
 # Deterministická blokace úzké množiny katastrof s externím blast radiusem.
 # Běží nezávisle na permission módu (i pod --dangerously-skip-permissions).
 # Exit 2 + stderr = blokace (důvod vidí model), exit 0 = povoleno.
+# Hook běží před každým Bash příkazem všech agentů: kontroly po řádcích a segmentech jsou bez nových procesů (vestavěné
+# [[ =~ ]] a rozvoje proměnných, kompatibilní s bash 3.2), grep a sed zůstávají jen za rychlým předvýběrem přes case.
+# Pozor na ${x//vzor/…} nad dlouhým textem: v bash 3.2 je kvadratické a nad příkazem s dlouhým heredocem visí do timeoutu hooku,
+# po kterém příkaz projde bez kontroly. Proto segmenty dělá jedno tr a počty závorek smyčka přes ${x#*znak}. LC_ALL=C: bajtové
+# porovnávání bez převodu na široké znaky při každém srovnání vzoru.
 set -uo pipefail
+export LC_ALL=C
 
 input=$(cat)
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
 [ -z "$cmd" ] && exit 0
-cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
-proj="${CLAUDE_PROJECT_DIR:-$cwd}"
+proj="${CLAUDE_PROJECT_DIR:-}"
+[ -n "$proj" ] || proj=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 
 block() {
   echo "dev-pipeline guard: $1" >&2
@@ -21,22 +27,27 @@ block() {
 # tedy poctivý zápis do deníku o tom, co se v řezu nasadilo (v ostrém běhu 2×).
 # Heredoc do INTERPRETU (`bash <<EOF`, `ssh host <<EOF`) se nechává, protože tam
 # tělo příkaz opravdu je — jinak by šlo guard obejít jedním přesměrováním.
+RE_DATOVY='(^|[|;&[:space:]])(cat|tee)([[:space:]]|$)|>>?[[:space:]]*[^[:space:]|&]'
+RE_ZNACKA=".*<<-?[[:space:]]*[\"']?([A-Za-z_][A-Za-z0-9_]*)[\"']?"
 strip_data_heredocs() {
-  local line delim="" out="" probe trimmed d
+  local line delim="" out="" probe trimmed
   while IFS= read -r line || [ -n "$line" ]; do
     if [ -n "$delim" ]; then
-      trimmed=$(printf '%s' "$line" | sed 's/^[[:space:]]*//')
+      trimmed=${line#"${line%%[![:space:]]*}"}
       [ "$trimmed" = "$delim" ] && delim=""
       continue
     fi
-    probe=$(printf '%s' "$line" | sed 's/<<</@@HS@@/g')   # herestring není heredoc
-    case "$probe" in
+    case "$line" in
       *"<<"*)
-        # jen datový heredoc: cat/tee nebo přesměrování do souboru na témže řádku
-        if printf '%s' "$probe" | grep -Eq '(^|[|;&[:space:]])(cat|tee)([[:space:]]|$)|>>?[[:space:]]*[^[:space:]|&]'; then
-          d=$(printf '%s' "$probe" | sed -n "s/.*<<-\{0,1\}[[:space:]]*[\"']\{0,1\}\([A-Za-z_][A-Za-z0-9_]*\)[\"']\{0,1\}.*/\1/p")
-          [ -n "$d" ] && delim="$d"
-        fi
+        probe=${line//<<</@@HS@@}   # herestring není heredoc
+        case "$probe" in
+          *"<<"*)
+            # jen datový heredoc: cat/tee nebo přesměrování do souboru na témže řádku
+            if [[ "$probe" =~ $RE_DATOVY ]] && [[ "$probe" =~ $RE_ZNACKA ]]; then
+              delim=${BASH_REMATCH[1]}
+            fi
+            ;;
+        esac
         ;;
     esac
     out="$out$line
@@ -49,33 +60,48 @@ HEREDOC_STRIPPER_EOF
 
 cmd=$(strip_data_heredocs "$cmd")
 [ -z "$cmd" ] && exit 0
+# Segmenty složeného příkazu, jeden na řádek.
+segmenty=$(printf '%s\n' "$cmd" | tr '|;&' '\n')
 
 # 1) Force-push je zakázán vždy (včetně --force-with-lease). Chce-li ho uživatel, udělá ho ručně.
 # Kontrola per segment složeného příkazu — force flag musí být ve STEJNÉM segmentu jako git push
 # (jinak false positive: `git add -f x && git push` není force-push).
-while IFS= read -r seg; do
-  if printf '%s' "$seg" | grep -Eq 'git.*push' \
-     && printf '%s' "$seg" | grep -Eq '(--force|(^|[[:space:]])-f([[:space:]]|$))'; then
-    block "force-push je blokován. Pokud je opravdu potřeba, musí ho spustit uživatel ručně."
-  fi
-done < <(printf '%s\n' "$cmd" | tr '|;&' '\n')
+RE_PUSH='git.*push'
+RE_FORCE='(--force|(^|[[:space:]])-f([[:space:]]|$))'
+case "$cmd" in
+  *git*push*)
+    while IFS= read -r seg; do
+      if [[ "$seg" =~ $RE_PUSH ]] && [[ "$seg" =~ $RE_FORCE ]]; then
+        block "force-push je blokován. Pokud je opravdu potřeba, musí ho spustit uživatel ručně."
+      fi
+    done <<<"$segmenty"
+    ;;
+esac
 
 # 2) Destruktivní git na main/master větvi.
-if printf '%s' "$cmd" | grep -Eq 'git([^|;&]*)(reset[[:space:]]+--hard|clean[[:space:]]+-[a-zA-Z]*f)'; then
-  if [ -n "$proj" ]; then
-    branch=$(git -C "$proj" branch --show-current 2>/dev/null || echo "")
-    case "$branch" in
-      main|master)
-        block "git reset --hard / git clean -f na větvi '$branch' je blokován. Přepni na pracovní (vize) branch."
-        ;;
-    esac
-  fi
-fi
+case "$cmd" in
+  *git*reset*|*git*clean*)
+    if printf '%s' "$cmd" | grep -Eq 'git([^|;&]*)(reset[[:space:]]+--hard|clean[[:space:]]+-[a-zA-Z]*f)'; then
+      if [ -n "$proj" ]; then
+        branch=$(git -C "$proj" branch --show-current 2>/dev/null || echo "")
+        case "$branch" in
+          main|master)
+            block "git reset --hard / git clean -f na větvi '$branch' je blokován. Přepni na pracovní (vize) branch."
+            ;;
+        esac
+      fi
+    fi
+    ;;
+esac
 
 # 3) rm -rf na kořenové/domácí cesty.
-if printf '%s' "$cmd" | grep -Eq '(^|[[:space:]])rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)[[:space:]]+("?/"?|~/?|"?\$HOME)([[:space:]]|$|")'; then
-  block "rm -rf na kořenový nebo domovský adresář je blokován."
-fi
+case "$cmd" in
+  *rm*)
+    if printf '%s' "$cmd" | grep -Eq '(^|[[:space:]])rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)[[:space:]]+("?/"?|~/?|"?\$HOME)([[:space:]]|$|")'; then
+      block "rm -rf na kořenový nebo domovský adresář je blokován."
+    fi
+    ;;
+esac
 
 # 4) Deploy gate během autonomního běhu: deploy jen po zeleném review+testech (marker .deploy-unlocked).
 # ZNÁMÉ OMEZENÍ: gate zná jen railway up a wrangler (pages) deploy. Projekt s jinou deploy platformou
@@ -105,11 +131,15 @@ je_deploy() {
   spoustene "$1" | grep -E "$DEPLOY_RE" | grep -Evq -- "$SUCHY"
 }
 if [ -n "$proj" ] && [ -f "$proj/docs/.orchestrator-run" ]; then
-  if je_deploy "$cmd"; then
-    if [ ! -f "$proj/docs/.deploy-unlocked" ]; then
-      block "deploy během autonomního běhu vyžaduje marker docs/.deploy-unlocked (vytváří ho deploy agent v bloku stavby samostatným příkazem po zelené bráně; viz KONTRAKT.md ve skillu orchestrate). Pokud žádný autonomní běh neběží, je docs/.orchestrator-run pozůstatek spadlé session — smaž ho a zkus to znovu."
-    fi
-  fi
+  case "$cmd" in
+    *railway*|*wrangler*)
+      if je_deploy "$cmd"; then
+        if [ ! -f "$proj/docs/.deploy-unlocked" ]; then
+          block "deploy během autonomního běhu vyžaduje marker docs/.deploy-unlocked (vytváří ho deploy agent v bloku stavby samostatným příkazem po zelené bráně; viz KONTRAKT.md ve skillu orchestrate). Pokud žádný autonomní běh neběží, je docs/.orchestrator-run pozůstatek spadlé session — smaž ho a zkus to znovu."
+        fi
+      fi
+      ;;
+  esac
 fi
 
 # 5) Během autonomního běhu nikdo nevrací cizí ani necommitnutou práci: git stash (kromě list/show), git clean,
@@ -123,7 +153,6 @@ fi
 # proměnná, `cd $(…)`, pushd, `)` bez známého `(`), znamená neznámý adresář a s ním blokaci: výjimka platí jen tam, kde je
 # s jistotou známo, že git běží mimo projekt. Do opravy v 1.6.0 přežil stav „mimo“ konec subshellu i `cd -` zpět
 # a `(cd /tmp && ls); git stash` prošel (review 1.6.0, N1).
-plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)
 normcesta() { # absolutní cesta → bez ., .. a zdvojených lomítek
   local IFS=/ kus
   local -a kusy out
@@ -150,10 +179,16 @@ cur=$projn; prev=""
 # přiřazení, jako to dělá shell, takže uložená hodnota nikdy nenese `$`: `S=$S/x; cd $S` dřív rozvoj zacyklil a hook
 # visel do timeoutu 30 s, po kterém příkaz prošel bez kontroly (review 1.6.0, N6).
 prirazeni=""
-hodnota() { printf '%s\n' "$prirazeni" | sed -n "s/^$1=//p" | tail -1; }
+hodnota() {
+  local radek v=""
+  while IFS= read -r radek; do
+    case "$radek" in "$1="*) v=${radek#"$1="} ;; esac
+  done <<<"$prirazeni"
+  printf '%s' "$v"
+}
 rozvin() { # text cesty → cesta s rozvinutými proměnnými, nebo prázdno, když nějakou neznáme
   local t="$1" n v i=0 re='\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?'
-  t=$(printf '%s' "$t" | tr -d "'\"")
+  t=${t//\'/}; t=${t//\"/}
   case "$t" in "~"|"~/"*) t="$HOME${t#\~}" ;; esac
   while [[ "$t" =~ $re ]]; do
     i=$((i + 1)); [ "$i" -le 16 ] || return 0
@@ -169,17 +204,31 @@ rozvin() { # text cesty → cesta s rozvinutými proměnnými, nebo prázdno, kd
   done
   printf '%s' "$t"
 }
-pocet() { local x; x=$(printf '%s' "$1" | tr -cd "$2" | wc -c); echo $((x + 0)); }
+pocet_znaku() { # text znak → POCET
+  local x=$1
+  POCET=0
+  while :; do
+    case "$x" in
+      *"$2"*) x=${x#*"$2"}; POCET=$((POCET + 1)) ;;
+      *) return ;;
+    esac
+  done
+}
 RE_PRIRAZENI='^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=([^[:space:]]*)[[:space:]]*$'
 RE_CD='^[[:space:]({]*cd([[:space:]]+([^[:space:]]+))?[[:space:]]*$'
 RE_CD_JINY='^[[:space:]({]*(cd|pushd|popd)([[:space:]]|$)'
 RE_GIT_C='git[[:space:]]+-C[[:space:]]+([^[:space:]]+)'
+RE_GIT_PODPRIKAZ='(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+'
+RE_STASH="${RE_GIT_PODPRIKAZ}stash([[:space:]]|\$)"
+RE_STASH_CTENI='stash[[:space:]]+(list|show)'
+RE_CLEAN="${RE_GIT_PODPRIKAZ}clean([[:space:]]|\$)"
+RE_VRACENI="${RE_GIT_PODPRIKAZ}(checkout|restore)([[:space:]]|\$)"
 if [ -n "$proj" ] && [ -f "$proj/docs/.orchestrator-run" ]; then
   zasobnik=""
   while IFS= read -r seg; do
     # `(` na začátku segmentu otevírá subshell: jeho `cd` po `)` neplatí
     lead=${seg%%[!\ \(\{]*}
-    otevrene=$(pocet "$lead" '(')
+    pocet_znaku "$lead" '('; otevrene=$POCET
     i=0; while [ "$i" -lt "$otevrene" ]; do zasobnik="$cur|$prev
 $zasobnik"; i=$((i + 1)); done
     if [[ "$seg" =~ $RE_PRIRAZENI ]]; then
@@ -209,15 +258,15 @@ $jm=$hod"
         case "$t" in /*) t=$(normcesta "$t") ;; "") ;; *) if [ -n "$cur" ]; then t=$(normcesta "$cur/$t"); else t=""; fi ;; esac
         [ -n "$t" ] && mimo_projekt "$t" && jde_mimo=1
       fi
-      if [ "$jde_mimo" = 0 ]; then
-        if printf '%s' "$seg" | grep -Eq '(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+stash([[:space:]]|$)' \
-           && ! printf '%s' "$seg" | grep -Eq 'stash[[:space:]]+(list|show)'; then
+      if [ "$jde_mimo" = 0 ] && [[ "$seg" == *git* ]]; then
+        if [[ "$seg" =~ $RE_STASH ]] && ! [[ "$seg" =~ $RE_STASH_CTENI ]]; then
+          plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)
           block "git stash je během autonomního běhu blokován: odložil by necommitnutou práci jiných agentů (PRD dalšího řezu, journal, vize-spory). Zbytky řezu, který neprošel, ulož příkazem bash ${plugin_root:-<plugin>}/scripts/zbytek-rezu.sh <cwd> <NN> (změny mimo docs/ dá do patche docs/e2e/rez-NN-zbytek.patch a strom vrátí; jen když žádný blok neběží). Jinak co nechceš commitnout, nech ve stromě; co je tvoje, commitni."
         fi
-        if printf '%s' "$seg" | grep -Eq '(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+clean([[:space:]]|$)'; then
+        if [[ "$seg" =~ $RE_CLEAN ]]; then
           block "git clean je během autonomního běhu blokován: smazal by netrackované soubory jiných agentů (rozpracované PRD, reporty, doklady)."
         fi
-        if printf '%s' "$seg" | grep -Eq '(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(checkout|restore)([[:space:]]|$)'; then
+        if [[ "$seg" =~ $RE_VRACENI ]]; then
           cile=$(printf '%s' "$seg" | sed -E 's/.*git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(checkout|restore)[[:space:]]*//')
           if printf ' %s ' "$cile" | grep -Eq '[[:space:]](\.|\./|docs|docs/[^[:space:]]*|:/|\*)[[:space:]]|(^|[[:space:]])--[[:space:]]*$'; then
             block "git checkout/restore nad tečkou, docs/ nebo celým stromem je během autonomního běhu blokován: vrátil by necommitnutou práci jiných agentů. Vracej jen konkrétní soubor, který jsi sám změnil, mimo docs/."
@@ -226,7 +275,8 @@ $jm=$hod"
       fi
     fi
     # `)` bez `(` v témže segmentu zavírá subshell; bez známého `(` (konec `$(…)` rozděleného na | ; &) je adresář neznámý
-    zavrene=$(( $(pocet "$seg" ')') - ($(pocet "$seg" '(') - otevrene) ))
+    pocet_znaku "$seg" ')'; zavrene=$POCET
+    pocet_znaku "$seg" '('; zavrene=$((zavrene - (POCET - otevrene)))
     while [ "$zavrene" -gt 0 ]; do
       if [ -n "$zasobnik" ]; then
         radek=${zasobnik%%$'\n'*}; zasobnik=${zasobnik#*$'\n'}
@@ -236,7 +286,7 @@ $jm=$hod"
       fi
       zavrene=$((zavrene - 1))
     done
-  done < <(printf '%s\n' "$cmd" | tr '|;&' '\n')
+  done <<<"$segmenty"
 fi
 
 # 6) rm s nechráněnou proměnnou, za jejímž lomítkem hned stojí glob, další proměnná nebo nic (`rm $S/*.ts`, `rm $S/$f.x`,
@@ -245,13 +295,16 @@ fi
 # vznikne, a řekne přepis.
 # Platí vždy, nejen během běhu: chráněný tvar "${S:?}" nebo literální cesta projde bez dotazu kdekoli.
 NECHRANENA='\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)"?/"?([*?[]|\$|[[:space:]]|$)'
-if printf '%s' "$cmd" | grep -Eq "$NECHRANENA"; then   # běžný příkaz skončí u jednoho grepu
-  while IFS= read -r seg; do
-    printf '%s' "$seg" | grep -Eq '(^|[[:space:](])rm[[:space:]]' || continue
-    if printf '%s' "$seg" | grep -Eq "$NECHRANENA"; then
-      block "rm s nechráněnou proměnnou před lomítkem by s prázdnou proměnnou mazal od kořene disku a Claude Code by se na něj ptal uživatele (běh by stál): přepiš na rm -f \"\${S:?}\"/soubor nebo literální cestu; scratchpad uklízet nemusíš."
-    fi
-  done < <(printf '%s\n' "$cmd" | tr '|;&' '\n')
-fi
+RE_RM='(^|[[:space:](])rm[[:space:]]'
+case "$cmd" in
+  *rm*)
+    while IFS= read -r seg; do
+      [[ "$seg" =~ $RE_RM ]] || continue
+      if [[ "$seg" =~ $NECHRANENA ]]; then
+        block "rm s nechráněnou proměnnou před lomítkem by s prázdnou proměnnou mazal od kořene disku a Claude Code by se na něj ptal uživatele (běh by stál): přepiš na rm -f \"\${S:?}\"/soubor nebo literální cestu; scratchpad uklízet nemusíš."
+      fi
+    done <<<"$segmenty"
+    ;;
+esac
 
 exit 0

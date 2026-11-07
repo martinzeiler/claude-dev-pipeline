@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Funkční testy scripts/co-dela.sh nad syntetickou session: předávky jen z docs/.kontext.jsonl (za běh a za řez přes
 # všechny bloky), bez logu záloha z výsledků bloků, název části z docs/.stavba-NN.json u labelu agenta, compacty
-# orchestrátora z logu, zamítnuté dialogy (hook dialog-v-behu.sh) a --zprava (čísla běhu jako JSON).
+# orchestrátora z logu, zamítnuté dialogy (hook dialog-v-behu.sh), --zprava (čísla běhu jako JSON), řez s písmenem jako
+# vlastní klíč, restarty z journalu se sjednocenou ztrátou a „čeká“ / „commit se suitou“ místo „píše před“.
 # Spusť: dev-pipeline/tests/skripty/co-dela.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); plugin=$(cd "$here/../.." && pwd)
@@ -121,6 +122,130 @@ o=$(cd "$tmp" && bash "$plugin/scripts/co-dela.sh" --session "$s16" --ted 2026-1
 printf '%s' "$o" | grep -q 'balíček 1 · opus · píše před 0:00' && ok || ko "ted-bez-zony: $o"
 o=$(cd "$tmp" && bash "$plugin/scripts/co-dela.sh" --session "$s16" --ted vcera --kratce 2>&1)
 [ "$o" = "co-dela: --ted 'vcera' není ISO 8601 (čekám tvar RRRR-MM-DDThh:mm:ssZ)" ] && ok || ko "ted-nevalidni: $o"
+
+# --- řez s písmenem, restarty a rozběhnutý Bash: session s jednou běžící stavbou 19a a doběhlou stavbou 19b
+p19="$tmp/p19"; s19="$tmp/s19"; d19="$s19/subagents/workflows/wf_bezi-19"; h19="$s19/subagents/workflows/wf_hotovo-19"
+mkdir -p "$p19/docs" "$d19" "$h19" "$s19/workflows/scripts"
+printf "phases: [\n  { title: 'Části' },\n]\n" > "$s19/workflows/scripts/blok-stavby-wf_bezi-19.js"
+cat > "$p19/docs/handoff.md" <<'H'
+# Běh vize v
+| # | název | stav |
+|---|---|---|
+| 19 | základ | hotovo |
+| 19a | dashboard P1 | běží |
+| 19b | chat | |
+H
+jq -n '{rez:"19a", casti:[{id:"K2", nazev:"přehled účtů"}]}' > "$p19/docs/.stavba-19a.json"
+jq -n '{rez:"19", casti:[{id:"K2", nazev:"cizí část"}]}' > "$p19/docs/.stavba-19.json"
+jq -n '{rez:"05a", casti:[{id:"K1", nazev:"menší řez"}]}' > "$p19/docs/.stavba-05a.json"
+for r in 19a 19a 19b 19; do
+  jq -cn --arg r "$r" '{ts:"2026-10-25T17:00:00Z", rez:$r, aid:"x", typ:"implement", kontext:250000, max:250000, compactu:0, udalost:"predavka"}'
+done > "$p19/docs/.kontext.jsonl"
+r19() { (cd "$p19" && TZ=UTC bash "$plugin/scripts/co-dela.sh" --session "$s19" --ted 2026-10-25T18:10:00Z "$@" 2>&1); }
+
+zacni() { # adresář id key label čas_vzniku_transkriptu: záznam started a transkript s daným vznikem (touch do minulosti ho posune i u birthtime)
+  jq -cn --arg a "$2" --arg k "$3" --arg l "$4" '{type:"started", agentId:$a, key:$k, label:$l}' >> "$1/journal.jsonl"
+  [ -e "$1/agent-$2.jsonl" ] || : > "$1/agent-$2.jsonl"; touch -d "$5" "$1/agent-$2.jsonl"
+}
+# běžící blok: dva agenti restartovaní po témže výpadku, 33 min stěny (ne 66); nově startované pokusy mají výsledek
+zacni "$d19" impl impl 'implement:řez 19a:K2:1' 2026-10-25T18:00:00Z
+zacni "$d19" impl5a impl5a 'implement:řez 05a:K1:1' 2026-10-25T18:00:00Z
+zacni "$d19" r1 kA 'security:kolečko:čočka' 2026-10-25T16:00:00Z
+zacni "$d19" r3 kB 'security:kolečko:review' 2026-10-25T16:00:00Z
+zacni "$d19" r2 kA 'security:kolečko:čočka' 2026-10-25T16:33:00Z
+zacni "$d19" r4 kB 'security:kolečko:review' 2026-10-25T16:33:00Z
+for a in r2 r4; do jq -cn --arg a "$a" '{type:"result", agentId:$a, result:{}}' >> "$d19/journal.jsonl"; done
+# doběhlý blok bez řádků [stall] v logách: čtyři pokusy s částečným překryvem s běžícím blokem a jeden odděleně (25 min),
+# a restart po limitu (syntetická odpověď), který se do ztráty nepočítá
+zacni "$h19" h1 hA 'implement:řez 19b:1' 2026-10-25T16:20:00Z
+zacni "$h19" h2 hA 'implement:řez 19b:1' 2026-10-25T16:40:00Z
+zacni "$h19" h3 hB 'review:řez 19b:1' 2026-10-25T17:00:00Z
+zacni "$h19" h4 hB 'review:řez 19b:1' 2026-10-25T17:05:00Z
+jq -cn '{type:"assistant", message:{model:"<synthetic>", content:[{type:"text", text:"limit"}]}}' > "$h19/agent-h5.jsonl"
+zacni "$h19" h5 hC 'verify:řez 19b:1' 2026-10-25T17:10:00Z
+zacni "$h19" h6 hC 'verify:řez 19b:1' 2026-10-25T17:11:00Z
+touch -d 2026-10-25T18:04:00Z "$h19/journal.jsonl"
+jq -n '{status:"completed", workflowName:"blok-stavby", args:{rez:"19b"}, logs:["fáze Review"], result:{ok:true, vysledek:"hotovo"}}' > "$s19/workflows/wf_hotovo-19.json"
+touch -d 2026-10-25T18:04:00Z "$s19/workflows/wf_hotovo-19.json"
+
+# rozběhnutý Bash: agent verify:řez 19a:N s voláním z 18:00:00 („teď“ je 18:10), řádek v plném výpisu končí stavem
+# (bez modelu, fáze i kontextu)
+n=0
+konec_epoch=$(python3 -c 'import calendar; print(calendar.timegm((2026, 10, 25, 18, 45, 0)))')
+pust() { # příkaz: další agent s jediným rozběhnutým Bash; číslo agenta v $n
+  n=$((n + 1))
+  jq -cn --arg i "t$n" --arg m "m$n" --arg c "$1" '{type:"assistant", timestamp:"2026-10-25T18:00:00.123Z", message:{id:$m, content:[{type:"tool_use", id:$i, name:"Bash", input:{command:$c}}]}}' > "$d19/agent-v$n.jsonl"
+  zacni "$d19" "v$n" "kv$n" "verify:řez 19a:$n" 2026-10-25T18:00:00Z
+}
+cek=""; cekej() { pust "$1"; cek="$cek$n|$2
+"; }
+cekej 'sleep 1800' 'čeká do 18:30'
+cekej 'S=/tmp/x; sleep 900; curl -s localhost' 'čeká do 18:15'
+cekej 'until [ -s /tmp/x ]; do sleep 10; done; cat /tmp/x' 'čeká'
+cekej 'S=/tmp; for i in $(seq 1 120); do grep -q X $S/l && break; sleep 10; done; tail -2 $S/l' 'čeká do 18:20'
+cekej "while [ \$(date +%s) -lt $konec_epoch ]; do sleep 20; done; date -u +%T" 'čeká do 18:45'
+cekej "for i in \$(seq 1 600); do [ \$(date +%s) -ge $konec_epoch ] && break; sleep 10; done" 'čeká do 18:45'
+cekej "sleep \$(( $konec_epoch - \$(date -u +%s) ))" 'čeká do 18:45'
+cekej 'END=$(( $(date +%s) + 900 )); while [ $(date +%s) -lt $END ]; do sleep 20; done' 'čeká do 18:15'
+cekej 'sleep 60; pnpm test' 'čeká'
+cekej "gtimeout 580 zsh -c 'until ! pgrep -f sonda >/dev/null; do sleep 10; done'" 'čeká'
+cekej $'python3 - <<\'PY\'\nimport time\nfor i in range(56):\n    time.sleep(10)\nPY' 'čeká'
+cekej 'until ! pgrep -f "git commit" >/dev/null; do sleep 15; done; git log --oneline -2' 'čeká'
+cekej "while [ \"\$(date +%s)\" -lt $konec_epoch ]; do sleep 20; done" 'čeká do 18:45'
+cekej 'cd /p; git add -A && git commit -q -m "rez 19a: x; sleep 600" > /tmp/l 2>&1; echo $?' 'commit se suitou'
+cekej "bash -c 'git commit -m x'" 'commit se suitou'
+cekej "cd /p; git status --short | grep -c '^[AM]'; git commit -q -m \"rez 19a\" > /tmp/l 2>&1; git log -1 --format='%H %s'" 'commit se suitou'
+cekej "until grep -c 'x' /tmp/l; do sleep 10; done" 'čeká'
+cekej $'git -C /p commit -F - <<\'EOF\'\nrez 19a\nEOF' 'commit se suitou'
+cekej 'cd /p; S=/tmp; timeout 590 git commit -m "rez 19a: x"' 'commit se suitou'
+ne=""; necekej() { pust "$1"; ne="$ne$n "; }
+necekej 'pnpm test > /tmp/l 2>&1; echo $?'
+necekej 'sleep 2; agent-browser open x'
+necekej 'pgrep -f "git commit"'
+necekej 'git log --grep commit --oneline'
+necekej 'git commit-tree HEAD^{tree}'
+necekej 'echo "čekám na git commit a sleep 600 hotovo" > /tmp/x; pnpm test'
+# hotový Bash: výsledek v transkriptu (i s pozdějším api-request-blob, který nese staré tool_use), čekání skončilo
+pust 'sleep 1800'; ne="$ne$n "
+jq -cn --arg i "t$n" '{type:"user", timestamp:"2026-10-25T18:00:01Z", message:{content:[{type:"tool_result", tool_use_id:$i, content:"x"}]}}' >> "$d19/agent-v$n.jsonl"
+jq -cn '{type:"api-request-blob", message:{id:"blob", content:[{type:"tool_use", id:"jiny", name:"Bash", input:{command:"sleep 1800"}}]}}' >> "$d19/agent-v$n.jsonl"
+touch -d 2026-10-25T18:00:01Z "$d19/agent-v$n.jsonl"
+# novější zpráva s jiným nástrojem: dřívější Bash bez výsledku už neběží
+pust 'sleep 1800'; ne="$ne$n "
+jq -cn '{type:"assistant", timestamp:"2026-10-25T18:00:02Z", message:{id:"novejsi", content:[{type:"tool_use", id:"r1", name:"Read", input:{file_path:"/x"}}]}}' >> "$d19/agent-v$n.jsonl"
+touch -d 2026-10-25T18:00:02Z "$d19/agent-v$n.jsonl"
+# souběžná volání v jedné zprávě: rozhoduje čekací, i když poslední je jiný příkaz
+pust 'sleep 900'; cek="$cek$n|čeká do 18:15
+"
+jq -cn --arg m "m$n" '{type:"assistant", timestamp:"2026-10-25T18:00:00Z", message:{id:$m, content:[{type:"tool_use", id:"soubeh", name:"Bash", input:{command:"curl -s localhost"}}]}}' >> "$d19/agent-v$n.jsonl"
+touch -d 2026-10-25T18:00:00Z "$d19/agent-v$n.jsonl"
+touch -d 2026-10-25T18:00:00Z "$d19/journal.jsonl"
+
+o=$(r19)
+# řez s písmenem: název z řádku 19a (ne 19b), části z .stavba-19a.json a .stavba-05a.json, předávky jen 19a
+printf '%s\n' "$o" | grep -q '^▶ stavba řezu 19a „dashboard P1“ ' && ok || ko "19a-nazev: $o"
+printf '%s\n' "$o" | grep -q '^ *implement řez 19a · část K2 (přehled účtů) · pokus 1' && ok || ko "19a-cast: $o"
+printf '%s\n' "$o" | grep -q '^ *implement řez 05a · část K1 (menší řez) · pokus 1' && ok || ko "05a-cast: $o"
+printf '%s\n' "$o" | grep -q '^▶ stavba řezu 19a .* · předávek řezu 2$' && ok || ko "19a-predavky-rezu: $o"
+printf '%s\n' "$o" | grep -q 'předávek 4$' && ok || ko "19a-predavky-beh: $o"
+# restarty: souběžné dva po 33 min = 33 min stěny; doběhlý blok z journalu, po limitu mimo ztrátu
+printf '%s\n' "$o" | grep -q '^▶ stavba řezu 19a .* · restartů po stallu 2 (ztráta 33 min, poslední ' && ok || ko "restarty-bezici: $o"
+printf '%s\n' "$o" | grep -qF '✓ stavba řezu 19b hotovo · restartů po stallu 2 (ztráta 25 min) · po limitu 1 · před' && ok || ko "restarty-hotove: $o"
+# --zprava: sjednocení i přes bloky (16:00–16:40 a 17:00–17:05)
+z=$(r19 --zprava); k=$(printf '%s' "$z" | jq -c '[.restartu_stall, .restartu_limit, .ztrata_restartu_min]' 2>/dev/null)
+[ "$k" = '[4,1,45]' ] && ok || ko "restarty-zprava: $k $z"
+# stav rozběhnutého Bash
+while IFS='|' read -r c txt; do
+  [ -n "$c" ] || continue
+  printf '%s\n' "$o" | grep -qxF "    verify řez 19a · běh $c · $txt" && ok || ko "bash-stav $c: čekáno „$txt“: $(printf '%s\n' "$o" | grep -F "běh $c ")"
+done <<EOF
+$cek
+EOF
+for c in $ne; do
+  printf '%s\n' "$o" | grep -qE "^    verify řez 19a · běh $c · píše před [0-9]" && ok || ko "bash-bez-stavu $c: $(printf '%s\n' "$o" | grep -F "běh $c ")"
+done
+# krátký výpis má stejný řádek agenta (je seříznutý na 12 řádků, proto stačí kterýkoli stav)
+o=$(r19 --kratce); if printf '%s\n' "$o" | grep -qE '· (čeká|commit se suitou)'; then ok; else ko "kratce-stav: $o"; fi
 
 echo "co-dela: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

@@ -121,10 +121,10 @@ k=$(j '[has("prd_stale"), has("mazane_pozdeji"), .hypotezy.ids, .hypotezy.text, 
 # profil z výsledku PRD je "lehky", prázdný --doplnit ho přepíše na "" a prázdné pole se nepíše; hypotezy {ids, text:[]} zůstává objektem
 [ $rc -eq 0 ] && [ "$k" = '[false,false,["N1"],[],false,1,false,"05"]' ] && ok || ko "prazdne-hodnoty: rc=$rc $o $k"
 p=$(j '._pole' "$proj/docs/.stavba-05.json")
-ex=$(jq -c --argjson f "$(jq -c 'del(._pole) | keys' "$proj/docs/.stavba-05.json")" -n '$f + ["ne_cile","rozhodnuti_majitele","rychle_kontroly","vize"] | unique')
+ex=$(jq -c --argjson f "$(jq -c 'del(._pole, ._delky) | keys' "$proj/docs/.stavba-05.json")" -n '$f + ["ne_cile","rozhodnuti_majitele","rychle_kontroly","vize"] | unique')
 [ "$p" = "$ex" ] && ! printf '%s' "$p" | grep -q -e '"produkt"' -e '"_pole"' -e '"stare"' && ok || ko "pole-sjednoceni: $p (čekáno $ex)"
 printf '%s' "$o" | grep -q '_pole' && ko "pole-ve-vypisu: $o" || ok
-k=$(j '[.vize, .ne_cile, .rychle_kontroly, .rozhodnuti_majitele, has("produkt"), (._pole == (del(._pole) | keys))]' "$proj/docs/.stavba-05.json")
+k=$(j '[.vize, .ne_cile, .rychle_kontroly, .rozhodnuti_majitele, has("produkt"), (._pole == (del(._pole, ._delky) | keys))]' "$proj/docs/.stavba-05.json")
 [ "$k" = '["/p/docs/vize/v.md","y","pnpm verify:arch",["2026-10-06 12:50 bez čekání"],false,true]' ] && ok || ko "stala-v-souboru: $k"
 o=$(ab prd "$proj" 5 --doplnit "{\"plan_row\":$ROW,\"ne_cile\":\"z doplnit\"}"); [ "$(j '.ne_cile' "$proj/docs/.prd-05.json")" = '"z doplnit"' ] && ok || ko "stala-prednost-doplnit: $o"
 # rozhodnutí majitele a rychlé kontroly jsou stálá pole: ze stavby z výsledku PRD se vynechají (mohla zastarat) a soubor je
@@ -135,7 +135,7 @@ o=$(ab stavba "$proj" 5 --prd-run wf_stala-7); rc=$?
 # bez .run-args.json: _pole jen klíče souboru
 rm -f "$proj/docs/.run-args.json"
 o=$(ab kolecko "$proj" --doplnit '{"base":"main"}'); rc=$?
-[ $rc -eq 0 ] && [ "$(j '._pole == (del(._pole) | keys)' "$proj/docs/.kolecko.json")" = 'true' ] && ok || ko "pole-bez-run-args: rc=$rc $o"
+[ $rc -eq 0 ] && [ "$(j '._pole == (del(._pole, ._delky) | keys)' "$proj/docs/.kolecko.json")" = 'true' ] && ok || ko "pole-bez-run-args: rc=$rc $o"
 
 # 14. (1.7.0) podpříkaz rozhodnuti: připíše citaci s časem do .run-args.json, ostatní pole nechá, vypíše jen počet
 jq -n '{vize:"/p/v.md", ne_cile:"y"}' > "$proj/docs/.run-args.json"
@@ -204,6 +204,33 @@ o=$(ab kolecko "$proj" --doplnit '{"base":"main","bez_review":[{"commit":"ccc","
 rm -f "$proj/docs/.vysledek-stavba-"*.json
 o=$(ab kolecko "$proj" --doplnit '{"base":"main"}'); [ "$(j 'has("bez_review")' "$proj/docs/.kolecko.json")" = 'false' ] && ok || ko "kolecko-bez-review-zadne: $o"
 rm -f "$proj/docs/.orchestrator-run"
+
+# _delky (spec E2): shoda s JSON.stringify v UTF-16 jednotkách, i pro emoji, uvozovky, řídicí znaky a celé číslo jako float
+o=$(ab kolecko "$proj" --doplnit '{"base":"main","rozhodnuti_majitele":["věta s „uvozovkami“, 😀 a \"\\ \n\t\u0001"],"pole":{"b":[1.0,2.5,true,null],"a":"č"},"cislo":3.0}'); rc=$?
+s=$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const c=Object.keys(d).filter(k=>!["_pole","_delky"].includes(k));console.log(c.every(k=>JSON.stringify(d[k]).length===d._delky[k])&&c.length===Object.keys(d._delky).length&&d._delky._pole===undefined)' "$proj/docs/.kolecko.json")
+[ $rc -eq 0 ] && [ "$s" = 'true' ] && ok || ko "delky-utf16: rc=$rc s=$s $o"
+printf '%s' "$o" | grep -q '_delky' && ko "delky-ve-vypisu: $o" || ok
+# číslo, které Python a JS zapíší jinak (exponent, nad 2^53), by dalo falešné „opis nesedí“: takové pole se délkou nekontroluje, ostatní ano
+o=$(ab kolecko "$proj" --doplnit '{"base":"main","a_exp":[0.00005],"a_mez":1e-7,"a_velke":1e21,"a_int":12345678901234567890,"a_float":1.25,"a_cele":3.0,"a_vnoreni":{"x":[1,2.5]}}'); rc=$?
+k=$(j '._delky | [has("a_exp"), has("a_mez"), has("a_velke"), has("a_int"), has("a_float"), has("a_cele"), has("a_vnoreni")]' "$proj/docs/.kolecko.json")
+[ $rc -eq 0 ] && [ "$k" = '[false,false,false,false,true,true,true]' ] && ok || ko "delky-cisla-js: rc=$rc $k $o"
+s=$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(Object.keys(d._delky).every(k=>JSON.stringify(d[k]).length===d._delky[k]))' "$proj/docs/.kolecko.json")
+[ "$s" = 'true' ] && ok || ko "delky-cisla-shoda: $s"
+
+# rozhodnuti (spec E1): překročení stropu 8 000 znaků hlásí, kolik položek bloky nedostanou
+jq -n '{vize:"/p/v.md", rozhodnuti_majitele:[]}' > "$proj/docs/.run-args.json"
+for i in 1 2 3; do ab rozhodnuti "$proj" --text "$(printf 'x%.0s' $(seq 1 3000))" > /dev/null; done
+o=$(ab rozhodnuti "$proj" --text "nová"); [ $? -eq 0 ] && printf '%s' "$o" | grep -q 'POZOR: nad strop 8000 znaků bloky nedostanou 1 nejstarších' && ok || ko "rozhodnuti-strop: $o"
+jq -n '{vize:"/p/v.md"}' > "$proj/docs/.run-args.json"
+o=$(ab rozhodnuti "$proj" --text "krátké"); printf '%s' "$o" | grep -q 'POZOR' && ko "rozhodnuti-pod-stropem: $o" || ok
+
+# prd_lehke z výsledku PRD do stavby (spec H7), deploy_podminky a nové klíče obnovy (spec I2, G2)
+jq -n '{status:"completed", workflowName:"blok-prd", result:{ok:true, rez:"05", prd_path:"/p/x.md", prd_lehke:true}}' > "$wfd/wf_lehke-7.json"
+o=$(ab stavba "$proj" 5 --prd-run wf_lehke-7); [ $? -eq 0 ] && [ "$(j '.prd_lehke' "$proj/docs/.stavba-05.json")" = 'true' ] && ok || ko "prd-lehke-do-stavby: $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"deploy_podminky":[{"popis":"neběží import","kontrola":"psql","pravidlo":"0"}]}'); [ $? -eq 0 ] && [ "$(j '.deploy_podminky[0].popis' "$proj/docs/.stavba-05.json")" = '"neběží import"' ] && ok || ko "podminky: $o"
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"deploy_podminky":["neběží import"]}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'deploy_podminky musí být' && ok || ko "podminky-tvar: $o"
+o=$(ab kolecko "$proj" --doplnit '{"obnova":{"od_faze":"deploy","pokus":1,"jen_kriteria":["AK2"],"pokyn_orchestratora":"x"}}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'patří do volání' && ok || ko "obnova-nove-klice: $o"
+o=$(ab kolecko "$proj" --doplnit '{"obnova":{"od_faze":"deploy","pokus":1,"jen_kriteria":"AK2"}}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'jen_kriteria musí být' && ok || ko "obnova-jen-tvar: $o"
 
 echo "args-bloku: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

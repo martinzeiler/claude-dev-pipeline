@@ -10,13 +10,13 @@ Pro agenty bloků: co kde leží, kdo to píše a v jakém tvaru; args, návraty
 - `docs/prd/rez-NN-cast-K1.md` (autor části): PRD části: postup ověřený proti kódu, precedent, pasti, testy k chování, mapa souborů a symbolů
 - `docs/e2e/rez-NN.md` (PRD architekt): E2E scénáře v nezávislých sekcích (níže)
 - `docs/e2e/rez-NN-doklad-pred.md` (agent `doklad`): snímek dat před nasazením: čas, revize, dotazy doslova a výsledky, populace jako seznam identit
-- `docs/e2e/rez-NN-pred.md` (implementace nebo část): výsledek kroku před nasazením (čas, příkaz, výsledek, ověření); zápis do živého jen podle Povolení z PRD
+- `docs/e2e/rez-NN-pred.md` (implementace nebo část): výsledek kroku před nasazením; zápis do živého jen podle Povolení z PRD
 - `docs/e2e/rez-NN-nasazeni.md` (deploy): zápis nasazení: čas, commit řezu, aplikace nasazené i nenasazené, doklady, kroky po nasazení, `Dveře: jednosměrné / obousměrné · Dosah: <slovo>`; samostatný commit
 - `docs/e2e/rez-NN-<doklad>.md`, `docs/mereni/` (kdo doklad pořizuje): doklady řezu do commitu (měření, `rez-NN-diagnoza.md`, export), nikdy do `docs/reviews/`; surové výstupy měřidel (JSON, HAR, snímky) do gitignorovaného `docs/e2e/rez-NN-vykon/`
 - `docs/journal.md` (uzavření, finální fáze): deník: hotové, odchylky, pokusy, odmítnuté nálezy, měřidla, kontext agentů; heredocem
 - `docs/follow-ups.md` (uzavření, finální fáze, vize session): backlog napříč vizemi (níže)
 - `docs/vize-spory.md` (kdokoli v běhu): rozpory, předpoklady, otázky pro majitele (níže)
-- `docs/reviews/rez-NN-p<pokus>-<typ>-kolo-M.md`, `kolecko-<typ>[-<kolo>].md` (kontrolní agenti): plné reporty (`prd-check` bez čísla pokusu); gitignorováno; čte je fix agent
+- `docs/reviews/rez-NN-p<pokus>-<typ>-kolo-M.md`, `kolecko-<typ>[-<kolo>].md` (kontrolní agenti): plné reporty (`prd-check` bez čísla pokusu); gitignorováno
 - `docs/reviews/predavka-<agent_id>.md` (agent na výzvu PŘEDÁVKA): předávka nástupci: zadání větou, hotové a čím ověřené, co zbývá, řádek `zbývající soubory: …` (shodný s polem `zbyvajici_soubory` návratu), zjištění, rozdělané soubory; cesta v poli `predavka`
 
 ## Handoff
@@ -33,7 +33,7 @@ Frontmatter PRD: `rez`, `slug`, `status` (`in_progress` | `done` | `skipped`), `
 
 **Kritérium** má tvar „**AKn Název do 6 slov.** …“, je vlastnost s měřidlem, ne výčet jmen, ověřitelná testem, měřidlem nebo E2E krokem na nejvyšším švu. Kritérium nad kódem nese `[měřidlo]` a měří ho brána. Kritérium nad sítí, výkonem nebo cizí službou nese `N` běhů střídavě se základem, stanoviště jiné než tento stroj a toleranci (medián proti mediánu základu); bez stanoviště je to otázka pro majitele (`prostředí`). Kritérium nad daty vznikajícími časem má krok výroby dat podle Povolení.
 
-**Nasazení a kroky po něm:** číslovaný seznam, číslo kroku je `id` a mezi verzemi PRD se nemění; podmíněný krok má obě větve (provedení, nebo `nevztahuje-se` s hodnotou). Krok před nasazením nezávislý na kódu řezu přiděluje PRD implementaci nebo části s citací Povolení. Doklad před nasazením (migrace mění nebo maže data, nebo nasazení přepíše protějšek kritéria) má vlastní sekci s dotazy; `doklad_pred` bez ní je blokující nález.
+**Nasazení a kroky po něm:** číslovaný seznam, číslo kroku je `id` a mezi verzemi PRD se nemění; podmíněný krok má obě větve (provedení, nebo `nevztahuje-se` s hodnotou). Krok před nasazením nezávislý na kódu řezu přiděluje PRD implementaci nebo části s citací Povolení. Krok, který spotřebuje jednorázový souhlas nebo jiný nevratný zdroj, provádí deploy po bráně, ne implementace ani část. Doklad před nasazením (migrace mění nebo maže data, nebo nasazení přepíše protějšek kritéria) má vlastní sekci s dotazy; `doklad_pred` bez ní je blokující nález.
 
 **E2E scénáře:** kroky v sekcích nezávislých na sobě (žádná nezávisí na datech, která jiná vytváří nebo maže); sekce nese odhad doby, dotčené oblasti PRD a `bez_soubehu`, když ji nejde měřit souběžně. Měřidlo nad populací má odhad doby (počet × čas na položku).
 
@@ -69,9 +69,11 @@ Backlog napříč vizemi. Nadpis `## Řez NN <název>` zakládá uzavření jen 
 
 > **Čekání na čas.** Kritérium, krok nebo scénář, který potřebuje data vznikající časem (provoz, plánované úlohy, činnost uživatelů, den, noc), změří běh nad daty, která sám vyrobí podle Povolení vize (ruční spuštění, testovací data, kratší okno), hned po nasazení. Na organický čas běh čeká jen tam, kde to vize výslovně vede jako rozhodnutí majitele s odhadem, o kolik hodin se běh prodlouží. Když Povolení výrobu dat nepokrývá, kritérium není „nesplnitelné v prostředí E2E“: je to otázka pro majitele (rozšířit Povolení, nebo čekat).
 
+Čekání přes ~30 min ve stavbě nedrží slot: verifikátor změří start a průběh, vrátí `k_domereni`, doměří orchestrátor.
+
 ## Feedback pipeline
 
-Vadu pipeline samotné (krok, který selhal, nejednoznačná instrukce, nástroj, který přestal fungovat) hlásí agent v návratu s dokladem (soubor a řádek, výstup příkazu); do `~/dev-pipeline-feedback.md` ji zapisuje orchestrátor (tvar v hlavičce souboru).
+Vadu pipeline samotné hlásí agent v návratu s dokladem (soubor a řádek, výstup příkazu); do `~/dev-pipeline-feedback.md` ji zapisuje orchestrátor (tvar v hlavičce souboru).
 
 ## Společná pravidla agentů
 
@@ -81,4 +83,3 @@ Vadu pipeline samotné (krok, který selhal, nejednoznačná instrukce, nástroj
 - **Žádné otázky na uživatele**; handoff nečteš; auto-paměť se během běhu nepíše.
 - **Sdílený strom:** po restartu i po předávce začni inventurou (`git status`, `git diff --stat`); cizí soubory neupravuj, neformátuj, nevracej; pracuj jen v hranici souborů své role, změnu jinde vrať v návratu. Mazání s proměnnou jen chráněně (`rm -f "${S:?}"/soubor`); žádný `git checkout`, `stash` ani `clean`.
 - **Jména souborů** v `docs/reviews/` a `docs/e2e/`: `rez-NN-<co>.md`, `kolecko-<co>.md`; nikdy summary, findings, analysis, report-.
-- **Testy patří k chování, ne k řezu**; past v kódu se opravuje, ne dokumentuje.

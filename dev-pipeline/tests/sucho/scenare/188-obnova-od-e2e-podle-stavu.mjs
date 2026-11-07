@@ -1,6 +1,7 @@
 // 188 · stavba · 1.10.0 (spec F1, review N5): obnova řezu s částmi od E2E podle stavu respektuje od_faze. Zelená brána nad dnešním stromem,
 // HEAD doloženě nasazený commit řezu a čistý strom: deploy se nepouští, obnova jde rovnou na E2E (značka od E2E). Strom s necommitnutými
-// změnami (nebo nedoložené nasazení) pošle obnovu na deploy. Bez dokladu brány běží přerušený pokus celý.
+// změnami (nebo nedoložené nasazení) pošle obnovu na deploy. Od E2E stačí nasazený HEAD a čistý strom, marker se nevyžaduje (1.11.0, spec B3; řez 16
+// jinak přehrál review, 20 agentů, $22); od deploye marker zůstává. Bez dokladu běží přerušený pokus celý. Prompt obnova-stav nese značku (spec B4).
 import { argsStavby, casti, hash, kontrola } from '../stuby.mjs'
 import { spust } from '../harness.mjs'
 
@@ -23,8 +24,13 @@ export default {
     const spinavy = await beh({ ...STAV, strom_cisty: false })
     k.rovno(spinavy.volani.map(x => x.label), ['obnova-stav:řez 05', 'deploy:řez 05:1', 'e2e:řez 05:1', 'uzavření:řez 05'], 'necommitnutý strom: obnova od deploye')
     k.obsahuje(spinavy.volani.find(x => x.label === 'deploy:řez 05:1'), Z, 'značku obnovy v deployi')
-    const bez = await beh({ ...STAV, brana_nad_head: false })
-    k.ok(bez.volani.some(x => /^implement:řez 05:kontrakt:1$/.test(x.label)) && bez.volani.some(x => /^verify:/.test(x.label)), 'bez dokladu brány celý pokus')
+    k.obsahuje(k.jeden('obnova-stav:řez 05'), Z, 'značku obnovy v obnova-stav')
+    const bezMarkeru = await beh({ ...STAV, brana_nad_head: false })
+    k.rovno(bezMarkeru.volani.map(x => x.label), ['obnova-stav:řez 05', 'e2e:řez 05:1', 'uzavření:řez 05'], 'od E2E bez markeru: nasazený HEAD a čistý strom stačí')
+    const bez = await beh({ ...STAV, brana_nad_head: false, nasazeni_dolozeno: false })
+    k.ok(bez.volani.some(x => /^implement:řez 05:kontrakt:1$/.test(x.label)) && bez.volani.some(x => /^verify:/.test(x.label)), 'bez dokladu brány i nasazení celý pokus')
+    const odDeploye = await spust({ blok: 'blok-stavby', args: argsStavby({ ...ARGS, obnova: { od_faze: 'deploy', znacka: Z, pokus: 1 } }), odpoved: l => l === 'obnova-stav:řez 05' ? { ...STAV, brana_nad_head: false } : null })
+    k.ok(odDeploye.volani.some(x => /^implement:řez 05:kontrakt:1$/.test(x.label)), 'od deploye marker zůstává')
     return k.chyby
   },
 }

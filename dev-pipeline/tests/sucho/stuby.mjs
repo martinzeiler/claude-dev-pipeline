@@ -130,7 +130,7 @@ export function vychozi(label, prompt, opts, stav) {
     case 'review': case 'security': return { nalezu: 0, blokujicich: 0, balicky: [], report_path, follow_up_ids: [] }
     case 'triáž': return { nalezu: 0, opravit_ted: 0, follow_up: 0, odmitnuto: 0, balicky: [], report_path, follow_ups: [], odmitnute: [], sporne: [] }
     // Věrný fix vrací v opravene_ids (od 1.6.0 povinné) nálezy, které mu zadání přidělilo: stavba „tvoje nálezy: …“, kolečko „: nálezy …“.
-    case 'fix': case 'fix-thermo': case 'fix-brana': case 'fix-e2e': case 'fix-security': return oprava({ opravene_ids: pridelene(prompt) })
+    case 'fix': case 'fix-thermo': case 'fix-brana': case 'fix-e2e': case 'fix-security': case 'fix-citelnost': return oprava({ opravene_ids: pridelene(prompt) })
     // Věrný agent brány vrací jako vystup_path cestu, kam mu zadání výstup uložit (blok ji smí předat E2E místo rep()).
     case 'verify': { const m = /ulož do (\S+?\.md)/.exec(S(prompt)); return zelenaBrana(m ? { vystup_path: m[1] } : {}) }
     case 'doklad': return { ok: true, path: `${cwd}/docs/e2e/rez-${nn}-doklad-pred.md`, souhrn: 'stub' }
@@ -147,6 +147,8 @@ export function vychozi(label, prompt, opts, stav) {
     case 'oblasti': return { oblasti: [{ nazev: 'sucho', cesty: ['apps/sucho'], radku: 900 }], vsechny_adresare: ['apps/sucho'] }
     case 'commit': return { stav: 'commit-only', commit: hash(`${label}#${stav ? stav.pocty[label] : 0}`), security_commity: [], duvod: '' }
     case 'e2e': case 'kriteria': return e2ePass(l.pismeno ? 4 : (Number(a.kriteria) || 8), { report_path })
+    // Verdikty minulého kola pro obnovu kolečka s jen_kriteria (1.11.0): výchozí stub nic nezná, kolečko přeměří všechna kritéria.
+    case 'e2e-stav': return { kriteria: [] }
     case 'e2e-scénáře': return { e2e_path: `${cwd}/docs/e2e/kolecko.md`, kriterii: 5, plochy: ['sucho'] }
     case 'diagnose': return { pricina: 'stub', doporuceni: 'stub', smycka_postavena: true }
     case 'uzavření': return { ok: true, thermo_nesesouhlaseno: 0, chybejici_doklady: [], commit_overeny: '', chybejici_commity: [], kontext: 'implement 180 k, 0 compactů, 0 předávek' }

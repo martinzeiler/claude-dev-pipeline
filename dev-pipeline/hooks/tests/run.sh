@@ -310,6 +310,10 @@ run vm-bash-redirect-deny guard-run.sh "$(pre $SID ag1 Bash command "echo '{\"tr
 run vm-bash-tee-deny guard-run.sh "$(pre $SID ag1 Bash command "printf x | tee docs/.verify-passed")" deny
 run vm-bash-touch-deny guard-run.sh "$(pre $SID ag1 Bash command "touch docs/.verify-passed")" deny
 run vm-bash-script-ok guard-run.sh "$(pre $SID ag1 Bash command "bash $hooks/../scripts/verify-marker.sh $proj $proj/docs/reviews/rez-01-verify-kolo-1.md")" allow
+# přenos markeru při zvednutí verze: deploy ho volá přímo, i se čtením markeru v témže příkazu
+run vm-zvedni-ok guard-run.sh "$(pre $SID ag1 Bash command "bash $hooks/../scripts/verify-marker.sh --zvedni $proj src/index.ts rez05-a rez05-b")" allow
+run vm-zvedni-a-cteni-ok guard-run.sh "$(pre $SID ag1 Bash command "cd $proj && bash $hooks/../scripts/verify-marker.sh --zvedni $proj src/index.ts rez05-a rez05-b && cat docs/.verify-passed")" allow
+run vm-zvedni-jiny-zapis-deny guard-run.sh "$(pre $SID ag1 Bash command "bash $hooks/../scripts/verify-marker.sh --zvedni $proj src/index.ts rez05-a rez05-b; echo x > docs/.verify-passed")" deny "verify-marker"
 run vm-bash-read-ok guard-run.sh "$(pre $SID ag1 Bash command "cat docs/.verify-passed")" allow
 run vm-bash-rm-ok guard-run.sh "$(pre $SID ag1 Bash command "rm -f docs/.verify-passed")" allow
 run vm-other-session-ok guard-run.sh "$(pre $OTHER ag1 Write file_path "$proj/docs/.verify-passed" content "{}")" allow
@@ -330,6 +334,7 @@ run vm-bash-python-heredoc-zapis-deny guard-run.sh "$(pre $SID ag1 Bash command 
 run vm-bash-python-cteni-ok guard-run.sh "$(pre $SID ag1 Bash command "python3 -c \"print(open('docs/.verify-passed').read())\"")" allow
 # --- blast-radius během běhu: stash, clean, checkout/restore nad tečkou a docs/
 br() { jq -n --arg s "$1" --arg c "$proj" --arg cmd "$2" '{session_id:$s, cwd:$c, hook_event_name:"PreToolUse", tool_name:"Bash", tool_input:{command:$cmd}}'; }
+run br-zvedni-ok guard-blast-radius.sh "$(br $SID "bash $hooks/../scripts/verify-marker.sh --zvedni $proj src/index.ts rez05-a rez05-b")" allow
 run br-stash-deny guard-blast-radius.sh "$(br $SID 'git stash')" deny
 run br-stash-push-deny guard-blast-radius.sh "$(br $SID 'git stash push -m x')" deny
 run br-stash-list-ok guard-blast-radius.sh "$(br $SID 'git stash list')" allow
@@ -550,6 +555,15 @@ jq -cn '{type:"assistant", message:{usage:{input_tokens:10, cache_read_input_tok
            hl hl-kolecko hlidac-kontextu.sh "$(hk $SID $AID4 PostToolUse Bash command "git status")" allow
 k4=$(jq -sc --arg a "$AID4" '[.[] | select(.aid == $a) | .rez] | unique' "$proj/docs/.kontext.jsonl" 2>/dev/null)
 [ "$k4" = '["kolecko"]' ] && ok || ko "hl-kolecko-rez: $k4"
+# řez s písmenem je vlastní řez: do logu jde 19a, ne 19; nuly jen před číslice (08 ne osmičkově, 5b → 05b)
+for rp in '19a 19a' '5b 05b' '08 08' '7 07' '100 100'; do
+  rv=${rp% *}; rc=${rp#* }; AIDR="agrez$rv"; TR="$tdir/agent-$AIDR.jsonl"
+  jq -cn --arg v "$rv" '{type:"user", message:{role:"user", content:("Řez " + $v + ": PRD docs/prd/rez-x.md. Úkol: implementuj řez")}}' > "$TR"
+  jq -cn '{type:"assistant", message:{usage:{input_tokens:10, cache_read_input_tokens:118890, cache_creation_input_tokens:1000, output_tokens:100}}}' >> "$TR"
+  hl "hl-rez-$rv" hlidac-kontextu.sh "$(hk $SID $AIDR PostToolUse Bash command "git status")" allow
+  kr=$(jq -sc --arg a "$AIDR" '[.[] | select(.aid == $a) | .rez] | unique' "$proj/docs/.kontext.jsonl" 2>/dev/null)
+  [ "$kr" = "[\"$rc\"]" ] && ok || ko "hl-rez-$rv: $kr (čekáno $rc)"
+done
 # 1.7.0: PRD agent dostane jednou při ~170 k výzvu zapsat kostru (4 z 5 architektů v běhu sonnet-5-5 předávali před zápisem)
 hkp() { hk "$@" | jq -c '.agent_type = "dev-pipeline:prd"'; }
 ka() { jq -cn --argjson k "$2" '{type:"assistant", message:{usage:{input_tokens:10, cache_read_input_tokens:($k - 1110), cache_creation_input_tokens:1000, output_tokens:100}}}' >> "$1"; }
@@ -638,6 +652,10 @@ for h in guard-run.sh hlidac-kontextu.sh; do
   [ $((t1 - t0)) -lt 1500 ] && ok || ko "cas-$h: 20 volání $((t1 - t0)) ms (limit 1 500)"
 done
 rm -f "$proj/src/big5000.ts"
+# guard-blast-radius nad dlouhým příkazem: nesmí viset do timeoutu hooku, po kterém by příkaz prošel bez kontroly, a zákaz za heredocem platí dál.
+dlouhy=$(python3 -c 'print("python3 - <<\"EOF\"\n" + "\n".join("x = rep(1, (2, 3), [4])" for i in range(800)) + "\n" + "f(1), " * 6000 + "\nEOF\ngit stash")')
+t0=$(ms); run br-dlouhy-prikaz-deny guard-blast-radius.sh "$(br $SID "$dlouhy")" deny; t1=$(ms)
+[ $((t1 - t0)) -lt 3000 ] && ok || ko "cas-guard-blast-radius: dlouhý příkaz $((t1 - t0)) ms (limit 3 000)"
 AID6=agarchskok; T6="$tdir/agent-$AID6.jsonl"; head -1 "$T" > "$T6"
 ka "$T6" 260000; hl hl-arch-s-predavkou hlidac-kontextu.sh "$(hkp $SID $AID6 PostToolUse Bash command "rg x")" ctx "i neúplnou; E2E scénáře nech nástupci. PŘEDÁVKA:"
 AID7=agarchnavrat; T7="$tdir/agent-$AID7.jsonl"; head -1 "$T" > "$T7"
@@ -668,10 +686,25 @@ vaha 'turbo run lint' 3
 vaha 'pnpm install --frozen-lockfile' 2
 vaha '(cd apps/web && npx vite build)' 2
 vaha 'VITEST_MAX_THREADS=2 pnpm vitest run apps/api/src/routes' 2
-vaha 'pnpm --filter @x/api typecheck' 1
-vaha 'npx tsc --noEmit -p apps/api' 1
+vaha 'pnpm --filter @x/api typecheck' 2
+vaha 'npx tsc --noEmit -p apps/api' 2
+vaha 'pnpm exec tsc --build' 2
 vaha 'pnpm vitest run apps/api/src/a.test.ts' 1
+vaha 'pnpm vitest run apps/api/src/a.test.ts apps/api/src/b.test.ts' 2
+vaha 'gtimeout 300 pnpm exec vitest run src/a.test.ts' 1
+vaha 'gtimeout -k 5 500 pnpm exec tsc --noEmit -p tsconfig.json' 2
+vaha 'timeout 300 pnpm test' 4
+vaha 'cd apps/api && S=/tmp/x; gtimeout --signal=KILL 500 pnpm exec tsc --noEmit > $S/tsc.log 2>&1; echo $?' 2
+vaha 'gtimeout 30 curl -s localhost:3000/health' 0
+vaha 'pnpm exec depcruise --config .dependency-cruiser.cjs src' 1
+vaha 'pnpm exec tsx src/scripts/audit-mapy-bez-prototypu.ts ../..' 2
+vaha 'pnpm exec tsx src/scripts/seed-demo.ts' 0
+vaha 'python3 $S/mutace.py M11' 2
+vaha 'cd apps/api && python3 "$D/mut.py"' 2
+vaha 'python3 scripts/module-health.py' 0
+vaha $'python3 - <<\'EOF\'\nprint("pnpm test")\nEOF' 0
 vaha 'git status --short && git diff --stat' 0
+vaha 'bash /p/scripts/verify-marker.sh --zvedni /p src/index.ts rez05-a rez05-b' 0
 vaha 'rg -n "pnpm test" docs/prd/rez-05.md' 0
 vaha $'cat > docs/reviews/rez-05-x.md <<\'EOF\'\npnpm test\nEOF' 0
 vaha 'pnpm typecheck && pnpm test' 4
@@ -679,9 +712,25 @@ vaha 'pnpm turbo dev' 0
 vaha 'npx vitest --watch' 0
 vaha 'pnpm test -- --watch' 0
 vaha 'npx tsc -w -p apps/api' 0
+vaha 'npx tsc --watch -p apps/api' 0
+# Strop forků vitestu: cílené příkazy i suita ho dostanou v obalu, suita lze vypnout DEV_PIPELINE_TEZKY_FORKY_SUITA=0.
+obal_cmd() { frun "$(fr $SID ag1 dev-pipeline:implement "$1")" | jq -r '.hookSpecificOutput.updatedInput.command // ""'; }
+case "$(obal_cmd 'pnpm vitest run src/a.test.ts')" in *$'&& {\nexport VITEST_MAX_FORKS=2\npnpm vitest run src/a.test.ts\n}'*) ok ;; *) ko "fr-forky-cilene" ;; esac
+case "$(obal_cmd 'python3 $S/mut.py')" in *'export VITEST_MAX_FORKS=2'*) ok ;; *) ko "fr-forky-mutace" ;; esac
+case "$(DEV_PIPELINE_TEZKY_FORKY_SUITA=0 obal_cmd 'pnpm test')" in *VITEST_MAX_FORKS*) ko "fr-forky-suita-bez-stropu" ;; *) ok ;; esac
+case "$(DEV_PIPELINE_TEZKY_FORKY=3 obal_cmd 'pnpm vitest run src/a.test.ts')" in *'export VITEST_MAX_FORKS=3'*) ok ;; *) ko "fr-forky-z-prostredi" ;; esac
+case "$(DEV_PIPELINE_TEZKY_FORKY=x obal_cmd 'pnpm vitest run src/a.test.ts')" in *'export VITEST_MAX_FORKS=2'*) ok ;; *) ko "fr-forky-nesmysl" ;; esac
+case "$(DEV_PIPELINE_TEZKY_FORKY_SUITA=3 obal_cmd 'pnpm test')" in *$'&& {\nexport VITEST_MAX_FORKS=3\npnpm test\n}'*) ok ;; *) ko "fr-forky-suita-strop" ;; esac
 out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'pnpm test')")
 printf '%s' "$out" | jq -e --arg q "'" '.hookSpecificOutput | .permissionDecision == "allow" and .updatedInput.timeout == 600000 and .updatedInput.description == "test"
-  and (.updatedInput.command | startswith("python3 " + $q) and contains("/scripts/tezky.py" + $q + " vezmi --vaha 4 --pid $$ --popis " + $q + "pnpm test" + $q + " --max-cekani 180 && {\npnpm test\n}; __dp_rc=$?; python3 ") and endswith(" vrat --pid $$; (exit $__dp_rc)"))' >/dev/null && ok || ko "fr-obal: $out"
+  and .updatedInput.run_in_background == true
+  and (.updatedInput.command | startswith("python3 " + $q) and contains("/scripts/tezky.py" + $q + " vezmi --vaha 4 --pid $$ --popis " + $q + "pnpm test" + $q + " && {\nexport VITEST_MAX_FORKS=2\npnpm test\n}; __dp_rc=$?; python3 ") and endswith(" vrat --pid $$; (exit $__dp_rc)"))' >/dev/null && ok || ko "fr-obal: $out"
+out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'git commit -m "rez 05: x"')")
+printf '%s' "$out" | jq -e '.hookSpecificOutput.updatedInput | (.run_in_background != true) and (.command | contains(" --max-cekani 180 && {\ngit commit") and (contains("VITEST_MAX_FORKS") | not))' >/dev/null && ok || ko "fr-obal-commit: $out"
+out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'npx vitest run')")
+printf '%s' "$out" | jq -e '.hookSpecificOutput.updatedInput | (.run_in_background != true) and (.command | contains("export VITEST_MAX_FORKS=2"))' >/dev/null && ok || ko "fr-obal-holy-vitest: $out"
+out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'pnpm exec tsc --noEmit')")
+printf '%s' "$out" | jq -e '.hookSpecificOutput.updatedInput | (.run_in_background != true) and (.command | contains(" --max-cekani 300 && {\nexport VITEST_MAX_FORKS=2\npnpm exec tsc"))' >/dev/null && ok || ko "fr-obal-tsc: $out"
 out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'true || pnpm test; echo BEZI; (exit 3)')"); obal=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.updatedInput.command')
 for sh in bash zsh; do
   command -v $sh >/dev/null 2>&1 || continue
@@ -695,6 +744,7 @@ done
 run fr-e2e-test-deny fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'pnpm test')" deny "E2E ověřuje běžící aplikaci"
 run fr-e2e-worktree-deny fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'git worktree add ../wt HEAD')" deny
 run fr-e2e-typecheck-deny fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'pnpm --filter @x/api typecheck')" deny
+run fr-e2e-gtimeout-deny fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'gtimeout 300 pnpm test')" deny "E2E ověřuje běžící aplikaci"
 run fr-e2e-show-ok fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'git show HEAD~3:apps/api/src/a.ts | grep -n budget')" allow
 # --- tezky.py: rozpočet, přísné FIFO, mrtvý PID, vypršení (stav v dočasném TMPDIR, krok 0,2 s)
 ROZ=6; MAXC=300

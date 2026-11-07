@@ -1,8 +1,8 @@
-// 191 · stavba · 1.10.0 (review N4, plan-check N5): commit opravy po E2E bez review se zapíše hned po commitu, i když nasazení opravy
+// 191 · stavba · 1.10.0 (review N4, plan-check N5; od 1.11.0 bez review jen tehdy, když review nevrátilo výsledek): commit opravy po E2E bez review se zapíše hned po commitu, i když nasazení opravy
 // zastaví výpadek platformy: zastavený návrat i soubor zastaveného běhu ho nesou a obnova ho převezme přes obnova-stav do svého návratu.
 // Oprava brány a samostatná oprava thermo do bez_review nepatří (jsou v commitu řezu, který review prošel). Když zápis souboru zastaveného
 // běhu selže, návrat nese seznamy_zapsane false i tehdy, když jediný seznam je bez_review (review N18).
-import { argsStavby, kontrola, stub, e2ePass, oprava, zelenaBrana, hash } from '../stuby.mjs'
+import { argsStavby, kontrola, stub, e2ePass, oprava, zelenaBrana, hash, NIC } from '../stuby.mjs'
 import { spust } from '../harness.mjs'
 
 const FAIL = e2ePass(8, { vysledek: 'fail', pass: 7, fail: 1, fail_kriteria: [{ kriterium: 'AK2 Formulář', selhani: 'neuloží' }] })
@@ -15,7 +15,8 @@ export default {
   odpoved(label, p, o, stav) {
     if (label === 'verify:řez 05:1') return zelenaBrana({ selhalo: 1, exit_kod: 1 })
     if (label === 'e2e:řez 05:1') return FAIL
-    if (label === 'fix-e2e:řez 05:1') return oprava({ zmenena_mista: ['apps/sucho/formular.ts: uloz'], radku_zmeneno: 30 })
+    if (label === 'fix-e2e:řez 05:1') return oprava({ zmenena_mista: ['apps/sucho/formular.ts: uloz'] })
+    if (label === 'review:řez 05:oprava-e2e') return NIC
     if (label === 'deploy:řez 05:2') return stub(label, { stav: 'failed', infra: true, infra_trida: 'platforma', commit: OPRAVA, duvod: 'Deploys have been paused' })
     return null
   },

@@ -11,7 +11,9 @@ cd "$root"
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 idx="$(git rev-parse --git-dir)/index"
-[ -f "$idx" ] && cp "$idx" "$tmp"
+# -p: git pozná změnu stejné velikosti v téže vteřině jen podle mtime indexu (racy git); kopie s dnešním mtime tu ochranu
+# vypne a hash by změnu přehlédl, marker by pak potvrdil strom, který brána neměřila.
+[ -f "$idx" ] && cp -p "$idx" "$tmp"
 # Bez pathspecu: `git add -A -- . ':(exclude)…'` vrací chybu, když je marker gitignorovaný
 # („The following paths are ignored“), a hash by se nespočítal. Celý docs/ (i marker) se z dočasného
 # indexu odebere; -f jen přeskakuje kontrolu shody s HEAD, pracovního stromu se --cached nedotkne.
