@@ -3,7 +3,7 @@
 #   orchestrate-setup.sh <cesta k vizi>
 # Co udělá (deterministicky, bez otázek):
 #   1. ověří identitu orchestrátorské session (docs/.orchestrator-session od UserPromptSubmit hooku),
-#   2. vyžaduje čistý pracovní strom (kromě vize samé, .gitignore a markerů běhu),
+#   2. vyžaduje čistý pracovní strom (kromě vize samé, .gitignore a markerů běhu; při navázání na tutéž vizi i docs/),
 #   3. stav předchozí vize (handoff, journal, vize-spory, prd/, e2e/, zpráva, marker) přesune do docs/archive/<slug>/,
 #      reporty z docs/reviews/ do docs/reviews/_archiv/<slug>/, z follow-ups odloží přeškrtnuté položky;
 #      stejná vize = navázání, nic se nearchivuje,
@@ -39,10 +39,16 @@ sid=$(jq -r '.session_id // empty' "$sess_file" 2>/dev/null)
 # příkazová řádka procesu claude (zapisuje hook prompt-submit.sh; hook běží mimo sandbox, setup v Bash sandboxu ps nevidí)
 claude_args=$(jq -r '.claude_args // empty' "$sess_file" 2>/dev/null)
 
-# 2. čistý strom (vize, .gitignore, markery a stavové soubory běhu smí být rozpracované), pak gitignore a vize do indexu
+# 2. čistý strom (vize, .gitignore, markery a stavové soubory běhu smí být rozpracované), pak gitignore a vize do indexu.
+# Navázání na tutéž vizi (marker nese její slug, typicky nová session po restartu): rozpracované smí být celé docs/.
+# Uzavření řezu dokumenty běhu necommituje (commituje je další řez), takže mezi bloky v nich vždy něco leží; přibalí je
+# commit navázání. Kód mimo docs/ start dál zastaví.
+navazani=0
+[ -f docs/.orchestrator-run ] && [ "$(jq -r '.slug // empty' docs/.orchestrator-run 2>/dev/null)" = "$slug" ] && navazani=1
+bez_docs_navazani() { if [ "$navazani" = 1 ]; then grep -v -E '^.. "?docs/' || true; else cat; fi; }
 dirty=$(git status --porcelain --untracked-files=all | grep -v -E ' docs/(\.orchestrator-session|\.orchestrator-run|\.vize-done|\.review-passed|\.deploy-unlocked|\.verify-passed|\.kontext\.jsonl|\.run-args\.json|\.stavba-[^/]*\.json|\.prd-[^/]*\.json|\.kolecko\.json|\.vysledek-stavba-[^/]*\.json|\.vysledek-kolecko\.json|reviews/)' \
-  | grep -v -E '^.. \.gitignore$' | grep -v -F -- " $vize_rel" | grep -v -F -- " docs/vize/$slug/" || true)
-[ -z "$dirty" ] || die "pracovní strom není čistý, běh startuje z čistého stavu:
+  | grep -v -E '^.. \.gitignore$' | grep -v -F -- " $vize_rel" | grep -v -F -- " docs/vize/$slug/" | bez_docs_navazani || true)
+[ -z "$dirty" ] || die "pracovní strom není čistý, běh startuje z čistého stavu (při navázání na tutéž vizi smí být rozpracované jen docs/):
 $dirty"
 obsah=""
 gi_changed=0
@@ -167,6 +173,7 @@ if [ "$resume" = 1 ] && [ -f docs/handoff.md ]; then
   sed -i '' -E "s/^(session:).*/\1 $sid/" docs/handoff.md 2>/dev/null || true
   echo "handoff: ponechán (navázání), $(wc -c < docs/handoff.md | tr -d ' ') B"
   git add docs/handoff.md 2>/dev/null
+  if [ "$navazani" = 1 ] && [ -n "$(git status --porcelain -- docs/ 2>/dev/null)" ]; then git add -A -- docs/; obsah="$obsah dokumenty běhu"; fi
   zprava="běh: navázání vize $slug"
 else
   # Sekce „Plán řezů“ končí až na nadpisu stejné nebo vyšší úrovně (podnadpisy uvnitř ji nekončí, jinak by parser

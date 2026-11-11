@@ -75,6 +75,17 @@ novy_repo zeleny; setup
 [ $rc -eq 0 ] && [ "$(behu)" = 1 ] && printf '%s' "$o" | grep -qF 'commit: běh: start vize v' && ok || ko "zeleny: rc=$rc behu=$(behu) $o"
 printf '%s' "$o" | grep -q 'přeměř' && ko "zeleny-hlaska: $o" || ok
 
+# navázání na tutéž vizi v nové session: rozpracované docs/ projdou a přibalí je commit navázání; kód mimo docs/ ne
+nova_session() { jq -n --arg s "$1" '{session_id:$s}' > "$r/docs/.orchestrator-session"; }
+rozpracuj_docs() { echo "- řez 01 uzavřen" >> "$r/docs/journal.md"; echo "# PRD 02" > "$r/docs/prd/rez-02-žluťoučký.md"; echo "# E2E" > "$r/docs/e2e/rez-02.md"; }
+novy_repo navazani; setup; nova_session sess-2; rozpracuj_docs; setup
+[ $rc -eq 0 ] && printf '%s' "$o" | grep -qF 'navázání: v projektu je stav téže vize (v)' && [ "$(zprava)" = 'běh: navázání vize v (dokumenty běhu)' ] && ok || ko "navazani-docs: rc=$rc $(zprava) $o"
+[ -z "$(git -C "$r" status --porcelain -- docs/)" ] && git -C "$r" show --name-only --format= HEAD | grep -q 'rez-02' && grep -q '^session: sess-2' "$r/docs/handoff.md" && ok || ko "navazani-docs-strom: $(git -C "$r" status --porcelain) $(git -C "$r" show --name-only --format= HEAD)"
+novy_repo navazani-kod; setup; nova_session sess-2; rozpracuj_docs; echo y >> "$r/README.md"; setup
+[ $rc -eq 2 ] && printf '%s' "$o" | grep -qF 'pracovní strom není čistý' && printf '%s' "$o" | grep -qF ' README.md' && ! printf '%s' "$o" | grep -q 'journal' && ok || ko "navazani-kod: rc=$rc $o"
+novy_repo jina-vize; setup; nova_session sess-2; rozpracuj_docs; jq '.slug = "jina"' "$r/docs/.orchestrator-run" > "$r/m.json" && mv "$r/m.json" "$r/docs/.orchestrator-run"; setup
+[ $rc -eq 2 ] && printf '%s' "$o" | grep -qF 'docs/journal.md' && ok || ko "jina-vize-docs: rc=$rc $o"
+
 # turbo bez propuštěného VITEST_MAX_FORKS: varování jen u turbo 2 (nebo neznámé verze) s vitestem
 turbo_repo() { # jméno turbo.json package.json [verze turba]
   novy_repo "$1"; printf '%s\n' "$2" > "$r/turbo.json"; printf '%s\n' "$3" > "$r/package.json"
