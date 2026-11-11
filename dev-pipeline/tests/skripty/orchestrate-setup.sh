@@ -86,25 +86,39 @@ novy_repo navazani-kod; setup; nova_session sess-2; rozpracuj_docs; echo y >> "$
 novy_repo jina-vize; setup; nova_session sess-2; rozpracuj_docs; jq '.slug = "jina"' "$r/docs/.orchestrator-run" > "$r/m.json" && mv "$r/m.json" "$r/docs/.orchestrator-run"; setup
 [ $rc -eq 2 ] && printf '%s' "$o" | grep -qF 'docs/journal.md' && ok || ko "jina-vize-docs: rc=$rc $o"
 
-# turbo bez propuštěného VITEST_MAX_FORKS: varování jen u turbo 2 (nebo neznámé verze) s vitestem
-turbo_repo() { # jméno turbo.json package.json [verze turba]
-  novy_repo "$1"; printf '%s\n' "$2" > "$r/turbo.json"; printf '%s\n' "$3" > "$r/package.json"
-  if [ -n "${4:-}" ]; then mkdir -p "$r/node_modules/turbo"; printf '{"version":"%s"}\n' "$4" > "$r/node_modules/turbo/package.json"; echo node_modules > "$r/.gitignore"; fi
+# turbo bez propuštěné proměnné stropu: varování jen u turbo 2 (nebo neznámé verze) s vitestem; jméno podle verze vitestu
+# (3 → VITEST_MAX_FORKS, 4 → VITEST_MAX_WORKERS, bez instalace obě)
+turbo_repo() { # jméno turbo.json package.json [verze turba] [verze vitestu v kořeni] [verze vitestu v apps/web]
+  novy_repo "$1"; printf '%s\n' "$2" > "$r/turbo.json"; printf '%s\n' "$3" > "$r/package.json"; echo node_modules > "$r/.gitignore"
+  if [ -n "${4:-}" ]; then mkdir -p "$r/node_modules/turbo"; printf '{"version":"%s"}\n' "$4" > "$r/node_modules/turbo/package.json"; fi
+  if [ -n "${5:-}" ]; then mkdir -p "$r/node_modules/vitest"; printf '{"version":"%s"}\n' "$5" > "$r/node_modules/vitest/package.json"; fi
+  if [ -n "${6:-}" ]; then mkdir -p "$r/apps/web/node_modules/vitest"; printf '{"version":"%s"}\n' "$6" > "$r/apps/web/node_modules/vitest/package.json"; fi
   git -C "$r" add -A; git -C "$r" commit -q -m turbo; setup
 }
 VITEST='{"devDependencies":{"vitest":"^3.2.0","turbo":"^2.8.0"}}'
-turbo_repo turbo-strict '{"tasks":{"test":{"cache":false}}}' "$VITEST" 2.8.9
-[ $rc -eq 0 ] && printf '%s' "$o" | grep -qF 'varování: turbo.json nepropouští VITEST_MAX_FORKS' && ok || ko "turbo-strict: rc=$rc $o"
-turbo_repo turbo-bez-verze '{"tasks":{"test":{"cache":false}}}' "$VITEST"
-printf '%s' "$o" | grep -qF 'nepropouští VITEST_MAX_FORKS' && ok || ko "turbo-bez-verze: $o"
-turbo_repo turbo-propousti '{"globalPassThroughEnv":["VITEST_MAX_FORKS"],"tasks":{"test":{"cache":false}}}' "$VITEST" 2.8.9
-printf '%s' "$o" | grep -q 'VITEST_MAX_FORKS' && ko "turbo-propousti: $o" || ok
-turbo_repo turbo-loose '{"envMode": "loose","tasks":{"test":{"cache":false}}}' "$VITEST" 2.8.9
-printf '%s' "$o" | grep -q 'VITEST_MAX_FORKS' && ko "turbo-loose: $o" || ok
-turbo_repo turbo-1 '{"pipeline":{"test":{}}}' "$VITEST" 1.13.4
-printf '%s' "$o" | grep -q 'VITEST_MAX_FORKS' && ko "turbo-1: $o" || ok
-turbo_repo turbo-bez-vitestu '{"tasks":{"test":{}}}' '{"devDependencies":{"jest":"^29.0.0"}}' 2.8.9
-printf '%s' "$o" | grep -q 'VITEST_MAX_FORKS' && ko "turbo-bez-vitestu: $o" || ok
+TASKS='"tasks":{"test":{"cache":false}}'
+varuje() { printf '%s' "$o" | grep -qF "varování: turbo.json nepropouští $1 ("; }
+nevaruje() { ! printf '%s' "$o" | grep -q 'nepropouští'; }
+turbo_repo turbo-strict "{$TASKS}" "$VITEST" 2.8.9 3.2.7
+[ $rc -eq 0 ] && varuje VITEST_MAX_FORKS && printf '%s' "$o" | grep -qF 'doplň VITEST_MAX_FORKS do "globalPassThroughEnv"' && ok || ko "turbo-strict: rc=$rc $o"
+turbo_repo turbo-bez-verze "{$TASKS}" "$VITEST"
+varuje 'VITEST_MAX_FORKS, VITEST_MAX_WORKERS' && ok || ko "turbo-bez-verze: $o"
+turbo_repo turbo-propousti "{\"globalPassThroughEnv\":[\"VITEST_MAX_FORKS\"],$TASKS}" "$VITEST" 2.8.9 3.2.7
+nevaruje && ok || ko "turbo-propousti: $o"
+turbo_repo turbo-propousti-bez-instalace "{\"globalPassThroughEnv\":[\"VITEST_MAX_FORKS\"],$TASKS}" "$VITEST" 2.8.9
+varuje VITEST_MAX_WORKERS && ok || ko "turbo-propousti-bez-instalace: $o"
+turbo_repo vitest4-jen-forks "{\"globalPassThroughEnv\":[\"VITEST_MAX_FORKS\"],$TASKS}" "$VITEST" 2.8.9 4.0.18
+varuje VITEST_MAX_WORKERS && ok || ko "vitest4-jen-forks: $o"
+turbo_repo vitest4-workers "{\"globalPassThroughEnv\":[\"CLOUDFLARE_API_TOKEN\",\"VITEST_MAX_WORKERS\"],$TASKS}" "$VITEST" 2.8.9 4.0.18
+nevaruje && ok || ko "vitest4-workers: $o"
+turbo_repo vitest-smisene "{\"globalPassThroughEnv\":[\"VITEST_MAX_FORKS\"],$TASKS}" "$VITEST" 2.8.9 3.2.7 4.0.18
+varuje VITEST_MAX_WORKERS && ok || ko "vitest-smisene: $o"
+turbo_repo turbo-loose "{\"envMode\": \"loose\",$TASKS}" "$VITEST" 2.8.9 4.0.18
+nevaruje && ok || ko "turbo-loose: $o"
+turbo_repo turbo-1 '{"pipeline":{"test":{}}}' "$VITEST" 1.13.4 3.2.7
+nevaruje && ok || ko "turbo-1: $o"
+turbo_repo turbo-bez-vitestu "{$TASKS}" '{"devDependencies":{"jest":"^29.0.0"}}' 2.8.9
+nevaruje && ok || ko "turbo-bez-vitestu: $o"
 
 echo "orchestrate-setup: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

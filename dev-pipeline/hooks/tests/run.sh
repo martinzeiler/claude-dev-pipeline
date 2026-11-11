@@ -715,22 +715,22 @@ vaha 'npx tsc -w -p apps/api' 0
 vaha 'npx tsc --watch -p apps/api' 0
 # Strop forků vitestu: cílené příkazy i suita ho dostanou v obalu, suita lze vypnout DEV_PIPELINE_TEZKY_FORKY_SUITA=0.
 obal_cmd() { frun "$(fr $SID ag1 dev-pipeline:implement "$1")" | jq -r '.hookSpecificOutput.updatedInput.command // ""'; }
-case "$(obal_cmd 'pnpm vitest run src/a.test.ts')" in *$'&& {\nexport VITEST_MAX_FORKS=2\npnpm vitest run src/a.test.ts\n}'*) ok ;; *) ko "fr-forky-cilene" ;; esac
-case "$(obal_cmd 'python3 $S/mut.py')" in *'export VITEST_MAX_FORKS=2'*) ok ;; *) ko "fr-forky-mutace" ;; esac
-case "$(DEV_PIPELINE_TEZKY_FORKY_SUITA=0 obal_cmd 'pnpm test')" in *VITEST_MAX_FORKS*) ko "fr-forky-suita-bez-stropu" ;; *) ok ;; esac
-case "$(DEV_PIPELINE_TEZKY_FORKY=3 obal_cmd 'pnpm vitest run src/a.test.ts')" in *'export VITEST_MAX_FORKS=3'*) ok ;; *) ko "fr-forky-z-prostredi" ;; esac
-case "$(DEV_PIPELINE_TEZKY_FORKY=x obal_cmd 'pnpm vitest run src/a.test.ts')" in *'export VITEST_MAX_FORKS=2'*) ok ;; *) ko "fr-forky-nesmysl" ;; esac
-case "$(DEV_PIPELINE_TEZKY_FORKY_SUITA=3 obal_cmd 'pnpm test')" in *$'&& {\nexport VITEST_MAX_FORKS=3\npnpm test\n}'*) ok ;; *) ko "fr-forky-suita-strop" ;; esac
+case "$(obal_cmd 'pnpm vitest run src/a.test.ts')" in *$'&& {\nexport VITEST_MAX_FORKS=2 VITEST_MAX_WORKERS=2\npnpm vitest run src/a.test.ts\n}'*) ok ;; *) ko "fr-forky-cilene" ;; esac
+case "$(obal_cmd 'python3 $S/mut.py')" in *'export VITEST_MAX_FORKS=2 VITEST_MAX_WORKERS=2'*) ok ;; *) ko "fr-forky-mutace" ;; esac
+case "$(DEV_PIPELINE_TEZKY_FORKY_SUITA=0 obal_cmd 'pnpm test')" in *VITEST_MAX_*) ko "fr-forky-suita-bez-stropu" ;; *) ok ;; esac
+case "$(DEV_PIPELINE_TEZKY_FORKY=3 obal_cmd 'pnpm vitest run src/a.test.ts')" in *'export VITEST_MAX_FORKS=3 VITEST_MAX_WORKERS=3'*) ok ;; *) ko "fr-forky-z-prostredi" ;; esac
+case "$(DEV_PIPELINE_TEZKY_FORKY=x obal_cmd 'pnpm vitest run src/a.test.ts')" in *'export VITEST_MAX_FORKS=2 VITEST_MAX_WORKERS=2'*) ok ;; *) ko "fr-forky-nesmysl" ;; esac
+case "$(DEV_PIPELINE_TEZKY_FORKY_SUITA=3 obal_cmd 'pnpm test')" in *$'&& {\nexport VITEST_MAX_FORKS=3 VITEST_MAX_WORKERS=3\npnpm test\n}'*) ok ;; *) ko "fr-forky-suita-strop" ;; esac
 out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'pnpm test')")
 printf '%s' "$out" | jq -e --arg q "'" '.hookSpecificOutput | .permissionDecision == "allow" and .updatedInput.timeout == 600000 and .updatedInput.description == "test"
   and .updatedInput.run_in_background == true
-  and (.updatedInput.command | startswith("python3 " + $q) and contains("/scripts/tezky.py" + $q + " vezmi --vaha 4 --pid $$ --popis " + $q + "pnpm test" + $q + " && {\nexport VITEST_MAX_FORKS=2\npnpm test\n}; __dp_rc=$?; python3 ") and endswith(" vrat --pid $$; (exit $__dp_rc)"))' >/dev/null && ok || ko "fr-obal: $out"
+  and (.updatedInput.command | startswith("python3 " + $q) and contains("/scripts/tezky.py" + $q + " vezmi --vaha 4 --pid $$ --popis " + $q + "pnpm test" + $q + " && {\nexport VITEST_MAX_FORKS=2 VITEST_MAX_WORKERS=2\npnpm test\n}; __dp_rc=$?; python3 ") and endswith(" vrat --pid $$; (exit $__dp_rc)"))' >/dev/null && ok || ko "fr-obal: $out"
 out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'git commit -m "rez 05: x"')")
-printf '%s' "$out" | jq -e '.hookSpecificOutput.updatedInput | (.run_in_background != true) and (.command | contains(" --max-cekani 180 && {\ngit commit") and (contains("VITEST_MAX_FORKS") | not))' >/dev/null && ok || ko "fr-obal-commit: $out"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.updatedInput | (.run_in_background != true) and (.command | contains(" --max-cekani 180 && {\ngit commit") and (contains("VITEST_MAX_") | not))' >/dev/null && ok || ko "fr-obal-commit: $out"
 out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'npx vitest run')")
-printf '%s' "$out" | jq -e '.hookSpecificOutput.updatedInput | (.run_in_background != true) and (.command | contains("export VITEST_MAX_FORKS=2"))' >/dev/null && ok || ko "fr-obal-holy-vitest: $out"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.updatedInput | (.run_in_background != true) and (.command | contains("export VITEST_MAX_FORKS=2 VITEST_MAX_WORKERS=2\n"))' >/dev/null && ok || ko "fr-obal-holy-vitest: $out"
 out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'pnpm exec tsc --noEmit')")
-printf '%s' "$out" | jq -e '.hookSpecificOutput.updatedInput | (.run_in_background != true) and (.command | contains(" --max-cekani 300 && {\nexport VITEST_MAX_FORKS=2\npnpm exec tsc"))' >/dev/null && ok || ko "fr-obal-tsc: $out"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.updatedInput | (.run_in_background != true) and (.command | contains(" --max-cekani 300 && {\nexport VITEST_MAX_FORKS=2 VITEST_MAX_WORKERS=2\npnpm exec tsc"))' >/dev/null && ok || ko "fr-obal-tsc: $out"
 out=$(frun "$(fr $SID ag1 dev-pipeline:implement 'true || pnpm test; echo BEZI; (exit 3)')"); obal=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.updatedInput.command')
 for sh in bash zsh; do
   command -v $sh >/dev/null 2>&1 || continue

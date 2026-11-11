@@ -170,6 +170,7 @@ command -v python3 >/dev/null 2>&1 || exit 0
 
 # Strop forků vitestu (nativní proměnná vitestu): DEV_PIPELINE_TEZKY_FORKY pro cílené příkazy, DEV_PIPELINE_TEZKY_FORKY_SUITA pro
 # suitu (0 = bez stropu); git commit strop nedostane, jeho pre-commit by jinak s pomalejší suitou narazil na limit Bash nástroje.
+# Obal nastaví obě jména: Vitest 3 čte jen VITEST_MAX_FORKS, Vitest 4 jen VITEST_MAX_WORKERS (druhé jméno ta verze ignoruje).
 forky=${DEV_PIPELINE_TEZKY_FORKY:-2}
 case "$forky" in ''|*[!0-9]*|0) forky=2 ;; esac
 forky_suita=${DEV_PIPELINE_TEZKY_FORKY_SUITA:-2}
@@ -185,7 +186,7 @@ read -r -d '' OBAL <<'JQ'
 # Čekání ve frontě se počítá do timeoutu příkazu: v popředí zbude na samotný běh aspoň 420 s (commit s branou), u váhy pod 4 aspoň 300 s.
 | ($ti.run_in_background == true or $pl == 1) as $pozadi
 | (if $pozadi then "" else " --max-cekani \([(($to / 1000) - (if $v < 4 then 300 else 420 end)), 60] | max | floor)" end) as $mc
-| (if $v < 4 then "export VITEST_MAX_FORKS=\($f)\n" elif $su == 1 and $fs > 0 then "export VITEST_MAX_FORKS=\($fs)\n" else "" end) as $strop
+| (if $v < 4 then "export VITEST_MAX_FORKS=\($f) VITEST_MAX_WORKERS=\($f)\n" elif $su == 1 and $fs > 0 then "export VITEST_MAX_FORKS=\($fs) VITEST_MAX_WORKERS=\($fs)\n" else "" end) as $strop
 | "python3 '\($py)' vezmi --vaha \($v) --pid $$ --popis '\($popis)'\($mc) && {\n\($strop)\($ti.command)\n}; __dp_rc=$?; python3 '\($py)' vrat --pid $$; (exit $__dp_rc)" as $obal
 | {hookSpecificOutput:{hookEventName:"PreToolUse", permissionDecision:"allow",
    updatedInput:($ti + {command:$obal, timeout:$to} + (if $pozadi then {run_in_background:true} else {} end))}}
