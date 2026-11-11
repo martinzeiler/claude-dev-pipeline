@@ -272,6 +272,15 @@ if [ -f CLAUDE.md ]; then
   { [ "$cl" -gt 400 ] || [ "$cb" -gt 20480 ]; } && echo "varování: CLAUDE.md projektu má $cl řádků a $cb B (doporučený strop 400 řádků a ~20 kB), každý agent ho nese v preambuli; historie a stavy patří do docs/"
 fi
 hs=$(wc -c < docs/handoff.md | tr -d ' '); [ "$hs" -gt 4096 ] && echo "varování: handoff má $hs B, po compactu se injektují jen první 4 096 B"
+# Strop forků z fronty těžkých příkazů (VITEST_MAX_FORKS) projde turbem 2 jen deklarovaný (strict env mode); turbo 1 a envMode loose
+# propouštějí všechno. Bez stropu jede suita s plným počtem forků a každý fork smí růst do limitu haldy Node.
+if [ -f turbo.json ] && ! grep -q 'VITEST_MAX_FORKS' turbo.json && ! grep -qE '"envMode"[[:space:]]*:[[:space:]]*"loose"' turbo.json; then
+  tv=$(jq -r '.version // empty' node_modules/turbo/package.json 2>/dev/null); vitest=0
+  for f in package.json apps/*/package.json packages/*/package.json; do [ -f "$f" ] && grep -q '"vitest"' "$f" && { vitest=1; break; }; done
+  if [ "${tv%%.*}" != 1 ] && [ "$vitest" = 1 ]; then
+    echo "varování: turbo.json nepropouští VITEST_MAX_FORKS (turbo 2 předává úlohám jen deklarované proměnné), takže strop forků z fronty těžkých příkazů se k vitestu nedostane a suita poběží s plným počtem forků; doplň do turbo.json \"globalPassThroughEnv\": [\"VITEST_MAX_FORKS\"]"
+  fi
+fi
 echo "marker: docs/.orchestrator-run (session $sid, start $now)"
 echo "hotovo: rc=$rc"
 exit $rc

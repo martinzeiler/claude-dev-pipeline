@@ -9,6 +9,7 @@
 # příkazy (bez fronty se stroj přehřívá). Přepis přes updatedInput funguje u subagenta i agenta Workflow. Obal běží ve stejném shellu jako původní příkaz, $$ je PID toho shellu; když ho zabije
 # timeout, místo uvolní tezky.py sám podle mrtvého PID.
 # E2E verifikátor těžké příkazy nesmí vůbec: ověřuje běžící aplikaci, kritéria nad kódem změřila brána.
+# Těžký příkaz s „&“ (běh na pozadí) zamítne s návodem: obal by místo uvolnil s koncem shellu a proces by běžel mimo frontu.
 # Fail-open: cokoli nejednoznačného projde beze změny.
 set -uo pipefail
 
@@ -127,18 +128,26 @@ function segment(seg,   raw, m, k, t, i, j, w, filtr) {
   }
   zapis(nastroj(w, i + 1), 0)
 }
-BEGIN { vaha = 0; zakaz = 0; suita = 0; plna = 0; konec = "" }
+# Běh na pozadí: „&“ mimo uvozovky a těla heredoců, které není &&, |&, přesměrování (2>&1, >&2, <&3) ani &> / &>>.
+# Řetězce se odstraňují přes celý příkaz, takže uvozovky přes víc řádků (git commit -m "…") se počítají správně.
+function na_pozadi(t) {
+  gsub(/\\./, "", t); gsub(/"[^"]*"/, "", t); gsub(/'[^']*'/, "", t)
+  gsub(/&&|\|&|[0-9]*[<>]&[0-9-]*|&>>?/, "", t)
+  return index(t, "&") > 0 ? 1 : 0
+}
+BEGIN { vaha = 0; zakaz = 0; suita = 0; plna = 0; konec = ""; vse = "" }
 {
   if (konec != "") { r = $0; gsub(/^[ \t]+|[ \t]+$/, "", r); if (r == konec) konec = ""; next }
+  vse = vse "\n" $0
   h = $0; gsub(/<<</, "", h)
   if (match(h, /<<-?[ \t]*['"]?[A-Za-z_][A-Za-z0-9_]*/)) { konec = substr(h, RSTART, RLENGTH); sub(/^<<-?[ \t]*['"]?/, "", konec) }
   radek = $0; gsub(/&&|\|\||[;|]/, "\n", radek)
   pocet = split(radek, segs, "\n")
   for (s = 1; s <= pocet; s++) segment(segs[s])
 }
-END { print vaha, zakaz, suita, plna }
+END { print vaha, zakaz, suita, plna, na_pozadi(vse) }
 AWK
-read -r vaha zakaz suita plna <<EOF
+read -r vaha zakaz suita plna pozadi <<EOF
 $(printf '%s\n' "$cmd" | awk "$TRIDENI" 2>/dev/null)
 EOF
 
@@ -151,6 +160,12 @@ case "${typ:-}" in
     fi ;;
 esac
 case "${vaha:-0}" in ''|*[!0-9]*|0) exit 0 ;; esac
+# Těžký příkaz s „&“: obal by místo uvolnil s koncem shellu, zatímco proces na pozadí dál běží mimo frontu.
+if [ "${pozadi:-0}" = 1 ]; then
+  jq -cn --arg r "Těžký příkaz (testy, typecheck, build, instalace, commit) nespouštěj s „&“: proces na pozadí uteče frontě těžkých příkazů, ta mu uvolní místo hned po konci shellu a stroj pak nese dva těžké běhy najednou. Spusť ho bez „&“; plnou suitu přesune na pozadí fronta sama, dočkej se jí podle Společných pravidel a kód čti z výstupu té úlohy. Server nebo jiný dlouhý proces spusť zvlášť přes run_in_background." \
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+  exit 0
+fi
 command -v python3 >/dev/null 2>&1 || exit 0
 
 # Strop forků vitestu (nativní proměnná vitestu): DEV_PIPELINE_TEZKY_FORKY pro cílené příkazy, DEV_PIPELINE_TEZKY_FORKY_SUITA pro

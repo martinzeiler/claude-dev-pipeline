@@ -746,6 +746,19 @@ run fr-e2e-worktree-deny fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verif
 run fr-e2e-typecheck-deny fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'pnpm --filter @x/api typecheck')" deny
 run fr-e2e-gtimeout-deny fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'gtimeout 300 pnpm test')" deny "E2E ověřuje běžící aplikaci"
 run fr-e2e-show-ok fronta-tezkych.sh "$(fr $SID ag2 dev-pipeline:e2e-verifier 'git show HEAD~3:apps/api/src/a.ts | grep -n budget')" allow
+# Těžký příkaz s „&“ by frontě utekl (obal uvolní místo s koncem shellu): zamítnutí; přesměrování, && a uvozovky ne.
+run fr-pozadi-subshell-deny fronta-tezkych.sh "$(fr $SID ag1 dev-pipeline:verify '(pnpm test > $S/test.log 2>&1; echo $? > $S/test.exit) &')" deny "nespouštěj s"
+run fr-pozadi-devnull-deny fronta-tezkych.sh "$(fr $SID ag1 dev-pipeline:verify '(echo x >> $L; pnpm test --force >> $L 2>&1; echo EXIT=$? >> $L) > /dev/null 2>&1 &')" deny "nespouštěj s"
+run fr-pozadi-radky-deny fronta-tezkych.sh "$(fr $SID ag1 dev-pipeline:verify $'pnpm turbo typecheck --force > $S/tc.log 2>&1; echo TC=$?\n(pnpm test > $S/test.log 2>&1; echo $? > $S/test.exit) &\nsleep 1; echo started')" deny
+run fr-pozadi-dva-deny fronta-tezkych.sh "$(fr $SID ag1 dev-pipeline:implement 'pnpm build & pnpm typecheck & wait')" deny
+run fr-pozadi-server-deny fronta-tezkych.sh "$(fr $SID ag1 dev-pipeline:implement 'pnpm build && pnpm preview &')" deny
+vaha 'pnpm test &> /tmp/log; echo EXIT=$? >&2' 4
+vaha 'pnpm typecheck 2>&1 && pnpm test |& tee /tmp/log' 4
+vaha 'git commit -m "kontrakt & části"' 4
+vaha $'git commit -m "rez 05: a & b\n\ndetail"' 4
+vaha $'git commit -F - <<\'EOF\'\nrez 05: a & b\nEOF' 4
+vaha "pnpm vitest run src/a.test.ts -t 'a & b'" 1
+[ -z "$(frun "$(fr $SID ag1 dev-pipeline:implement 'pnpm dev > /tmp/dev.log 2>&1 &')")" ] && ok || ko "fr-pozadi-lehky"
 # --- tezky.py: rozpočet, přísné FIFO, mrtvý PID, vypršení (stav v dočasném TMPDIR, krok 0,2 s)
 ROZ=6; MAXC=300
 tk() { TMPDIR="$tmp/tk" DEV_PIPELINE_TEZKY_KROK=0.2 DEV_PIPELINE_TEZKY_ROZPOCET=$ROZ DEV_PIPELINE_TEZKY_MAX_CEKANI=$MAXC python3 "$hooks/../scripts/tezky.py" "$@"; }

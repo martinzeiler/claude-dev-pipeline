@@ -75,5 +75,25 @@ novy_repo zeleny; setup
 [ $rc -eq 0 ] && [ "$(behu)" = 1 ] && printf '%s' "$o" | grep -qF 'commit: běh: start vize v' && ok || ko "zeleny: rc=$rc behu=$(behu) $o"
 printf '%s' "$o" | grep -q 'přeměř' && ko "zeleny-hlaska: $o" || ok
 
+# turbo bez propuštěného VITEST_MAX_FORKS: varování jen u turbo 2 (nebo neznámé verze) s vitestem
+turbo_repo() { # jméno turbo.json package.json [verze turba]
+  novy_repo "$1"; printf '%s\n' "$2" > "$r/turbo.json"; printf '%s\n' "$3" > "$r/package.json"
+  if [ -n "${4:-}" ]; then mkdir -p "$r/node_modules/turbo"; printf '{"version":"%s"}\n' "$4" > "$r/node_modules/turbo/package.json"; echo node_modules > "$r/.gitignore"; fi
+  git -C "$r" add -A; git -C "$r" commit -q -m turbo; setup
+}
+VITEST='{"devDependencies":{"vitest":"^3.2.0","turbo":"^2.8.0"}}'
+turbo_repo turbo-strict '{"tasks":{"test":{"cache":false}}}' "$VITEST" 2.8.9
+[ $rc -eq 0 ] && printf '%s' "$o" | grep -qF 'varování: turbo.json nepropouští VITEST_MAX_FORKS' && ok || ko "turbo-strict: rc=$rc $o"
+turbo_repo turbo-bez-verze '{"tasks":{"test":{"cache":false}}}' "$VITEST"
+printf '%s' "$o" | grep -qF 'nepropouští VITEST_MAX_FORKS' && ok || ko "turbo-bez-verze: $o"
+turbo_repo turbo-propousti '{"globalPassThroughEnv":["VITEST_MAX_FORKS"],"tasks":{"test":{"cache":false}}}' "$VITEST" 2.8.9
+printf '%s' "$o" | grep -q 'VITEST_MAX_FORKS' && ko "turbo-propousti: $o" || ok
+turbo_repo turbo-loose '{"envMode": "loose","tasks":{"test":{"cache":false}}}' "$VITEST" 2.8.9
+printf '%s' "$o" | grep -q 'VITEST_MAX_FORKS' && ko "turbo-loose: $o" || ok
+turbo_repo turbo-1 '{"pipeline":{"test":{}}}' "$VITEST" 1.13.4
+printf '%s' "$o" | grep -q 'VITEST_MAX_FORKS' && ko "turbo-1: $o" || ok
+turbo_repo turbo-bez-vitestu '{"tasks":{"test":{}}}' '{"devDependencies":{"jest":"^29.0.0"}}' 2.8.9
+printf '%s' "$o" | grep -q 'VITEST_MAX_FORKS' && ko "turbo-bez-vitestu: $o" || ok
+
 echo "orchestrate-setup: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]
