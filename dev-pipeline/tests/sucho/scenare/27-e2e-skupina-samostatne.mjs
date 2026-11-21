@@ -1,6 +1,6 @@
 // 27 · stavba · revize 1.4.0 nález 1: verifikátor b nevrátí výsledek v souběhu (3 běhy run()), samostatně už ano. Řez se uzavře
 // s počty všech tří skupin (30 kritérií), ne jen a a c.
-import { argsStavby, kontrola, NIC, e2ePass } from '../stuby.mjs'
+import { argsStavby, kontrola, NIC, e2ePass, odSkupiny } from '../stuby.mjs'
 
 const SEKCE = [{ nazev: 'Sekce A', kriterii: 10 }, { nazev: 'Sekce B', kriterii: 10 }, { nazev: 'Sekce C', kriterii: 10 }]
 
@@ -9,8 +9,8 @@ export default {
   blok: 'blok-stavby',
   args: argsStavby({ kriteria: 30, e2e_sekce: SEKCE }),
   odpoved(label, prompt, opts, stav) {
-    if (label === 'e2e:řez 05:1:b') return stav.pocty[label] <= 3 ? NIC : e2ePass(10)
-    if (/^e2e:řez 05:1:[ac]$/.test(label)) return e2ePass(10)
+    if (label === 'e2e:řez 05:1:b') return stav.pocty[label] <= 3 ? NIC : e2ePass(10, {}, odSkupiny('b'))
+    if (/^e2e:řez 05:1:[ac]$/.test(label)) return e2ePass(10, {}, odSkupiny(label.slice(-1)))
     return null
   },
   over(v, volani, logy) {

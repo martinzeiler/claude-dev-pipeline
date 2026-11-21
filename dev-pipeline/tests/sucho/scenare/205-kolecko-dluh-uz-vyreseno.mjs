@@ -16,7 +16,7 @@ export default {
   },
   over(v, volani) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, vysledek: 'hotovo', dluh: { polozek: 2, opraveno: 1, odmitnuto: 0, uz_vyreseno: 1, varek: 1 } })
+    k.navrat(v, { ok: true, vysledek: 'hotovo', dluh: { polozek: 2, opraveno: 1, odmitnuto: 0, uz_vyreseno: 1, varek: 1, citelnost: { polozek: 0, opraveno: 0, zbyva: 0 } } })
     const f = k.jeden('fix:kolečko:dluh:1')
     k.pole(f, ['uz_vyreseno_ids'], 'fix dluhu'); k.obsahuje(f, 'vrať v uz_vyreseno_ids', 'pokyn k už vyřešeným')
     k.jeden('dluh:kolečko:2')

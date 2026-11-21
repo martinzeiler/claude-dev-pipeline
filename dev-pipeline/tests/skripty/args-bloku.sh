@@ -229,6 +229,17 @@ jq -n '{status:"completed", workflowName:"blok-prd", result:{ok:true, rez:"05", 
 o=$(ab stavba "$proj" 5 --prd-run wf_lehke-7); [ $? -eq 0 ] && [ "$(j '.prd_lehke' "$proj/docs/.stavba-05.json")" = 'true' ] && ok || ko "prd-lehke-do-stavby: $o"
 o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"deploy_podminky":[{"popis":"neběží import","kontrola":"psql","pravidlo":"0"}]}'); [ $? -eq 0 ] && [ "$(j '.deploy_podminky[0].popis' "$proj/docs/.stavba-05.json")" = '"neběží import"' ] && ok || ko "podminky: $o"
 o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"deploy_podminky":["neběží import"]}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'deploy_podminky musí být' && ok || ko "podminky-tvar: $o"
+# deploy_podminky[].plati: jen vzdy nebo pri-zasahu, do souboru beze změny (chybějící skript nedoplňuje, výchozí řeší blok);
+# jiná hodnota končí kódem 2 a soubor args nepřepíše
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"deploy_podminky":[{"popis":"doměření běží","kontrola":"dotaz C1","pravidlo":"nezapisuj do 9 tabulek","plati":"pri-zasahu"},{"popis":"mimo okno","plati":"vzdy"},{"popis":"neběží import"}]}'); rc=$?
+[ $rc -eq 0 ] && [ "$(j '[.deploy_podminky[] | [.popis, .plati, has("plati")]]' "$proj/docs/.stavba-05.json")" = '[["doměření běží","pri-zasahu",true],["mimo okno","vzdy",true],["neběží import",null,false]]' ] && ok || ko "podminky-plati: rc=$rc $o $(j '.deploy_podminky' "$proj/docs/.stavba-05.json")"
+pred=$(cat "$proj/docs/.stavba-05.json")
+o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit '{"deploy_podminky":[{"popis":"a"},{"popis":"b","plati":"pri zasahu"}]}'); rc=$?
+[ $rc -eq 2 ] && printf '%s' "$o" | grep -qF 'args-bloku: deploy_podminky[1].plati musí být "vzdy" nebo "pri-zasahu", ne "pri zasahu"; bez pole platí podmínka vždy' && ok || ko "podminky-plati-neplatne: rc=$rc $o"
+[ "$(cat "$proj/docs/.stavba-05.json")" = "$pred" ] && ok || ko "podminky-plati-neplatne-soubor: soubor args se po chybě změnil"
+for v in 'null' '""' 'true' '["vzdy"]' '"Vzdy"'; do
+  o=$(ab stavba "$proj" 5 --prd-run wf_full-2 --doplnit "{\"deploy_podminky\":[{\"popis\":\"a\",\"plati\":$v}]}"); [ $? -eq 2 ] && printf '%s' "$o" | grep -qF 'deploy_podminky[0].plati musí být' && ok || ko "podminky-plati-$v: $o"
+done
 o=$(ab kolecko "$proj" --doplnit '{"obnova":{"od_faze":"deploy","pokus":1,"jen_kriteria":["AK2"],"pokyn_orchestratora":"x"}}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'patří do volání' && ok || ko "obnova-nove-klice: $o"
 o=$(ab kolecko "$proj" --doplnit '{"obnova":{"od_faze":"deploy","pokus":1,"jen_kriteria":"AK2"}}'); [ $? -eq 2 ] && printf '%s' "$o" | grep -q 'jen_kriteria musí být' && ok || ko "obnova-jen-tvar: $o"
 

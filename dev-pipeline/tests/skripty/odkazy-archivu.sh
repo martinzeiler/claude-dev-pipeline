@@ -2,6 +2,8 @@
 # Testy scripts/odkazy-archivu.py a jeho napojení v orchestrate-setup.sh (archivace předchozí vize). Každý případ
 # v dočasném git repu; skutečný projekt se nedotkne. Historie: vize A (rez-01 A), archivace A, vize B (rez-01 B),
 # nová vize C. Odkaz z doby A musí vést do archivu A, odkaz z doby B do archivu B (běh sonnet-5-5-a-cache, Surya).
+# Migrace se nepřepisují, vzor cesty v regexu se jen ohlásí a trvalý soubor projektu (docs/e2e/pasti.md) zůstává na místě
+# i s odkazy na něj (běh strategie-a-pamet, Surya).
 set -u
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 plugin=$(cd "$here/../.." && pwd)
@@ -74,8 +76,50 @@ out=$(python3 -I "$skript" "$r" B docs/vize/C.md); [ "$out" = "odkazy na archiv:
 python3 -I "$skript" "$r" 2>/dev/null; [ $? -eq 2 ] && ok || ko "bez argumentů nemá rc 2"
 cd /; rm -rf "$r"
 
-# 3. celý setup: archivace B s přepsanými odkazy projde jedním commitem
-repo
+# 3. migrace, vzor cesty v regexu a trvalý soubor: migrace beze změny a mimo index, regex jen ohlášen, odkaz na trvalý
+# soubor zůstává a ostatní odkazy téhož řádku se přepíšou
+dalsi_soubory() {
+  mkdir -p db/migrations src/migrations
+  printf -- '-- viz docs/e2e/rez-01.md\n' > db/migrations/0002_b.sql
+  printf '// viz docs/e2e/rez-02.md a docs/e2e/rez-01.md\n' > src/migrations/003-b.ts
+  printf -- '-- seed podle docs/e2e/rez-02.md\n' > src/seed.SQL
+  printf '%s\n' 'const jeSonda = (s) => /`docs\/e2e\/[^`]+\.md`/.test(s);' 'jeSonda("`docs/e2e/rez-02.md`");' > src/sonda.test.ts
+  printf '# Pasti projektu\n' > docs/e2e/pasti.md
+  printf '// pasti docs/e2e/pasti.md, scénář docs/e2e/rez-02.md\n' > src/c.ts
+  printf -- '- [řez 02] past zapsat do docs/e2e/pasti.md\n' >> docs/follow-ups.md
+  git add db src docs; git commit -qm 'vize B: řez 02'   # dist/ zůstává netrackovaný
+}
+repo; dalsi_soubory
+out=$(python3 -I "$skript" "$r" B docs/vize/C.md docs/e2e/pasti.md); rc=$?
+[ "$rc" -eq 0 ] && ok || ko "rc=$rc"
+printf '%s\n' "$out" | grep -q 'přepsáno 7 v 6 souborech, nevyřešeno 1, migrace beze změny 3$' && ok || ko "souhrn s migracemi: $out"
+ma db/migrations/0002_b.sql '-- viz docs/e2e/rez-01.md'
+ma src/migrations/003-b.ts '// viz docs/e2e/rez-02.md a docs/e2e/rez-01.md'
+ma src/seed.SQL 'podle docs/e2e/rez-02.md'
+for m in 'db/migrations/0002_b.sql (odkazů: 1)' 'src/migrations/003-b.ts (odkazů: 2)' 'src/seed.SQL (odkazů: 1)'; do
+  printf '%s\n' "$out" | grep -qF "  nepřepsáno (migrace): $m" && ok || ko "chybí nepřepsáno (migrace): $m v: $out"
+done
+git diff --cached --name-only | grep -qE 'migrations|seed' && ko "migrace nemá být v indexu: $(git diff --cached --name-only)" || ok
+ma src/sonda.test.ts '/`docs\/e2e\/[^`]+\.md`/'                 # regex zůstal
+ma src/sonda.test.ts 'jeSonda("`docs/archive/B/e2e/rez-02.md`")'   # literál přepsán
+printf '%s\n' "$out" | grep -qxF '  pozor: vzor cesty v regexu, přepis ho nezmění: src/sonda.test.ts:1' && ok || ko "chybí pozor na regex: $out"
+[ "$(printf '%s\n' "$out" | grep -c 'pozor:')" = 1 ] && ok || ko "pozor má být jeden: $out"
+ma src/c.ts '// pasti docs/e2e/pasti.md, scénář docs/archive/B/e2e/rez-02.md'
+ma docs/follow-ups.md 'past zapsat do docs/e2e/pasti.md'
+printf '%s\n' "$out" | grep -q 'pasti' && ko "trvalý soubor nemá být ve výpisu: $out" || ok
+# druhý běh nic nepřepíše, takže regex nehlásí; migrace vypíše dál
+out2=$(python3 -I "$skript" "$r" B docs/vize/C.md docs/e2e/pasti.md)
+printf '%s\n' "$out2" | grep -q 'přepsáno 0 v 0 souborech, nevyřešeno 1, migrace beze změny 3$' && ok || ko "druhý běh s migracemi: $out2"
+printf '%s\n' "$out2" | grep -q 'pozor:' && ko "druhý běh hlásí regex: $out2" || ok
+cd /; rm -rf "$r"
+# bez seznamu trvalých souborů by odkaz na pasti šel do archivu: seznam nese setup (TRVALE_SOUBORY), ne skript
+repo; dalsi_soubory
+python3 -I "$skript" "$r" B docs/vize/C.md > /dev/null
+ma src/c.ts '// pasti docs/archive/B/e2e/pasti.md'
+cd /; rm -rf "$r"
+
+# 4. celý setup: archivace B s přepsanými odkazy projde jedním commitem; trvalý soubor zůstává a odkaz na něj taky
+repo; dalsi_soubory
 printf '# Vize C\n\n## Plán řezů\n\n| # | název | body vize | definice hotového | závislosti | poznámka |\n|---|---|---|---|---|---|\n| 01 | první | C1 | funguje | – | – |\n' > docs/vize/C.md
 mkdir -p docs/prd; printf -- '---\nvize: docs/vize/B.md\n---\n# PRD B\n' > docs/prd/rez-01-b.md
 git add -A; git commit -qm 'vize: C (plán)'
@@ -90,6 +134,11 @@ ma src/a.ts 'docs/archive/A/e2e/rez-01.md'
 [ -z "$(git status --porcelain -- src docs/archive docs/e2e)" ] && ok || ko "necommitnuto: $(git status --porcelain | head -5)"
 git log -1 --format=%s | grep -q 'start vize C' && ok || ko "poslední commit: $(git log -1 --format=%s)"
 git show --stat HEAD | grep -q 'src/b.ts' && ok || ko "odkazy nejsou v commitu setupu"
+[ -f docs/e2e/pasti.md ] && [ ! -e docs/archive/B/e2e/pasti.md ] && [ -f docs/archive/B/e2e/rez-02.md ] && ok || ko "trvalý soubor: $(ls docs/e2e docs/archive/B/e2e 2>&1)"
+ma src/c.ts '// pasti docs/e2e/pasti.md, scénář docs/archive/B/e2e/rez-02.md'
+ma db/migrations/0002_b.sql '-- viz docs/e2e/rez-01.md'
+ma "$log" 'nepřepsáno (migrace): db/migrations/0002_b.sql (odkazů: 1)'
+ma "$log" 'pozor: vzor cesty v regexu, přepis ho nezmění: src/sonda.test.ts:1'
 rm -f "$log"; cd /; rm -rf "$r"
 
 echo "odkazy-archivu: pass=$pass fail=$fail"

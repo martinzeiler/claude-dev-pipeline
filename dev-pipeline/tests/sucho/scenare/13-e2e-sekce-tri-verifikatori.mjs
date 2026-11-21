@@ -1,6 +1,7 @@
 // 13 · stavba · E2E se 30 kritérii v sekcích 10/10/5/5 (§ 1.7): hladové seskupení do ≤ 12 dá [Alfa] [Beta] [Gama, Delta],
-// tedy tři souběžní verifikátoři a, b, c s písmenem v labelu, reportu i prefixu dat; mergeE2E sečte všechny tři.
-import { argsStavby, kontrola, parsujLabel, e2ePass, CWD } from '../stuby.mjs'
+// tedy tři souběžní verifikátoři a, b, c s písmenem v labelu, reportu i prefixu dat; mergeE2E složí všechny tři. Od 1.12.0 (spec I2)
+// se počty skládají ze seznamů kritérií: každý verifikátor jmenuje svých 10 značek PASS, celkem je 30 různých kritérií.
+import { argsStavby, kontrola, parsujLabel, e2ePass, odSkupiny, CWD } from '../stuby.mjs'
 
 const SEKCE = [{ nazev: 'Sekce Alfa', kriterii: 10 }, { nazev: 'Sekce Beta', kriterii: 10 }, { nazev: 'Sekce Gama', kriterii: 5 }, { nazev: 'Sekce Delta', kriterii: 5 }]
 const SKUPINY = { a: ['Sekce Alfa'], b: ['Sekce Beta'], c: ['Sekce Gama', 'Sekce Delta'] }
@@ -11,7 +12,7 @@ export default {
   args: argsStavby({ kriteria: 30, e2e_sekce: SEKCE }),
   odpoved(label) {
     const l = parsujLabel(label)
-    if (l.typ === 'e2e' && l.pismeno) return e2ePass(10, { report_path: `${CWD}/docs/reviews/rez-05-p1-e2e-${l.pismeno}-kolo-1.md` })
+    if (l.typ === 'e2e' && l.pismeno) return e2ePass(10, { report_path: `${CWD}/docs/reviews/rez-05-p1-e2e-${l.pismeno}-kolo-1.md` }, odSkupiny(l.pismeno))
     return null
   },
   over(v, volani) {
@@ -25,7 +26,7 @@ export default {
       k.obsahuje(e[p], `[E2E-${p}]`, `prefix dat [E2E-${p}]`)
       k.obsahuje(e[p], `e2e-${p}`, `report verifikátoru ${p}`)
     }
-    k.rovno(v && v.e2e && v.e2e.celkem, 30, 'návrat.e2e.celkem (součet tří verifikátorů)')
+    k.rovno(v && v.e2e && [v.e2e.celkem, v.e2e.pass], [30, 30], 'návrat.e2e celkem a pass (kritéria tří verifikátorů)')
     return k.chyby
   },
 }

@@ -55,6 +55,9 @@ run bash-sed-vize guard-run.sh "$(pre $SID '' Bash command "sed -n '1,40p' docs/
 run bash-find-src-deny guard-run.sh "$(pre $SID '' Bash command 'find src -name "*.ts"')" deny
 run bash-mkdir-mv guard-run.sh "$(pre $SID '' Bash command "mkdir -p docs/archive/x && mv docs/journal.md docs/archive/x/")" allow
 run bash-date guard-run.sh "$(pre $SID '' Bash command "date -u +%Y-%m-%dT%H:%M:%SZ")" allow
+# razítko cronu kontroly stavu zapisuje orchestrátor hned po CronCreate (čte ho Stop hook)
+run bash-cron-razitko guard-run.sh "$(pre $SID '' Bash command "date +%s > docs/.cron-od")" allow
+run bash-cron-razitko-abs guard-run.sh "$(pre $SID '' Bash command "date +%s > $proj/docs/.cron-od")" allow
 run write-src-deny guard-run.sh "$(pre $SID '' Write file_path "$proj/src/a.ts" content "x")" deny "needituje"
 run edit-config-deny guard-run.sh "$(pre $SID '' Edit file_path "$proj/package.json" old_string "a" new_string "b")" deny
 run write-handoff guard-run.sh "$(pre $SID '' Write file_path "$proj/docs/handoff.md" content "x")" allow
@@ -335,6 +338,7 @@ run vm-bash-python-cteni-ok guard-run.sh "$(pre $SID ag1 Bash command "python3 -
 # --- blast-radius během běhu: stash, clean, checkout/restore nad tečkou a docs/
 br() { jq -n --arg s "$1" --arg c "$proj" --arg cmd "$2" '{session_id:$s, cwd:$c, hook_event_name:"PreToolUse", tool_name:"Bash", tool_input:{command:$cmd}}'; }
 run br-zvedni-ok guard-blast-radius.sh "$(br $SID "bash $hooks/../scripts/verify-marker.sh --zvedni $proj src/index.ts rez05-a rez05-b")" allow
+run br-cron-razitko-ok guard-blast-radius.sh "$(br $SID 'date +%s > docs/.cron-od')" allow
 run br-stash-deny guard-blast-radius.sh "$(br $SID 'git stash')" deny
 run br-stash-push-deny guard-blast-radius.sh "$(br $SID 'git stash push -m x')" deny
 run br-stash-list-ok guard-blast-radius.sh "$(br $SID 'git stash list')" allow
@@ -412,7 +416,27 @@ cp "$tmp/oldmarker" "$proj/docs/.orchestrator-run"; run oldmarker guard-run.sh "
 cp "$tmp/marker" "$proj/docs/.orchestrator-run"
 # --- Stop
 stop() { jq -n --arg s "$1" --arg c "$proj" --argjson a "$2" '{session_id:$s, cwd:$c, hook_event_name:"Stop", stop_hook_active:$a}'; }
-run stop-running on-stop.sh "$(stop $SID false)" allow
+# stav „běží“ projde jen s čerstvým razítkem cronu docs/.cron-od (epocha v sekundách): cron Claude Code po 7 dnech sám
+# vyprší a s procesem session zaniká; bez razítka, s nečíselným a se starším než 6 dní hook blokuje s postupem obnovy
+razitko() { printf '%s\n' "$1" > "$proj/docs/.cron-od"; }; ted=$(date +%s)
+razitko "$ted"; run stop-running on-stop.sh "$(stop $SID false)" allow
+razitko "$((ted - 518000))"; run stop-razitko-pod-6-dni on-stop.sh "$(stop $SID false)" allow
+razitko "$((ted - 518500))"; run stop-razitko-stare-block on-stop.sh "$(stop $SID false)" block "starší než 6 dní"
+run stop-razitko-stare-active on-stop.sh "$(stop $SID true)" allow
+run stop-razitko-stare-other on-stop.sh "$(stop $OTHER false)" allow
+razitko "včera"; run stop-razitko-necislo-block on-stop.sh "$(stop $SID false)" block "CronCreate"
+: > "$proj/docs/.cron-od"; run stop-razitko-prazdne-block on-stop.sh "$(stop $SID false)" block
+razitko "${ted}000"; run stop-razitko-milisekundy-block on-stop.sh "$(stop $SID false)" block
+razitko "$((ted + 7200))"; run stop-razitko-budoucnost-block on-stop.sh "$(stop $SID false)" block
+razitko "0$ted"; run stop-razitko-nula-vpredu on-stop.sh "$(stop $SID false)" allow
+rm -f "$proj/docs/.cron-od"; run stop-bez-razitka-block on-stop.sh "$(stop $SID false)" block "razítko docs/.cron-od chybí"
+out=$(stop $SID false | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/on-stop.sh" | jq -r '.reason')
+for kus in 'CronList' 'CronDelete' 'CronCreate se stejným promptem (každých 30 minut, prompt ze sekce Setup skillu orchestrate)' 'date +%s > docs/.cron-od' 'po 7 dnech sám ruší a restart session ho ruší taky'; do
+  printf '%s' "$out" | grep -qF -- "$kus" && ok || ko "stop-bez-razitka-text: chybí „${kus}“ v: $out"
+done
+run stop-bez-razitka-active on-stop.sh "$(stop $SID true)" allow
+printf 'stav běhu: Bezi workflow blok-prd\n' > "$proj/docs/handoff.md"; run stop-bezi-bez-diakritiky-block on-stop.sh "$(stop $SID false)" block "CronList"
+# ostatní stavy razítko nečtou (níže běží bez něj)
 printf '**Stav běhu:** řez 01 uzavřen, výsledek přečten\n' > "$proj/docs/handoff.md"; run stop-idle-block on-stop.sh "$(stop $SID false)" block "nic neběží"
 run stop-active-allow on-stop.sh "$(stop $SID true)" allow
 run stop-other on-stop.sh "$(stop $OTHER false)" allow
@@ -420,6 +444,16 @@ printf 'stav běhu: zastaveno: změna cíle\n' > "$proj/docs/handoff.md"; run st
 printf '| a |\n' > "$proj/docs/handoff.md"; run stop-nostate-block on-stop.sh "$(stop $SID false)" block "chybí"
 printf 'Stav běhu: Hotovo\n' > "$proj/docs/handoff.md"; run stop-done on-stop.sh "$(stop $SID false)" allow
 rm "$proj/docs/handoff.md"; run stop-nohandoff-block on-stop.sh "$(stop $SID false)" block
+# setup na pozadí: čerstvý příznak <adresář gitu>/dev-pipeline-setup-bezi pustí konec tahu v každém stavu i bez razítka
+# cronu; příznak starší 30 minut (setup zabitý) neplatí. Repo jen pro tento blok, ostatní testy běží nad adresářem bez gitu.
+git -C "$proj" init -q; priznak="$proj/.git/dev-pipeline-setup-bezi"; rm -f "$proj/docs/.cron-od"
+printf 'stav běhu: čeká: výběr prvního řezu\n' > "$proj/docs/handoff.md"
+run stop-setup-bez-priznaku-block on-stop.sh "$(stop $SID false)" block "nic neběží"
+: > "$priznak"; run stop-setup-ceka-allow on-stop.sh "$(stop $SID false)" allow
+printf 'stav běhu: běží workflow blok-stavby řez 01\n' > "$proj/docs/handoff.md"; run stop-setup-bezi-allow on-stop.sh "$(stop $SID false)" allow
+touch -t "$(date -v-31M +%Y%m%d%H%M)" "$priznak"; run stop-setup-stary-bezi-block on-stop.sh "$(stop $SID false)" block "razítko docs/.cron-od chybí"
+printf 'stav běhu: čeká: výběr prvního řezu\n' > "$proj/docs/handoff.md"; run stop-setup-stary-ceka-block on-stop.sh "$(stop $SID false)" block "nic neběží"
+rm -rf "$proj/.git"; rm -f "$proj/docs/handoff.md"
 # --- SessionStart
 ss() { jq -n --arg s "$1" --arg c "$proj" --arg src "$2" '{session_id:$s, cwd:$c, hook_event_name:"SessionStart", source:$src}'; }
 printf 'stav běhu: běží workflow\n| řez | stav |\n' > "$proj/docs/handoff.md"
@@ -428,6 +462,16 @@ run ss-orch-resume session-start-handoff.sh "$(ss $SID resume)" ctx "obnovené"
 run ss-orch-startup session-start-handoff.sh "$(ss $SID startup)" allow
 run ss-other-compact session-start-handoff.sh "$(ss $OTHER compact)" ctx "jiné session"
 run ss-other-startup session-start-handoff.sh "$(ss $OTHER startup)" ctx "jiné session"
+# razítko cronu: nový proces orchestrátorské session (startup, resume) ho maže, compact a cizí session ne
+razitko "$ted"; run ss-razitko-compact session-start-handoff.sh "$(ss $SID compact)" ctx
+[ -f "$proj/docs/.cron-od" ] && ok || ko "ss-razitko-compact: compact razítko smazal"
+run ss-razitko-other-startup session-start-handoff.sh "$(ss $OTHER startup)" ctx "jiné session"
+run ss-razitko-other-resume session-start-handoff.sh "$(ss $OTHER resume)" ctx "jiné session"
+[ -f "$proj/docs/.cron-od" ] && ok || ko "ss-razitko-other: cizí session razítko smazala"
+run ss-razitko-resume session-start-handoff.sh "$(ss $SID resume)" ctx "obnovené"
+[ ! -e "$proj/docs/.cron-od" ] && ok || ko "ss-razitko-resume: resume razítko nechal"
+razitko "$ted"; run ss-razitko-startup session-start-handoff.sh "$(ss $SID startup)" allow
+[ ! -e "$proj/docs/.cron-od" ] && ok || ko "ss-razitko-startup: startup razítko nechal"
 head -c 6000 /dev/zero | tr '\0' 'a' > "$proj/docs/handoff.md"; run ss-cut session-start-handoff.sh "$(ss $SID compact)" ctx "4 096"
 out=$(ss $SID compact | CLAUDE_PROJECT_DIR="$proj" bash "$hooks/session-start-handoff.sh" | jq -r '.hookSpecificOutput.additionalContext' | wc -c | tr -d ' ')
 pocl=$(wc -c < "$hooks/../skills/orchestrate/PO-COMPACTU.md" 2>/dev/null | tr -d ' '); [ -n "$pocl" ] || pocl=0

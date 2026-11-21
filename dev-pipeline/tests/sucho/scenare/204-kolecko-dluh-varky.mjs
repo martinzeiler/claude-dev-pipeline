@@ -18,7 +18,7 @@ export default {
   },
   over(v, volani) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, vysledek: 'hotovo', dluh: { polozek: 2, opraveno: 1, odmitnuto: 1, uz_vyreseno: 0, varek: 2 }, kandidati_minirezu: [{ polozka: P2, duvod: 'nový mechanismus' }] })
+    k.navrat(v, { ok: true, vysledek: 'hotovo', dluh: { polozek: 2, opraveno: 1, odmitnuto: 1, uz_vyreseno: 0, varek: 2, citelnost: { polozek: 0, opraveno: 0, zbyva: 0 } }, kandidati_minirezu: [{ polozka: P2, duvod: 'nový mechanismus' }] })
     const s1 = k.jeden('dluh:kolečko'), s2 = k.jeden('dluh:kolečko:2')
     k.obsahuje(s1, `python3 ${PLUGIN}/scripts/follow-ups.py ${CWD} --osud oprava --json`); k.obsahuje(s1, 'napříč všemi řezy', 'sběr napříč řezy')
     k.obsahuje(s1, 'nejdřív BLOKUJE, bezpečnost a data', 'řazení podle závažnosti'); k.obsahuje(s1, '`test -e`', 'vyřazení neexistujících cest')

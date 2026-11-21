@@ -16,6 +16,9 @@ Co kontroluje (tvary popisuje skills/vize/SKILL.md, sekce Tvar řádků):
              odhad čitelný a do ~5 k (nad 8 k / 1,5 ho blok PRD rozdělí vždy), odkazy na C, F, R, P existují,
              závislosti míří na řádky plánu, každý Cíl má řez
   provoz     Provozní poznámky nesou řádky Čekání na čas a Merge do main po běhu
+  Povolení   odrážka Povolení (pod podnadpisem Povolení, nebo se značkou PV1, P1 či slovem Povolení na začátku) s počtem
+             zápisů („nejvýš N za běh“, „N zápisů za den“, „nejvýš N reseedů za běh“, „N×“) jen upozorní: Povolení se píše účelem
+             a hranicemi; částka s měnou a procenta se nehlásí, ochranné mechanismy (M1 …) se neprohledávají
   zpráva     scripts/zprava.py (funkce cile) přečte z vize tutéž množinu Cílů C; jinak by závěrečná zpráva Cíle nevypsala
 
 Výstup: `<řádek>: chyba: <problém>` a `<řádek>: upozornění: <problém>`, na konci souhrn se součtem odhadů a odhadem
@@ -51,6 +54,21 @@ R_POLOZKA = re.compile(r"^[-*]\s+\*\*R(\d+)\b[^*]*\*\*")
 P_PLOCHA = re.compile(r"^#{3,4}\s+P(\d+)\b[.:]?\s+\S")
 ZAPOR = re.compile(r"\*\*[^*]*?(?<!\w)(ne\w*|nikdy|žádn\w*|bez)(?!\w)[^*]*\*\*", re.I)
 ODKAZ = re.compile(r"(?<![\w.])([CFRP])(\d+(?:\.\d+)?[a-z]?)(?![\w])")
+# Povolení: odrážka se značkou (PV1, starší vize P1) nebo slovem Povolení na začátku; mantinel má značku M1.
+PV_ODRAZKA = re.compile(r"^[-*]\s+\*{0,2}(?:PV?\d|Povolení\b)")
+M_ODRAZKA = re.compile(r"^[-*]\s+\*{0,2}M\d")
+# Počet zápisů: počet s obdobím se stropem i bez něj („nejvýš 10 za běh“, „7 za běh“, „20 zápisů za den“, „nejvýš 3 reseedy
+# za běh“, „nejvýš 30 provedení a 2 000 operací API za pražský den“) a násobek („3×“, „2× za běh“). Částka s měnou
+# a procenta („nejvýš 5 AUD/den“, „100 USD za běh“, „nejvýš 15 % za týden“) vzoru nevyhoví: hned za číslem musí stát období
+# nebo druh operace. Bez stropu číslo nesmí navazovat na slovo, desetinnou čárku ani tečku.
+_CISLO = r"\d+(?:[   ]\d{3})*"
+_ZACATEK = r"(?:(?:[Nn]ejvýše?|[Mm]aximálně)\s+|(?<![\w,.]))"
+_OBDOBI = r"(?:za\s+(?:\w+\s+)?(?:běh|den|vizi)|na\s+(?:řez|den)|denně)\b"
+_CO = r"(?:zápis|proveden|odevzdán|operac|změn|volán|zpráv|požadavk|kus|reseed|synchroniz|spuštěn|běh)\w*"
+POCET_ZAPISU = re.compile(
+    rf"{_ZACATEK}{_CISLO}\s+{_OBDOBI}"
+    rf"|{_ZACATEK}{_CISLO}\s+{_CO}[^.,;:()]{{0,60}}?\s{_OBDOBI}"
+    r"|(?<![\w,.])\d+×")
 
 
 def norm(s):
@@ -223,6 +241,38 @@ def zkontroluj(radky):
             ch(pr[0], "Provozní poznámky bez řádku „**Čekání na čas:** …“")
         if "merge do main" not in provoz:
             ch(pr[0], "Provozní poznámky bez řádku „**Merge do main po běhu:** ano | ne“")
+
+    # Povolení: počet zápisů jen upozorní (odrážky Povolení v sekci Mantinely a Povolení, včetně pokračovacích řádků)
+    def pocty_zapisu(blok):
+        text, zacatky, nalezy = "", [], {}
+        for k, r in blok:
+            zacatky.append((len(text), k))
+            text += r.strip().replace("*", "") + " "   # tučné „nejvýš **10 běhů**“ je týž počet
+        for m in POCET_ZAPISU.finditer(text):
+            k = max(z for z in zacatky if z[0] <= m.start())[1]
+            nalezy.setdefault(k, []).append(re.sub(r"\s+", " ", m.group(0)))
+        for k, kusy in sorted(nalezy.items()):
+            citace = ", ".join(f"„{x}“" for x in kusy)
+            up(k, f"Povolení nese počet zápisů (ř. {k}: {citace}): nahraď účelem a hranicemi; "
+                  "číselný strop jen u peněz nebo jako pojistku, kterou vyslovil majitel")
+
+    pod_povolenim, blok, po_prazdnem = False, [], False
+    for k, r in radky_sekce("mantinely a povoleni"):
+        if re.match(r"^#{3,6}\s", r):
+            pocty_zapisu(blok)
+            blok, pod_povolenim = [], norm(r.lstrip("#")).startswith("povolen")
+        elif ODRAZKA.match(r):
+            pocty_zapisu(blok)
+            je_povoleni = bool(PV_ODRAZKA.match(r)) or (pod_povolenim and not M_ODRAZKA.match(r))
+            blok, po_prazdnem = ([(k, r)] if je_povoleni else []), False
+        elif not r.strip():
+            po_prazdnem = True
+        elif blok and (r[0] in " \t" or not po_prazdnem):
+            blok.append((k, r))
+        else:
+            pocty_zapisu(blok)
+            blok = []
+    pocty_zapisu(blok)
 
     # Plán řezů
     plan = radky_sekce("plan rezu")

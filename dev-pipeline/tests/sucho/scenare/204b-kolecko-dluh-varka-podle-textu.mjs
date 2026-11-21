@@ -15,7 +15,7 @@ export default {
   },
   over(v, volani, logy) {
     const k = kontrola(volani)
-    k.navrat(v, { ok: true, vysledek: 'hotovo', dluh: { polozek: 1, opraveno: 1, odmitnuto: 0, uz_vyreseno: 0, varek: 1 } })
+    k.navrat(v, { ok: true, vysledek: 'hotovo', dluh: { polozek: 1, opraveno: 1, odmitnuto: 0, uz_vyreseno: 0, varek: 1, citelnost: { polozek: 0, opraveno: 0, zbyva: 0 } } })
     const sb = k.jeden('dluh:kolečko')
     const req = sb && sb.schema.properties.balicky.items.properties.polozky.items.required
     k.ok(Array.isArray(req) && req.includes('radek'), `radek povinný ve schématu sběru: ${JSON.stringify(req)}`)

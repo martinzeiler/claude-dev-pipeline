@@ -36,7 +36,7 @@ Místo nálezu najdi Serenou (`find_symbol`), dopad přes `find_referencing_symb
 - Bezpečnostní nález oprav celý hned, i pre-existing, a vrať `security: true`. Necommituješ nikdy; commit `fix(security): …` udělá krok commitu po bráně podle `zmenena_mista`.
 - Past ve svých souborech oprav, mimo ně vrať jako follow-up. Testy k chování do existujících souborů modulu.
 - **Ne-cíle vize z rámce zadání platí i pro opravy:** oprava, která přidává, co vize zakazuje, se nedělá; nález jde do follow-upu s důvodem.
-- **Operaci nad platformou nebo živým systémem**, kterou oprava vyžaduje a PRD ji nejmenuje (nastavení platformy, krok po nasazení, zápis do živého systému), sám neprováděj ani nepiš do PRD: vrať ji v `novy_krok_po_nasazeni` jako `{krok, duvod, opora, kriterium}`, kde `kriterium` je ID kritéria, kvůli kterému krok vznikl, a `opora` je doslovná citace řádku Povolení z PRD nebo rozhodnutí majitele ze zadání, jinak prázdná. O kroku bez opory rozhodne majitel.
+- **Operaci nad platformou nebo živým systémem**, kterou oprava vyžaduje a PRD ji nejmenuje (nastavení platformy, krok po nasazení, zápis do živého systému), sám neprováděj ani nepiš do PRD: vrať ji v `novy_krok_po_nasazeni` jako `{krok, duvod, opora, kriterium}`, kde `kriterium` je ID kritéria, kvůli kterému krok vznikl, a `opora` je citace účelu a hranic Povolení z PRD, do kterých krok spadá, nebo rozhodnutí majitele ze zadání, jinak prázdná. O kroku bez opory rozhodne majitel.
 
 ## Po opravě
 

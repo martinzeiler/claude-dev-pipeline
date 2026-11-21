@@ -1,15 +1,15 @@
 export const meta = {
   name: 'blok-kolecko',
-  description: 'dev-pipeline závěrečné review kolečko vize: thermo, code-review kolo 1, vlna dluhu z follow-ups, bezpečnost dvěma metodikami, deploy a E2E kolečka, závěr; po každé opravné vlně brána a commit, neúspěch vrací fázi pro obnovu, odklad nasazení zastaví s časem nejdriv.',
+  description: 'dev-pipeline závěrečné review kolečko vize: thermo, code-review kolo 1, vlna dluhu z follow-ups, bezpečnost dvěma metodikami, deploy a E2E kolečka, závěr; po každé vlně brána a commit, neúspěch vrací fázi obnovy, odklad zastaví s časem nejdriv, limit účtu fází agenti.',
   whenToUse: 'Spouští orchestrátor /dev-pipeline:orchestrate ve finální fázi vize, nebo uživatel výslovně nad větší sérií změn, s args {cwd, plugin_root, args_file} (soubor docs/.kolecko.json) nebo s celými args; schéma je v KONTRAKT.md pluginu. Bez args nic nedělá, ne na jeden řez.',
   phases: [
     { title: 'Vstup', detail: 'jen s args_file: agent načte args ze souboru' },
     { title: 'Thermo', detail: 'strukturální audit větve, oprava jen BLOCKER/HIGH, brána, commit' },
-    { title: 'Code-review 1', detail: 'korektnost větve po oblastech souběžně a commity bez review ze staveb, opravy po balíčcích souběžně, brána, commit' },
-    { title: 'Dluh', detail: 'položky [oprava] z docs/follow-ups.md napříč řezy podle závažnosti, až tři várky po 40 po balíčcích, brána, commit; závěr opravené a už vyřešené přeškrtne' },
+    { title: 'Code-review 1', detail: 'korektnost větve po oblastech souběžně a commity bez review ze staveb, opravy po balíčcích souběžně (balíček nad 6 nálezů po dávkách ve vlnách bez společného souboru), brána, commit' },
+    { title: 'Dluh', detail: 'nejdřív čitelnost z E2E řezů (položky [oprava] s textem „čitelnost:“ z docs/follow-ups.md, až pět várek po 40), pak ostatní [oprava] napříč řezy podle závažnosti, až tři várky po 40; po balíčcích, brána, commit; závěr opravené a už vyřešené přeškrtne' },
     { title: 'Bezpečnost', detail: 'bezpečnostní čočka s checklistem ∥ security-review, opravy bez commitu, brána, samostatný commit fix(security)' },
     { title: 'Deploy a E2E', detail: 'brána (jen když se strom od poslední zelené brány změnil), nasazení se zápisem nasazení, E2E scénáře kolečka, verifikátoři po skupinách sekcí, jedna oprava (oprava kódu přes jedno kolo review a bránu), čitelnost do follow-ups' },
-    { title: 'Závěr', detail: 'journal, follow-ups, plné seznamy do docs/.vysledek-kolecko.json, docs/.review-passed, commit docs' },
+    { title: 'Závěr', detail: 'journal, follow-ups, plné seznamy včetně rozhodnutí a sporů do docs/.vysledek-kolecko.json, docs/.review-passed, commit docs' },
   ],
 }
 
@@ -62,18 +62,39 @@ if (a && typeof a === 'object' && S(a.args_file).trim()) {
   const textRozdilu = d => `chybí: ${d.chybi.join(', ') || 'nic'}; navíc: ${d.navic.join(', ') || 'nic'}${d.jinak.length ? `; jiný obsah: ${d.jinak.join(', ')}` : ''}`
   // Stálá pole běhu z docs/.run-args.json vkládá do souboru kolečka args-bloku.py (1.10.0, jako v bloku PRD a ve stavbě): agent
   // opisuje jeden soubor, agent, který slučoval dva soubory, vynechával stálá pole.
+  // Limit účtu už na startu (review N5): načítací agent bez výsledku dostane sondu jako run(), výjimka s textem limitu platí hned. Bez
+  // odpovědi kolečko vrátí zastavení s fází agenti, jaké jde složit bez načtených args, ne obecné ok: false. run() a LIMIT_UCTU jsou
+  // definované níž a tady by byly v TDZ, proto vlastní kopie.
+  let agentiPriNacteni = ''
   const nacti = async doplnek => {
     let r = null
-    for (let i = 0; i < 3 && !r; i++) {
+    for (let i = 0; i < 3 && !r && !agentiPriNacteni; i++) {
       try {
         r = await agent(`Závěrečné kolečko: načtení args bloku. Přečti ${soubor} a vrať jeho pole. Hodnoty opiš přesně, nic nezkracuj ani nedoplňuj. Když soubor kolečka chybí nebo není platný JSON, vrať jen pole chyba s důvodem. Jiné soubory nečti.${doplnek}`,
           { label: 'args:kolečko', phase: 'Vstup', agentType: 'dev-pipeline:nacteni-args', schema: ARGS, model: 'sonnet', effort: 'low' })
-      } catch (e) { log(`args:kolečko: spuštění selhalo (${S(e && e.message || e).slice(0, 120)})`) }
+      } catch (e) {
+        const chyba = S(e && e.message || e)
+        log(`args:kolečko: spuštění selhalo (${chyba.slice(0, 120)})`)
+        if (/usage limit|hit your .{0,40}limit|too far out to wait/i.test(chyba)) agentiPriNacteni = `args:kolečko: ${chyba.slice(0, 300)}`
+      }
+    }
+    if (!r && !agentiPriNacteni) {
+      let sonda = null
+      try { sonda = await agent('Sonda dostupnosti agentů: odpověz jedním slovem „ok“. Nic nečti, nespouštěj ani neměň.', { label: 'sonda:args:kolečko', phase: 'Vstup', model: 'sonnet', effort: 'low' }) } catch (e) { log(`sonda:args:kolečko: spuštění selhalo (${S(e && e.message || e).slice(0, 120)})`) }
+      if (sonda) log('args:kolečko: sonda odpověděla, agenti běží; bez výsledku zůstalo jen načtení args')
+      else agentiPriNacteni = 'args:kolečko: tři volání bez výsledku a sonda bez odpovědi'
     }
     return r
   }
+  const bezArgs = () => {
+    if (!agentiPriNacteni) return { ok: false, duvod: `args_file: načítací agent nevrátil výsledek (${soubor})` }
+    log(`kolečko zastaveno před první fází: agenti neběží (${agentiPriNacteni.slice(0, 200)}); args se nenačetly, kolečko čeká na obnovu přes resumeFromRunId se stejnými args`)
+    return { ok: true, vysledek: 'zastaveno', faze: 'agenti', detail: `agenti neběží: ${agentiPriNacteni}`.slice(0, 600), infra: true, infra_trida: 'ucet',
+      ...(volani.obnova && typeof volani.obnova === 'object' ? { obnova: volani.obnova } : {}), commity: [], chybejici_commity: [], rozhodnuti: [], spory: [], review_passed: false, predavky: 0, prostredi: [],
+      follow_ups: [], odmitnute: [], reports: [] }
+  }
   let nactene = await nacti('')
-  if (!nactene) return { ok: false, duvod: `args_file: načítací agent nevrátil výsledek (${soubor})` }
+  if (!nactene) return bezArgs()
   if (S(nactene.chyba).trim()) { log(`blok-kolecko: args_file ${soubor}: ${S(nactene.chyba).slice(0, 200)}`); return { ok: false, duvod: `args_file: ${S(nactene.chyba).trim().slice(0, 400)}` } }
   // Druhé načtení se porovná se _pole z prvního: návrat bez _pole by jinak rozdíl tiše propustil (code-review 1.7.0, N1:
   // s chybějícími hypotézami blok doběhl jako hotovo).
@@ -85,7 +106,7 @@ if (a && typeof a === 'object' && S(a.args_file).trim()) {
     if (nesedi(rozdil)) {
       log(`blok-kolecko: opis args nesedí se _pole (${textRozdilu(rozdil)}), načítám znovu`)
       nactene = await nacti(` Opis nesedí se seznamem _pole souboru; minule chybělo: ${rozdil.chybi.join(', ') || 'nic'}, navíc bylo: ${rozdil.navic.join(', ') || 'nic'}${rozdil.jinak.length ? `, jiný obsah než v souboru měla pole: ${rozdil.jinak.join(', ')}` : ''}. Vrať všechna pole souboru s neprázdnou hodnotou přesně opsaná; pole, které soubor nemá, nevymýšlej.`)
-      if (!nactene) return { ok: false, duvod: `args_file: načítací agent nevrátil výsledek (${soubor})` }
+      if (!nactene) return bezArgs()
       if (S(nactene.chyba).trim()) return { ok: false, duvod: `args_file: ${S(nactene.chyba).trim().slice(0, 400)}` }
       rozdil = opis(nactene, seznam, delkyZ(nactene) || delky)
       if (nesedi(rozdil)) {
@@ -201,14 +222,29 @@ const OBNOVA_OD = { thermo: 'thermo', 'code-review kolo 1': 'kolo 1', dluh: 'dlu
 const cekej = ms => (ms > 0 && typeof setTimeout === 'function') ? new Promise(r => setTimeout(r, ms)) : Promise.resolve()
 // Opakované zadání nezná stav předchůdce (třída C2): strom může nést jeho rozdělanou práci, nový agent ji dřív přepsal od nuly.
 const C2 = 'Předchozí běh tohoto zadání skončil bez výsledku a pracovní strom může nést jeho rozdělanou práci: začni inventurou (git status, git diff --stat) a navaž na ni, nezačínej od nuly.'
+// Limit účtu není selhání kolečka (1.12.0, spec F1, jako ve stavbě): po třetím volání bez výsledku běží sonda, jedno levné volání na modelu
+// selhaného volání. Bez odpovědi platí příznak agentiDole, žádné další run() nic nespouští a kolečko vrátí zastavení s fází agenti. Sonda běží
+// vždy za třetím voláním téhož labelu a nikdy po úspěšném volání; výjimka s textem limitu nastaví příznak rovnou.
+const LIMIT_UCTU = /usage limit|hit your .{0,40}limit|too far out to wait/i
+let agentiDole = ''
 async function run(prompt, opts) {
   const label = opts.label || 'agent'
+  if (agentiDole) return null
   for (let i = 0; i <= 2; i++) {
     let r = null
-    try { r = await agent(i >= 1 ? `${prompt}\n\n${C2}` : prompt, opts) } catch (e) { log(`${label}: spuštění selhalo (${String(e && e.message || e).slice(0, 120)})`) }
+    try { r = await agent(i >= 1 ? `${prompt}\n\n${C2}` : prompt, opts) } catch (e) {
+      const chyba = String(e && e.message || e)
+      log(`${label}: spuštění selhalo (${chyba.slice(0, 120)})`)
+      if (LIMIT_UCTU.test(chyba)) { agentiDole = `${label}: ${chyba.slice(0, 300)}`; log(`${label}: limit účtu, agenti neběží; kolečko nic dalšího nespouští`); return null }
+    }
     if (r) return r
+    if (agentiDole) return null
     if (i < 2) { log(`${label}: agent nevrátil výsledek, opakuji (${i + 1}/2)`); await cekej(15000 * (i + 1)) }
   }
+  let sonda = null
+  try { sonda = await agent('Sonda dostupnosti agentů: odpověz jedním slovem „ok“. Nic nečti, nespouštěj ani neměň.', { label: `sonda:${label}`, phase: opts.phase, model: opts.model, effort: 'low' }) } catch (e) { log(`sonda:${label}: spuštění selhalo (${String(e && e.message || e).slice(0, 120)})`) }
+  if (sonda) log(`${label}: sonda odpověděla, agenti běží; bez výsledku zůstalo jen toto zadání`)
+  else if (!agentiDole) { agentiDole = `${label}: tři volání bez výsledku a sonda bez odpovědi`; log(`${label}: sonda bez odpovědi, agenti neběží (limit účtu?); kolečko nic dalšího nespouští`) }
   return null
 }
 // Štafeta: agent, který práci předal (zpráva PŘEDÁVKA z hooku hlídače kontextu), dostane nástupce se stejným zadáním
@@ -235,7 +271,8 @@ async function runSePredavkou(prompt, opts) {
       break
     }
     predane.push(soubor)
-    predavekCelkem++
+    // Po obnově jen nástupci od obnovené fáze (jako ve stavbě, review N4 stavby): fáze před ní vrací cache přerušeného běhu.
+    if (!obnova || obnovaAktivni) predavekCelkem++
     if (n > MAX_PREDAVEK) { vycerpane.add(label); log(`${label}: předávky vyčerpány (${n}. předávka, strop ${MAX_PREDAVEK}); fáze selhala na stropu předávek, ne na chybějícím výsledku (${soubor})`); return null }
     log(`${label}: předávka ${n}/${MAX_PREDAVEK} (${soubor})`)
     r = await run(`${prompt}\n\nNavazuješ na předchůdce, který zadání předal: nejdřív přečti předávku ${soubor}, hotové neopakuj, ověřené znovu neověřuj, stav stromu si potvrď přes git status; návrat vrať za celé zadání včetně práce předchůdce (počty, seznamy, follow-upy, nálezy).`,
@@ -315,12 +352,14 @@ const FIX = { type: 'object', required: ['opraveno', 'opravene_ids', 'zmenena_mi
   spory: arr('nové záznamy ve vize-spory'),
   security: { type: 'boolean', description: 'true u bezpečnostní opravy (commitne ji krok commitu po zelené bráně)' },
   // Nový krok nad platformou z opravy po E2E (§ 2.4): bez opory v Povolení se nenasazuje a jde majiteli jako otázka.
-  novy_krok_po_nasazeni: { type: 'array', items: { type: 'object', required: ['krok', 'duvod'], properties: { krok: { type: 'string' }, duvod: { type: 'string' }, opora: { type: 'string', description: 'doslovná citace řádku Povolení vize nebo rozhodnutí majitele, které krok dovoluje; bez opory nech prázdné' }, kriterium: { type: 'string', description: 'kritérium (značka s názvem), kvůli kterému krok vznikl' } } }, description: 'operace nad platformou nebo živým systémem, kterou oprava vyžaduje a scénář ji nejmenuje; sám ji neprováděj, nepřipravuj v konfiguraci ani nepiš do scénářů' },
+  novy_krok_po_nasazeni: { type: 'array', items: { type: 'object', required: ['krok', 'duvod'], properties: { krok: { type: 'string' }, duvod: { type: 'string' }, opora: { type: 'string', description: 'doslovná citace Povolení vize nebo rozhodnutí majitele, do jehož účelu a hranic krok spadá; krok mimo účel nebo hranice nech bez opory' }, kriterium: { type: 'string', description: 'kritérium (značka s názvem), kvůli kterému krok vznikl' } } }, description: 'operace nad platformou nebo živým systémem, kterou oprava vyžaduje a scénář ji nejmenuje; sám ji neprováděj, nepřipravuj v konfiguraci ani nepiš do scénářů' },
   predavka: PREDAVKA,
 } }
 const REVIEW = { type: 'object', required: ['nalezu', 'blokujicich', 'balicky', 'report_path'], properties: {
   nalezu: { type: 'integer' }, blokujicich: { type: 'integer' }, report_path: str('absolutní cesta k reportu; prázdné, když nebyl nález'),
   balicky: BALICKY, follow_up_ids: arr('nálezy FOLLOW-UP'), metodika: str('jen bezpečnostní fáze: security-review | vlastní průchod | obojí'),
+  // Soubory u každého nálezu (spec L3, jako ve stavbě): podle nich jdou dávky balíčku nad 6 nálezů ve vlnách bez společného souboru.
+  nalezy_soubory: { type: 'array', items: { type: 'object', required: ['id', 'soubory'], properties: { id: { type: 'string' }, soubory: arr('soubory, které oprava nálezu mění, cesty relativní ke kořeni projektu') } }, description: 'každý nález v balíčcích a jeho soubory' },
   predavka: PREDAVKA,
 } }
 // Brána (bod 5): exit kód a kontroly pre-commitu jsou povinné, zelenou rozhoduje zelena(); měřidla kritérií kolečko nemá.
@@ -339,7 +378,7 @@ const VERIFY = { type: 'object', required: ['typecheck', 'suity', 'selhalo', 'ex
   predavka: PREDAVKA,
 } }
 const DEPLOY = { type: 'object', required: ['stav', 'commit'], properties: {
-  // Odklad nasazení (1.7.0, jako ve stavbě): okno nebo podmínka brání víc než ~30 min, kolečko zastaví s časem nejdriv.
+  // Odklad nasazení (1.7.0, jako ve stavbě): okno nebo podmínka brání víc než ~60 min (do 1.11 ~30), kolečko zastaví s časem nejdriv.
   stav: { type: 'string', enum: ['success', 'failed', 'commit-only', 'odlozeno'] },
   nejdriv: str('jen při odlozeno: nejdřívější čas, kdy nasazení smí proběhnout, ISO 8601 s časovou zónou'),
   duvod: str('při failed nebo odlozeno: přesná chyba nebo důvod odkladu'),
@@ -358,15 +397,17 @@ const DEPLOY = { type: 'object', required: ['stav', 'commit'], properties: {
 } }
 const SESTAV = { type: 'object', required: ['e2e_path', 'kriterii', 'e2e_sekce'], properties: { e2e_path: str('absolutní cesta k docs/e2e/kolecko.md'), kriterii: { type: 'integer' }, plochy: arr('plochy a toky, které scénáře pokrývají'), poznamka: str('co se nedalo pokrýt a proč'),
   // Sekce scénářů (1.11.0, spec G1): podle nich běží verifikátoři souběžně; kolo 1 v běhu brief-a-provedeni šlo jedním verifikátorem 3 h 04.
-  e2e_sekce: { type: 'array', items: { type: 'object', required: ['nazev', 'kriterii'], properties: { nazev: str('nadpis sekce scénářů přesně jako v souboru'), kriterii: { type: 'integer' }, doba_min: { type: 'number', description: 'odhad minut měření sekce včetně čekání' }, cekani_min: { type: 'number', description: 'z toho minuty čekání na běh nebo čas' }, bez_soubehu: { type: 'boolean', description: 'true = sekci nejde měřit souběžně s jinými (zátěž produkce, měření výkonu)' }, oblasti: arr('adresáře nebo moduly, kterých se sekce dotýká'), zive_kusy: { type: 'integer', description: 'kolik živých kusů měření spotřebuje (skutečná odeslání, změny na cizí platformě)' } } }, description: 'sekce scénářů v pořadí souboru' },
-  rozhodnuti: arr('kritéria, která jsi nenapsal, protože Povolení vize výrobu jejich dat nepokrývá: co by měřila, co by bylo potřeba spustit, odhad hodin čekání na organická data (otázka pro majitele: rozšířit Povolení, nebo čekat)'), predavka: PREDAVKA } }
-const E2E = { type: 'object', required: ['vysledek', 'celkem', 'pass', 'castecne', 'fail', 'report_path'], properties: {
+  e2e_sekce: { type: 'array', items: { type: 'object', required: ['nazev', 'kriterii'], properties: { nazev: str('nadpis sekce scénářů přesně jako v souboru'), kriterii: { type: 'integer' }, doba_min: { type: 'number', description: 'odhad minut měření sekce včetně čekání' }, cekani_min: { type: 'number', description: 'z toho minuty čekání na běh nebo čas' }, bez_soubehu: { type: 'boolean', description: 'true = sekci nejde měřit souběžně s jinými (zátěž produkce, měření výkonu)' }, oblasti: arr('adresáře nebo moduly, kterých se sekce dotýká') } }, description: 'sekce scénářů v pořadí souboru' },
+  rozhodnuti: arr('kritéria, která jsi nenapsal, protože výroba jejich dat nespadá do účelu a hranic žádného Povolení vize: co by měřila, co by bylo potřeba spustit, odhad hodin čekání na organická data (otázka pro majitele: rozšířit Povolení, nebo čekat)'), predavka: PREDAVKA } }
+// Počty skládá blok ze seznamů kritérií (spec I1, jako ve stavbě): čísla od verifikátora jdou jen do logu rozdílu, proto je pass_kriteria povinné.
+const E2E = { type: 'object', required: ['vysledek', 'celkem', 'pass', 'castecne', 'fail', 'pass_kriteria', 'report_path'], properties: {
   vysledek: { type: 'string', enum: ['pass', 'pass-castecne', 'fail', 'vada-kriteria', 'prostredi'] }, celkem: { type: 'integer' }, pass: { type: 'integer' }, castecne: { type: 'integer' }, fail: { type: 'integer' },
-  fail_kriteria: { type: 'array', items: { type: 'object', required: ['kriterium', 'selhani'], properties: { kriterium: str('značka kritéria s názvem („AK3 Export bez prázdných řádků“)'), selhani: str('jednou větou co selhalo'), pricina_mimo_rez: { type: 'object', required: ['dukaz'], properties: { dukaz: str('důkaz, že příčina leží mimo kolečko: infrastruktura, cizí služba') } } } }, description: 'skutečná selhání' }, castecna_kriteria: arr('co se ověřilo jen zčásti a čím je nesena druhá půlka'),
+  pass_kriteria: arr('značky kritérií s verdiktem PASS, každá jednou; každé změřené kritérium patří do právě jednoho seznamu, počty z nich skládá blok'),
+  fail_kriteria: { type: 'array', items: { type: 'object', required: ['kriterium', 'selhani'], properties: { kriterium: str('značka kritéria s názvem („AK3 Export bez prázdných řádků“)'), selhani: str('jednou větou co selhalo'), pricina_mimo_rez: { type: 'object', required: ['dukaz'], properties: { dukaz: str('důkaz, že příčina leží mimo kolečko: infrastruktura, cizí služba') } } } }, description: 'skutečná selhání' }, castecna_kriteria: arr('jen kritéria s verdiktem PASS-částečně: značka, co živě nešlo, který test nese druhou půlku; poznámku ke kritériu s PASS sem nepiš; verdikt dáváš za svou sekci, půlku z jiné sekce nehodnoť'),
   // Kritéria, která nejde změřit kvůli prostředí (§ 2.2), a vada nasazení (dorovnává deploy), jako ve stavbě.
   prostredi: { type: 'array', items: { type: 'object', required: ['kriterium', 'dukaz'], properties: { kriterium: str('značka kritéria s názvem'), sekce: str('sekce scénářů'), dukaz: str('příkaz, chybový text a čas: proč měření nejde provést kvůli prostředí (nestálá síť, chyba cizí služby, stanoviště je tento stroj proti produkci)'), navrh: str('navržená odpověď pro majitele: odkud měřit, nebo přijmout') } }, description: 'kritéria, která nejde změřit kvůli prostředí; do fail se nepočítají; bez důkazu je blok počítá jako FAIL' },
   prostredi_nasazeni: str('prázdné, když je nasazení v pořádku; jinak vada nasazení: nasazená revize není commit kolečka, aplikace nedostupná, přihlášení nefunguje'),
-  vadna_kriteria: arr('kritéria (značka s názvem), která nejde poctivě vyhodnotit, s dokladem druhu: nesplnitelné v prostředí E2E / koliduje s jiným kritériem nebo Ne-cílem vize / nález je předřezový a mimo rozsah; do fail se nepočítají'),
+  vadna_kriteria: arr('kritéria (značka s názvem), která nejde poctivě vyhodnotit, s dokladem druhu: nesplnitelné v prostředí E2E (i když potřebuje zápis mimo účel nebo hranice Povolení a zbytek nedokládá žádný test) / koliduje s jiným kritériem nebo Ne-cílem vize / nález je předřezový a mimo rozsah; do fail se nepočítají'),
   citelnost: { type: 'array', items: { type: 'object', required: ['plocha', 'co'], properties: { plocha: str('obrazovka nebo blok'), co: str('co je nesrozumitelné, jednou větou'), proc: str('proč to uživateli brání') } }, description: 'vady čitelnosti a srozumitelnosti, které kritérium neshazují; do fail se nepočítají' },
   zavazne_mimo_ak: arr('bezpečnostní a datové nálezy mimo kritéria'), kosmeticke: arr('kosmetické regresní postřehy'), report_path: str('absolutní cesta k reportu'),
   predavka: PREDAVKA,
@@ -387,7 +428,7 @@ const CLOSE = { type: 'object', required: ['ok', 'review_passed'], properties: {
 const st = {
   thermo: null, review: { kolo1: null }, security: { nalezu: 0, blokujicich: 0, commity: [], radkem: [] }, verify: null, deploy: null, e2e: null,
   commity: [], rozhodnuti: [], follow_ups: [], spory: [], odmitnute: [], jinak: [], chybejici: [], reports: [], review_passed: false, vysledekSoubor: '',
-  dluh: { polozek: 0, opraveno: 0, odmitnuto: 0, uz_vyreseno: 0, varek: 0 }, dluhOpravene: [], dluhUzVyresene: [], kandidati: [], prostredi: [],
+  dluh: { polozek: 0, opraveno: 0, odmitnuto: 0, uz_vyreseno: 0, varek: 0, citelnost: { polozek: 0, opraveno: 0, zbyva: 0 } }, dluhOpravene: [], dluhUzVyresene: [], kandidati: [], prostredi: [],
 }
 // Odmítnutý nález BLOKUJE nese značku, ať ho journal odliší od pohodlného odmítnutí drobnosti (třída H).
 // Změny od opravy po E2E včetně review a brány: podle nich se v kole 2 přenášejí skupiny sekcí.
@@ -440,6 +481,7 @@ const followZOprav = (dvojice, fu) => {
 const LIMIT_NAVRATU = 5800
 // Zkracují se i texty kritérií E2E (vadná a částečná, revize 1.7.0 code-review N5): dlouhé doklady vadných kritérií by jinak nechaly
 // návrat nad limitem bez logu. Vadná kritéria E2E se ubírají dřív než rozhodnutí, která nesou totéž s návrhem odpovědi.
+// Celé rozhodnuti a spory nese od 1.12.0 (spec K1) i soubor výsledku, který zapisuje závěr.
 const doLimitu = r => {
   const delka = () => JSON.stringify(r).length
   if (delka() <= LIMIT_NAVRATU) return r
@@ -449,25 +491,50 @@ const doLimitu = r => {
     ['e2e.castecna_kriteria', e2eSez('castecna_kriteria')], ['e2e.citelnost', e2eSez('citelnost')], ['e2e.prenesene_sekce', e2eSez('prenesene_sekce')], ['e2e.vadna_kriteria', e2eSez('vadna_kriteria')],
     ...['kandidati_minirezu', 'follow_ups', 'rozhodnuti'].map(k => [k, { get: () => Array.isArray(r[k]) ? r[k] : null, set: v => { r[k] = v } }]),
   ]
-  for (const [, x] of SEZ) { const xs = x.get(); if (xs) x.set(xs.map(y => typeof y === 'string' && y.length > 240 ? `${y.slice(0, 239)}…` : y)) }
+  // Log nese ubrané položky v původním znění, ne zkrácené na 240 znaků (1.12.0, spec K1), po řádcích do ~5 500 znaků.
+  const cele = new Map(SEZ.map(([k, x]) => [k, [...(x.get() || [])]]))
+  const text = y => typeof y === 'string' ? y : JSON.stringify(y)
+  const zaloguj = (hlavicka, xs) => {
+    const radky = [[]]
+    for (const y of xs.map(text)) { const posl = radky[radky.length - 1]; if (posl.length && posl.join(' | ').length + y.length > 5500) radky.push([y]); else posl.push(y) }
+    radky.forEach((ys, i) => log(`${hlavicka}${radky.length > 1 ? ` (${i + 1}/${radky.length})` : ''}: ${ys.join(' | ')}`))
+  }
+  // Rozhodnutí nese návrat celá, dokud to jde (spec K1, jako ve stavbě): krátí se až po ostatních seznamech a ubírají poslední; do zkraceno
+  // jde u nich počet položek, které návrat nenese celé (zkrácené i ubrané), u ostatních seznamů počet ubraných. Vadná kritéria E2E,
+  // která rozhodnutí opakují s návrhem odpovědi, se zkrátí na 160 znaků dřív, než se cokoli ubere.
+  const kratce = y => typeof y === 'string' && y.length > 240 ? `${y.slice(0, 239)}…` : y
+  for (const [k, x] of SEZ) { const xs = x.get(); if (xs && k !== 'rozhodnuti') x.set(xs.map(kratce)) }
+  const vadna = cele.get('e2e.vadna_kriteria').filter(y => S(y).length > 160)
+  if (delka() > LIMIT_NAVRATU && vadna.length) {
+    zaloguj('návrat nad limitem: e2e.vadna_kriteria zkrácena na 160 znaků, celé znění', vadna)
+    r.e2e = { ...r.e2e, vadna_kriteria: r.e2e.vadna_kriteria.map(y => S(y).length > 160 ? `${S(y).slice(0, 159)}…` : y) }
+  }
+  const dlouhe = delka() > LIMIT_NAVRATU && Array.isArray(r.rozhodnuti) ? cele.get('rozhodnuti').filter(y => typeof y === 'string' && y.length > 240) : []
+  if (dlouhe.length) { r.rozhodnuti = r.rozhodnuti.map(kratce); zaloguj('návrat nad limitem: rozhodnuti zkrácené na 240 znaků, celé znění', dlouhe) }
   const ubrano = {}
   for (const [k, x] of SEZ) {
-    if (delka() <= LIMIT_NAVRATU) break
     const xs = x.get()
-    if (!xs || !xs.length) continue
-    const zbyva = [...xs], pryc = []
-    while (zbyva.length && (x.set(zbyva), delka() > LIMIT_NAVRATU - 80)) pryc.unshift(zbyva.pop())
-    x.set(zbyva)
-    if (pryc.length) { ubrano[k] = pryc.length; log(`návrat nad limitem: ${k} bez ${pryc.length} položek: ${pryc.join(' | ').slice(0, 1500)}`) }
+    if (!xs) continue
+    const zbyva = [...xs]
+    let pryc = 0
+    if (delka() > LIMIT_NAVRATU) { while (zbyva.length && (x.set(zbyva), delka() > LIMIT_NAVRATU - 80)) { zbyva.pop(); pryc++ } x.set(zbyva) }
+    if (pryc) zaloguj(`návrat nad limitem: ${k} bez ${pryc} položek`, cele.get(k).slice(cele.get(k).length - pryc))
+    const necele = pryc + (k === 'rozhodnuti' ? cele.get(k).slice(0, cele.get(k).length - pryc).filter(y => dlouhe.includes(y)).length : 0)
+    if (necele) ubrano[k] = necele
   }
   if (delka() > LIMIT_NAVRATU && S(r.detail).length > 600) { log(`návrat nad limitem: detail zkrácen na 600 znaků: ${S(r.detail).slice(0, 1500)}`); r.detail = `${S(r.detail).slice(0, 599)}…`; ubrano.detail = 1 }
   if (Object.keys(ubrano).length) r.zkraceno = ubrano
   if (delka() > LIMIT_NAVRATU) log(`návrat kolečka zůstal nad limitem (${delka()} znaků > ${LIMIT_NAVRATU}): runtime ho může useknout, plné seznamy jsou v docs/.vysledek-kolecko.json, když závěr proběhl`)
   return r
 }
-const navrat = (vysledek, faze, detail, x = {}) => doLimitu({
+// Agenti neodpovídají ani na sondu (1.12.0, spec F2): každý návrat kolečka je pak zastavení s fází agenti, ať blok došel kamkoli (i „hotovo“
+// s nedoběhlým závěrem). Obnova jde přes resumeFromRunId se stejnými args včetně obnova přerušeného běhu (návrat ji nese, review N2 stavby:
+// bez ní by obnova minula cache od hranice obnovy a přehrála deploy živě), proto návrat nenese obnova_od. Seznamy se při obnově vrátí
+// z cache a po výpadku by nesly i falešné položky („fix nevrátil výsledek“, neopravený bezpečnostní nález jako otázka majiteli), proto jdou
+// prázdné všechny, i rozhodnuti, spory, prostredi a kandidáti mini-řezu (review N3). Čas resetu čte orchestrátor z notifikace.
+const navrat = (vysledek, faze, detail, x = {}) => agentiDole && faze !== 'agenti' ? zastaveniAgenti() : doLimitu({
   ok: true, vysledek, faze: faze || '', detail: S(detail).slice(0, 1500),
-  ...(vysledek !== 'hotovo' ? { obnova_od: OBNOVA_OD[faze] || 'thermo' } : {}),
+  ...(vysledek !== 'hotovo' && faze !== 'agenti' ? { obnova_od: OBNOVA_OD[faze] || 'thermo' } : {}),
   ...(faze === 'deploy-infra' ? { infra: true } : {}),
   ...x,
   thermo: st.thermo, review: st.review,
@@ -475,14 +542,20 @@ const navrat = (vysledek, faze, detail, x = {}) => doLimitu({
   ...(st.security.radkem.length ? { security_radkem: cisty(st.security.radkem) } : {}),
   verify: st.verify, deploy: st.deploy, e2e: st.e2e,
   commity: cisty([...st.commity, ...st.security.commity]).filter(h => !st.chybejici.includes(h)), chybejici_commity: cisty(st.chybejici),
-  rozhodnuti: dedupR(st.rozhodnuti), spory: cisty(st.spory), review_passed: st.review_passed, predavky: predavekCelkem, dluh: st.dluh, prostredi: dedupR(st.prostredi),
+  rozhodnuti: faze === 'agenti' ? [] : dedupR(st.rozhodnuti), spory: faze === 'agenti' ? [] : cisty(st.spory), review_passed: st.review_passed, predavky: predavekCelkem, dluh: st.dluh,
+  prostredi: faze === 'agenti' ? [] : dedupR(st.prostredi),
   // Kandidáti mini-řezu z vlny dluhu (1.10.0): položky odmítnuté jako „mimo soubory balíčku“ nebo „nový mechanismus“; vezme je FINALE.
-  ...(st.kandidati.length ? { kandidati_minirezu: st.kandidati.map(k => ({ polozka: S(k.polozka).slice(0, 400), duvod: k.duvod })) } : {}),
-  ...(st.vysledekSoubor
-    ? { follow_ups_pocet: osudy(st.follow_ups).length, odmitnute_pocet: cisty(st.odmitnute).length, reports_pocet: cisty(st.reports).length, vysledek_soubor: st.vysledekSoubor }
-    : { follow_ups: osudy(st.follow_ups), odmitnute: cisty(st.odmitnute), reports: cisty(st.reports) }),
+  ...(st.kandidati.length && faze !== 'agenti' ? { kandidati_minirezu: st.kandidati.map(k => ({ polozka: S(k.polozka).slice(0, 400), duvod: k.duvod })) } : {}),
+  ...(faze === 'agenti' ? { follow_ups: [], odmitnute: [], reports: [], ...(obnovaIn ? { obnova: obnovaIn } : {}) }
+    : st.vysledekSoubor
+      ? { follow_ups_pocet: osudy(st.follow_ups).length, odmitnute_pocet: cisty(st.odmitnute).length, reports_pocet: cisty(st.reports).length, vysledek_soubor: st.vysledekSoubor }
+      : { follow_ups: osudy(st.follow_ups), odmitnute: cisty(st.odmitnute), reports: cisty(st.reports) }),
 })
-const selhani = (faze, detail) => { log(`kolečko selhalo ve fázi ${faze}: ${S(detail).slice(0, 200)}`); return navrat('selhalo', faze, detail) }
+const zastaveniAgenti = () => {
+  log(`kolečko zastaveno: agenti neběží (${agentiDole.slice(0, 200)}); závěr neběží, kolečko čeká na obnovu přes resumeFromRunId se stejnými args${obnovaIn ? ' včetně obnova' : ''}`)
+  return navrat('zastaveno', 'agenti', `agenti neběží: ${agentiDole}`.slice(0, 600), { infra: true, infra_trida: 'ucet' })
+}
+const selhani = (faze, detail) => { if (agentiDole) return zastaveniAgenti(); log(`kolečko selhalo ve fázi ${faze}: ${S(detail).slice(0, 200)}`); return navrat('selhalo', faze, detail) }
 // Selhání deploye mimo kód (přihlášení CLI, oprávnění, výpadek platformy) zastaví běh jako deploy-infra: oprava kódu nepomůže, čeká se na člověka.
 // Odklad nasazení (1.7.0) není selhání: kolečko zastaví s časem nejdriv a orchestrátor ho na nejdriv obnoví od fáze deploy.
 const selhaniDeploye = (d, k, pred = '') => {
@@ -566,10 +639,103 @@ const secSkill = () => runSePredavkou(`${ramec}
 
 // Každá opravná vlna kolečka je poslední, po ní už review není (třída B): v neověřené poslední várce deník naměřil nejvyšší chybovost oprav.
 const POSLEDNI_VARKA = 'Poslední várka, po ní už review není. Oprav zúžením. Nový mechanismus ani změnu rozhodovací logiky nedělej, nahlas je jako follow-up nebo rozhodnutí. Odložení je plnohodnotný výsledek.'
-const fixBalicek = (faze, zdroje, b, i) => runSePredavkou(`${ramec}
+// Zdroje dávky nesou každý nález zvlášť: v zadání se skládají po reportech; zdroj bez identifikátorů zůstává vlastní položkou.
+const zdrojePoReportech = zdroje => { const m = new Map(); for (const z of zdroje.filter(x => x.ids.length)) m.set(z.report, cisty([...(m.get(z.report) || []), ...z.ids])); return [...[...m].map(([report, ids]) => ({ report, ids })), ...zdroje.filter(z => !z.ids.length)] }
+const fixBalicek = (faze, zdroje, b, i, dv = null) => runSePredavkou(`${ramec}
 
-Úkol: oprav nálezy kolečka (${faze}). ${zdroje.map(z => `Report ${z.report}: nálezy ${z.ids.join(', ') || 'všechny ve tvých souborech'}`).join(' · ')}. Sahej jen do souborů: ${b.soubory.join(', ')}; jiné soubory mohou souběžně opravovat jiní agenti. Root brána může být červená na cizích souborech, ověř svůj balíček. Spouštěj jen dotčené testy a typecheck${rychleText}; plnou suitu nespouštěj, patří bráně a souběžné agenty by vyhladověla. ${b.security ? 'Jde o bezpečnostní balíček: oprav celý hned, i pre-existing. Necommituj; bezpečnostní opravu commitne krok commitu po zelené bráně samostatně.' : 'Necommituj.'} Každý nález je hypotéza: ověř proti kódu; co míří vedle, oprav skutečnou příčinu a rozdíl uveď v jinak_nez_nalez; co neplatí, odmítni s důvodem. Identifikátory nálezů, které jsi opravil, vrať v opravene_ids. Žádné plošné přestavby na konci vize. Nahlas rozšířený zásah, když překročí nálezy. ${POSLEDNI_VARKA}${standardy}`,
-  { label: `fix:kolečko:${faze}:${i + 1}`, phase: fazeTitul(faze), agentType: 'dev-pipeline:fix', schema: FIX, ...M.opusM })
+Úkol: oprav nálezy kolečka (${faze}${dv ? `, dávka ${dv.davka} z ${dv.davek} ${dv.soubeh ? 'nad svou částí balíčku souborů' : 'nad týmž balíčkem souborů'}${dv.navazuje ? ': předchozí dávky už své nálezy v těchto souborech opravily a pracovní strom to nese' : ''}; tvoje jsou jen nálezy níže` : ''}). ${(dv ? zdrojePoReportech(zdroje) : zdroje).map(z => `Report ${z.report}: nálezy ${z.ids.join(', ') || 'všechny ve tvých souborech'}`).join(' · ')}. Sahej jen do souborů: ${b.soubory.join(', ')}; jiné soubory mohou souběžně opravovat jiní agenti.${dv && dv.soubeh ? ' Když oprava potřebuje soubor mimo tento seznam, nesahej na něj: nález odmítni s důvodem a přesah nahlas v rozsireny_zasah.' : ''} Root brána může být červená na cizích souborech, ověř svůj balíček. Spouštěj jen dotčené testy a typecheck${rychleText}; plnou suitu nespouštěj, patří bráně a souběžné agenty by vyhladověla. ${b.security ? 'Jde o bezpečnostní balíček: oprav celý hned, i pre-existing. Necommituj; bezpečnostní opravu commitne krok commitu po zelené bráně samostatně.' : 'Necommituj.'} Každý nález je hypotéza: ověř proti kódu; co míří vedle, oprav skutečnou příčinu a rozdíl uveď v jinak_nez_nalez; co neplatí, odmítni s důvodem. Identifikátory nálezů, které jsi opravil, vrať v opravene_ids. Žádné plošné přestavby na konci vize. Nahlas rozšířený zásah, když překročí nálezy. ${POSLEDNI_VARKA}${standardy}`,
+  { label: `fix:kolečko:${faze}:${i + 1}${dv ? `:dávka ${dv.davka}` : ''}`, phase: fazeTitul(faze), agentType: 'dev-pipeline:fix', schema: FIX, ...M.opusM })
+// Dávky a vlny jako ve stavbě (1.12.0, spec L3): balíček review nad DAVKA_NALEZU nálezů jde dávkami po nejvýš DAVKA_NALEZU nálezech, dávky
+// se skládají podle příbuznosti souborů a do vlny jdou jen dávky bez společného souboru (nejvýš VLNA_DAVEK). Dosud šel každý balíček
+// kolečka jedním agentem bez ohledu na počet nálezů. Vlna dluhu dávky nemá: položky follow-ups nenesou vlastní soubory.
+const DAVKA_NALEZU = 6
+const VLNA_DAVEK = 4
+const pocetNalezu = b => b.zdroje.reduce((s, z) => s + z.ids.length, 0)
+const vlnyDavek = polozky => {
+  const pocet = d => d.polozky.reduce((s, p) => s + p.n, 0)
+  const prekryv = (p, d) => p.soubory.filter(f => d.soubory.includes(f)).length
+  const pridej = (d, p) => { d.polozky.push(p); d.soubory = cisty([...d.soubory, ...p.soubory]) }
+  // 1. Dávky podle příbuznosti: začíná nález nad souborem, který sdílí nejvíc zbylých nálezů, a přibírá nálezy s největším překryvem souborů.
+  const zbyva = polozky.filter(p => p.n), davky = []
+  while (zbyva.length) {
+    const sdili = new Map()
+    for (const p of zbyva) for (const f of p.soubory) sdili.set(f, (sdili.get(f) || 0) + 1)
+    const vaha = p => Math.max(...p.soubory.map(f => sdili.get(f)))
+    const d = { polozky: [], soubory: [] }
+    pridej(d, zbyva.splice(zbyva.indexOf(zbyva.reduce((m, p) => vaha(p) > vaha(m) ? p : m)), 1)[0])
+    while (pocet(d) < DAVKA_NALEZU) {
+      const dalsi = zbyva.reduce((m, p) => prekryv(p, d) > (m ? prekryv(m, d) : 0) ? p : m, null)
+      if (!dalsi) break
+      pridej(d, zbyva.splice(zbyva.indexOf(dalsi), 1)[0])
+    }
+    davky.push(d)
+  }
+  // 2. Vlna = dávky bez společného souboru, hladově od největší dávky.
+  const doVln = (ds, strop) => {
+    const vlny = []
+    for (const d of [...ds].sort((x, y) => pocet(y) - pocet(x))) {
+      const v = vlny.find(w => w.length < strop && !w.some(o => o.soubory.some(f => d.soubory.includes(f))))
+      if (v) v.push(d); else vlny.push([d])
+    }
+    return vlny
+  }
+  // 3. Malé dávky téže vlny se sbalí do jedné do stropu nálezů; až sbalené dávky se rozdělí do vln se stropem šířky.
+  const sbalene = []
+  for (const v of doVln(davky, Infinity)) {
+    const od = sbalene.length
+    for (const d of v) {
+      const g = sbalene.slice(od).find(s => pocet(s) + pocet(d) <= DAVKA_NALEZU)
+      if (g) { g.polozky.push(...d.polozky); g.soubory = cisty([...g.soubory, ...d.soubory]) } else sbalene.push({ polozky: [...d.polozky], soubory: [...d.soubory] })
+    }
+  }
+  return doVln(sbalene, VLNA_DAVEK)
+}
+// Nález bez souborů, nebo se souborem mimo balíček (ten smí opravovat jiný balíček), vrací sériové dávky nad celým balíčkem.
+const vlnyBalicku = b => {
+  if (pocetNalezu(b) <= DAVKA_NALEZU) return { vlny: [[b]], soubeh: false, sdileny: null }
+  const polozky = b.zdroje.flatMap(z => z.ids.map(id => ({ z: { ...z, ids: [id] }, n: 1, soubory: cisty((z.nalezy_soubory || {})[id]) })))
+  // Zdroj bez identifikátorů (reviewer nálezy balíčku nejmenoval) nejde přidělit podle souborů: jde do první sériové dávky.
+  const bezId = b.zdroje.filter(z => !z.ids.length)
+  const seriove = duvod => {
+    log(`balíček nad ${DAVKA_NALEZU} nálezů běží sériově: ${duvod}`)
+    const vlny = []
+    for (let j = 0; j < polozky.length; j += DAVKA_NALEZU) vlny.push([{ ...b, zdroje: [...(j ? [] : bezId), ...polozky.slice(j, j + DAVKA_NALEZU).map(p => p.z)] }])
+    return { vlny, soubeh: false, sdileny: null }
+  }
+  if (bezId.length) return seriove('zdroj bez identifikátorů nálezů')
+  if (polozky.some(p => !p.soubory.length)) return seriove('nález bez souborů')
+  if (polozky.some(p => p.soubory.some(f => !b.soubory.includes(f)))) return seriove('nález se souborem mimo balíček')
+  const sdili = new Map()
+  for (const p of polozky) for (const f of p.soubory) sdili.set(f, (sdili.get(f) || 0) + 1)
+  const [soubor, nalezu] = [...sdili].reduce((m, x) => x[1] > m[1] ? x : m)
+  return { vlny: vlnyDavek(polozky).map(v => v.map(d => ({ ...b, soubory: d.soubory, zdroje: d.polozky.map(p => p.z) }))), soubeh: true, sdileny: nalezu > 1 ? { soubor, nalezu } : null }
+}
+// Návraty dávek se sčítají jako jeden balíček; davek = počet fix agentů balíčku.
+const slozOpravy = xs => !xs.length ? null : {
+  opraveno: xs.reduce((s, x) => s + (Number(x.opraveno) || 0), 0), opravene_ids: cisty(xs.flatMap(x => x.opravene_ids || [])),
+  odmitnuto: xs.flatMap(x => x.odmitnuto || []), jinak_nez_nalez: cisty(xs.flatMap(x => x.jinak_nez_nalez || [])),
+  zmenena_mista: cisty(xs.flatMap(x => x.zmenena_mista || [])), rozsireny_zasah: xs.some(x => x.rozsireny_zasah === true),
+  rozsireny_popis: cisty(xs.map(x => x.rozsireny_popis)).join(' | '), typecheck: xs.every(x => x.typecheck === true), testy_zelene: xs.every(x => x.testy_zelene === true),
+  follow_ups: cisty(xs.flatMap(x => x.follow_ups || [])), spory: cisty(xs.flatMap(x => x.spory || [])), security: xs.some(x => x.security === true),
+  novy_krok_po_nasazeni: xs.flatMap(x => x.novy_krok_po_nasazeni || []),
+}
+const fixBalicekDavkami = async (faze, b, i) => {
+  const { vlny, soubeh, sdileny } = vlnyBalicku(b)
+  const davek = vlny.flat().length
+  if (davek === 1) return fixBalicek(faze, b.zdroje, b, i)
+  log(`balíček ${i + 1} (${faze}): ${pocetNalezu(b)} nálezů, ${davek} dávek ${vlny.length === 1 ? 'v 1 vlně' : `ve ${vlny.length} vlnách`}, nejvíc ${Math.max(...vlny.map(v => v.length))} souběžně${sdileny ? `; soubor ${sdileny.soubor} sdílí ${sdileny.nalezu} nálezů` : ''}`)
+  // Vlny za sebou, dávky jedné vlny souběžně; dávka pozdější vlny navazuje na strom po předchozích vlnách.
+  let cislo = 0
+  const vys = []
+  for (const [j, v] of vlny.entries()) {
+    const zadani = v.map(d => ({ d, dv: { davka: ++cislo, davek, navazuje: j > 0, soubeh } }))
+    vys.push(...await parallel(zadani.map(x => () => fixBalicek(faze, x.d.zdroje, x.d, i, x.dv))))
+  }
+  if (vys.some(x => !x)) log(`balíček ${i + 1} (${faze}): ${vys.filter(x => !x).length} z ${davek} dávek bez výsledku`)
+  const r = slozOpravy(vys.filter(Boolean))
+  if (r) r.davek = davek
+  return r
+}
 const fazeTitul = faze => faze === 'thermo' ? 'Thermo' : faze === 'kolo 1' ? 'Code-review 1' : /^dluh/.test(faze) ? 'Dluh' : /po E2E/.test(faze) ? 'Deploy a E2E' : 'Bezpečnost'
 
 // Zelená jen nad doloženým měřením: exit kód testů 0, aspoň jeden prošlý test, nic z cache a kontroly pre-commitu (v běhu bez-dluhu
@@ -626,20 +792,28 @@ const commit = (faze, zprava, ph, secOpravy) => runSePredavkou(`${ramec}
 // web-rijen nasadil API a admin znovu.
 const zapisNasazeni = `${cwd}/docs/e2e/kolecko-nasazeni.md`
 // Odklad nasazení (1.7.0, shodně s blokem stavby a deploy.md): stav odlozeno s časem nejdriv místo čekání přes noc nebo infra selhání.
-const ODKLAD = 'Zakázané okno, runbook a pokyny majitele přečti jako první, před commitem. Když podle nich nasazení nesmí proběhnout dřív než za ~30 minut (včetně rezervy okna), nic necommituj ani nenasazuj a vrať stav odlozeno s nejdriv (ISO 8601 s časovou zónou) a duvod; commit vrať, jen když už existuje. Odklad není infra selhání; kratší čekání počkej.'
+// Práh odkladu ~60 minut (1.12.0, spec Q1, jako ve stavbě): kratší okno nebo podmínku přečká agent deploye smyčkou.
+const ODKLAD = 'Zakázané okno, runbook a pokyny majitele přečti jako první, před commitem. Když podle nich nasazení nesmí proběhnout dřív než za ~60 minut (včetně rezervy okna), nic necommituj ani nenasazuj a vrať stav odlozeno s nejdriv (ISO 8601 s časovou zónou) a duvod; commit vrať, jen když už existuje. Odklad není infra selhání; okno nebo podmínku, které i s rezervou skončí do ~60 minut, přečkej čekací smyčkou.'
 // Jediná cesta k build verzi po bráně (1.11.0, spec A2, jako ve stavbě): sed měnil strom a marker přestal sedět, git commit pak pustil plnou suitu znovu.
 const ZVEDNI = `Build verzi zvedni jen příkazem \`bash ${a.plugin_root ? `${a.plugin_root}/scripts/verify-marker.sh` : 'scripts/verify-marker.sh pluginu dev-pipeline'} --zvedni ${cwd} <soubor> <stará> <nová>\`, nikdy sedem: přenese marker zelené brány.`
 const deploy = (k, pozn, secOpravy, noveKroky = []) => runSePredavkou(`${ramec}
 
-Úkol: nasazení kolečka (běh ${k}).${bezpecnostniOpravy(secOpravy)} Po kontrole okna (níž) commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${ZVEDNI} ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, počkej na terminální stav platformy (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. Co nasadit, urči podle git diff --stat <báze>..HEAD -- apps packages a importů změněných balíčků, nikdy podle diffu jednoho commitu: báze je poslední commit se zprávou „zápis nasazení“ (git log --grep 'zápis nasazení' -1 --format=%H), když žádný není, git merge-base HEAD ${base}; nasaď každou aplikaci, které se diff dotkl (i tu, kterou řez nenasadil), a pole health začni řádkem „aplikace: <app>@<verze nebo deployment id> nasazeno | <app> nenasazeno (<důvod z diffu>) | …“. Zápis nasazení kolečka (čas, commit, co se nasadilo, doklady; další nasazení kolečka připiš pod předchozí) zapiš do ${zapisNasazeni} a commitni ho samostatně zprávou „kolecko: zápis nasazení“ až po commitu kolečka; vrať report_path a commit_zapisu. Do zápisu přidej řádek „Dveře: jednosměrné | obousměrné · Dosah: <web | admin | data | zóna | platforma>“ (jednosměrné, když nasazení nese migraci, zápis podle Povolení, odeslání zprávy, mazání nebo cokoli, co jeden revert nevrátí) a totéž vrať v dvere a dosah.${noveKroky.length ? ` Oprava po E2E vyžaduje nový krok po nasazení s oporou v Povolení: ${noveKroky.map(kr => `${kr.krok} (důvod: ${kr.duvod}; opora: ${kr.opora})`).join(' | ').slice(0, 1200)}; proveď ho po nasazení v mezích citované opory a uveď ho v zápisu nasazení.` : ''} Pole commit je commit kolečka, ne commit zápisu. Selhání mimo kód kolečka vrať jako failed s infra: true a infra_trida: clovek (přihlášení nebo účet CLI, oprávnění, token, limit tarifu) nebo platforma (pauza nasazení, 5xx, incident na status stránce platformy; důkaz citací v duvod). ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy, jen když to celé trvá nejvýš ~30 minut; jinak odklad (níže).` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'} ${ODKLAD}${appPristup ? ` Pokyny majitele k prostředí a nasazení jsou závazné a mají přednost před skripty repa (skript, který nasazuje jinam nebo jinak, než pokyny říkají, nepoužij nebo doplň o správné parametry): ${appPristup}.` : ''}`} Formátovací kontrolu pouštěj jen nad soubory, které commituješ. Nikdy si nedomýšlej postup, který projekt nedokumentuje.${obnovaVeta('Deploy a E2E', true)}`,
+Úkol: nasazení kolečka (běh ${k}).${bezpecnostniOpravy(secOpravy)} Po kontrole okna (níž) commit zbylých změn na vize větvi, když nějaké jsou: „kolecko: ${pozn}“. ${ZVEDNI} ${!runtimeDopad ? 'Projekt nasazuje uživatel: skonči commitem (nebo hashem HEAD při stromu beze změn), stav commit-only.' : `Deploy podle deploy konfigurace projektu${runbook ? ` (runbook: ${runbook})` : ' (sekce Deploy v CLAUDE.md projektu nebo docs/deploy.md)'}: marker docs/.deploy-unlocked vytvoř samostatným příkazem před deployem, počkej na terminální stav platformy (SUCCESS/FAILED/CRASHED) a vrať dva nezávislé doklady, že běží. Co nasadit, urči podle git diff --stat <báze>..HEAD -- apps packages a importů změněných balíčků, nikdy podle diffu jednoho commitu: báze je poslední commit se zprávou „zápis nasazení“ (git log --grep 'zápis nasazení' -1 --format=%H), když žádný není, git merge-base HEAD ${base}; nasaď každou aplikaci, které se diff dotkl (i tu, kterou řez nenasadil), a pole health začni řádkem „aplikace: <app>@<verze nebo deployment id> nasazeno | <app> nenasazeno (<důvod z diffu>) | …“. Zápis nasazení kolečka (čas, commit, co se nasadilo, doklady; další nasazení kolečka připiš pod předchozí) zapiš do ${zapisNasazeni} a commitni ho samostatně zprávou „kolecko: zápis nasazení“ až po commitu kolečka; vrať report_path a commit_zapisu. Do zápisu přidej řádek „Dveře: jednosměrné | obousměrné · Dosah: <web | admin | data | zóna | platforma>“ (jednosměrné, když nasazení nese migraci, zápis podle Povolení, odeslání zprávy, mazání nebo cokoli, co jeden revert nevrátí) a totéž vrať v dvere a dosah.${noveKroky.length ? ` Oprava po E2E vyžaduje nový krok po nasazení s oporou v Povolení: ${noveKroky.map(kr => `${kr.krok} (důvod: ${kr.duvod}; opora: ${kr.opora})`).join(' | ').slice(0, 1200)}; proveď ho po nasazení v účelu a hranicích citované opory a uveď ho v zápisu nasazení.` : ''} ${CERSTVA_ROZHODNUTI} Pole commit je commit kolečka, ne commit zápisu. Selhání mimo kód kolečka vrať jako failed s infra: true a infra_trida: clovek (přihlášení nebo účet CLI, oprávnění, token, limit tarifu) nebo platforma (pauza nasazení, 5xx, incident na status stránce platformy; důkaz citací v duvod). ${deployOkno ? `Zakázané okno nasazení: ${deployOkno}; když do něj spadáš, počkej do jeho konce a ještě 10 minut rezervy, jen když to celé trvá nejvýš ~60 minut; jinak odklad (níže).` : 'Zakázané okno nasazení z runbooku respektuj s rezervou deseti minut.'} ${ODKLAD}${appPristup ? ` Pokyny majitele k prostředí a nasazení jsou závazné a mají přednost před skripty repa (skript, který nasazuje jinam nebo jinak, než pokyny říkají, nepoužij nebo doplň o správné parametry): ${appPristup}.` : ''}`} Formátovací kontrolu pouštěj jen nad soubory, které commituješ. Nikdy si nedomýšlej postup, který projekt nedokumentuje.${obnovaVeta('Deploy a E2E', true)}`,
   { label: `deploy:kolečko:${k}`, phase: 'Deploy a E2E', agentType: 'dev-pipeline:deploy', schema: DEPLOY, ...M.sonM })
 
+// Živý systém (1.12.0, spec A6, jako ve stavbě): Povolení se dává na účel a hranice, ne na počet zápisů; zápis mimo ně verifikátor neprovede
+// a kritérium vrátí jako PASS-částečně, když zbytek dokládá jmenovaný test, jinak jako vadné (otázka pro majitele). Čerstvá rozhodnutí (spec K2): rámec nese rozhodnutí majitele ze startu bloku, agent,
+// který smí zapsat do živého systému, je čte ze souboru. Stránka pastí projektu (spec K4): zadání ji jmenuje, jinak ji verifikátor nečte.
+const CERSTVA_ROZHODNUTI = 'Před prvním zápisem do živého systému přečti pole rozhodnuti_majitele v docs/.run-args.json; novější položka platí a má přednost před zadáním i scénářem.'
+const ZIVY_E2E = 'V živém systému zapisuj jen v účelu a hranicích Povolení vize a počet zápisů nehlídej; maž jen to, co běh sám založil, nebo co Povolení jmenuje. Zápis mimo účel nebo hranice neprováděj: kritérium, které ho potřebuje, vrať jako PASS-částečně v castecna_kriteria, když jeho zbytek dokládá jmenovaný test (test jmenuj); jen bez takového testu ho vrať ve vadna_kriteria jako nesplnitelné v prostředí E2E a napiš, který zápis Povolení nepokrývá (otázka pro majitele).'
+const ZIVY_SCENARE = 'Zápis do živého systému piš do scénářů jen v účelu a hranicích Povolení citovaného doslova (systém, účet, účel, hranice); strop počtu zápisů do scénářů nepiš.'
+const PASTI_CTI = `Stránku pastí ověřování ${cwd}/docs/e2e/pasti.md, když existuje, přečti dřív, než začneš.`
 // Sdílené pravidlo čekání na čas (spec 1.7.0 § 1.1, doslova): v běhu sonnet-5-5 napsal autor scénářů kolečka K16 a K17 vědomě jako
 // neměřitelná („spustit běh zakazuje Ne-cíl“), ačkoli majitel povolil ruční běhy, aby se nečekalo.
 const CEKANI_NA_CAS = '**Čekání na čas.** Kritérium, krok nebo scénář, který potřebuje data vznikající časem (provoz, plánované úlohy, činnost uživatelů, den, noc), změří běh nad daty, která sám vyrobí podle Povolení vize (ruční spuštění, testovací data, kratší okno), hned po nasazení. Na organický čas běh čeká jen tam, kde to vize výslovně vede jako rozhodnutí majitele s odhadem, o kolik hodin se běh prodlouží. Když Povolení výrobu dat nepokrývá, kritérium není „nesplnitelné v prostředí E2E“: je to otázka pro majitele (rozšířit Povolení, nebo čekat).'
 const sestavE2E = () => runSePredavkou(`${ramec}
 
-Úkol: ${jenKriteria.length ? `obnova přeměřuje jen vybraná kritéria podle značek, scénáře z minulého kola platí: soubor ${e2ePath} nepřepisuj ani nepřečíslovávej, jen z něj vrať kriterii a e2e_sekce. Když soubor chybí, ` : ''}sestav E2E scénáře kolečka do ${e2ePath}. Zdroje: commity kolečka (\`git log ${base}..HEAD --oneline\`, commity se zprávou „kolecko:“ a „fix(security):“ od začátku kolečka) s jejich \`--stat\`, reporty ${cisty(st.reports).slice(-8).join(', ') || 'kolečka'} (jen sekce opravených nálezů) a tail docs/journal.md. Pravidla kritérií podle ${a.plugin_root ? `${a.plugin_root}/agents/prd.md` : 'agenta prd pluginu dev-pipeline'} (sekce Akceptační kritéria a E2E scénáře): každé kritérium na viditelném chování, záporné kritérium jmenuje šev, u čísel dotaz k přepočtu místo holé hodnoty, žádné výčty jmen souborů ani opsaná čísla, žádné kritérium závislé na commitu. Pokryj: každou opravu kolečka s dopadem na uživatele nebo data (regrese) a smoke průchod ploch, kterých se vize dotkla (z journalu), nejvýš 20 kritérií. Když kolečko nezměnilo kód, napiš jen smoke průchod do 5 kritérií. Kritéria čísluj AK1, AK2 … (nikdy K: K jsou části řezu) a každé začni názvem do 6 slov: „**AKn Název.** …“. Rozděl je do sekcí nadpisem ## po plochách a sekce vrať v e2e_sekce s počtem kritérií a odhadem doba_min, u sekce s čekáním i cekani_min, u sekce se živým čerpáním zive_kusy (z Povolení), u sekce, kterou nejde měřit souběžně, bez_soubehu, a oblasti. ${CEKANI_NA_CAS} Povolení si přečti ze sekce „Mantinely a Povolení“ vize ${a.vize}. Kritérium nad populací, která vzniká časem (běhy plánovaných úloh, provoz, činnost uživatelů), buď vyrobí ve scénáři přípravný krok po nasazení kolečka ručním během podle Povolení (citace Povolení, počet běhů, odhad doby), nebo ho nenapiš a vrať v rozhodnuti s důvodem; za neměřitelné ho nikdy nepiš. Nic jiného needituj.`,
+Úkol: ${jenKriteria.length ? `obnova přeměřuje jen vybraná kritéria podle značek, scénáře z minulého kola platí: soubor ${e2ePath} nepřepisuj ani nepřečíslovávej, jen z něj vrať kriterii a e2e_sekce. Když soubor chybí, ` : ''}sestav E2E scénáře kolečka do ${e2ePath}. Zdroje: commity kolečka (\`git log ${base}..HEAD --oneline\`, commity se zprávou „kolecko:“ a „fix(security):“ od začátku kolečka) s jejich \`--stat\`, reporty ${cisty(st.reports).slice(-8).join(', ') || 'kolečka'} (jen sekce opravených nálezů) a tail docs/journal.md. Pravidla kritérií podle ${a.plugin_root ? `${a.plugin_root}/agents/prd.md` : 'agenta prd pluginu dev-pipeline'} (sekce Akceptační kritéria a E2E scénáře): každé kritérium na viditelném chování, záporné kritérium jmenuje šev, u čísel dotaz k přepočtu místo holé hodnoty, žádné výčty jmen souborů ani opsaná čísla, žádné kritérium závislé na commitu. Pokryj: každou opravu kolečka s dopadem na uživatele nebo data (regrese) a smoke průchod ploch, kterých se vize dotkla (z journalu), nejvýš 20 kritérií. Když kolečko nezměnilo kód, napiš jen smoke průchod do 5 kritérií. Kritéria čísluj AK1, AK2 … (nikdy K: K jsou části řezu) a každé začni názvem do 6 slov: „**AKn Název.** …“. Rozděl je do sekcí nadpisem ## po plochách a sekce vrať v e2e_sekce s počtem kritérií a odhadem doba_min, u sekce s čekáním i cekani_min, u sekce, kterou nejde měřit souběžně, bez_soubehu, a oblasti. ${CEKANI_NA_CAS} Povolení si přečti ze sekce „Mantinely a Povolení“ vize ${a.vize}. ${ZIVY_SCENARE} Kritérium nad populací, která vzniká časem (běhy plánovaných úloh, provoz, činnost uživatelů), buď vyrobí ve scénáři přípravný krok po nasazení kolečka ručním během podle Povolení (citace Povolení, počet běhů, odhad doby), nebo ho nenapiš a vrať v rozhodnuti s důvodem; za neměřitelné ho nikdy nepiš. Nic jiného needituj.`,
   { label: 'e2e-scénáře:kolečko', phase: 'Deploy a E2E', agentType: 'general-purpose', schema: SESTAV, ...M.opusM })
 
 // Skupiny sekcí (1.11.0, spec G1, jako ve stavbě): sekce s odhadem doby od nejdelší do skupin s cílem ~20 min a nejvýš 12 kritérii; sekce bez
@@ -653,7 +827,7 @@ const nastavSkupiny = (xs, kriteria) => {
   e2eSekce = (Array.isArray(xs) ? xs : []).map(x => {
     if (!x || typeof x !== 'object') return { nazev: S(x).trim(), kriterii: null, doba: null, bezSoubehu: false, oblasti: [] }
     const k = cislo(x.kriterii)
-    return { nazev: S(x.nazev).trim(), kriterii: k == null ? null : Math.floor(k), doba: cislo(x.doba_min), cekani: cislo(x.cekani_min), zive: cislo(x.zive_kusy), bezSoubehu: x.bez_soubehu === true, oblasti: cisty(x.oblasti).map(o => o.toLowerCase()) }
+    return { nazev: S(x.nazev).trim(), kriterii: k == null ? null : Math.floor(k), doba: cislo(x.doba_min), cekani: cislo(x.cekani_min), bezSoubehu: x.bez_soubehu === true, oblasti: cisty(x.oblasti).map(o => o.toLowerCase()) }
   }).filter(s => s.nazev).slice(0, 26)
   e2eBezSoubehu = -1
   // Sekce nepokrývají všechna kritéria: skupiny by měřily jen vyjmenované sekce, zbytek by nikdo nezměřil. Měří jeden verifikátor celý soubor.
@@ -705,14 +879,56 @@ const skupinyKPrenosu = oprava => {
   })
   return out
 }
-const mergeE2E = (parts, report) => {
+// Počty E2E ze seznamů (spec I2, I3, jako ve stavbě): každé kritérium (klicKrit) má jeden verdikt, mezi seznamy vyhrává horší a čísla
+// verifikátora jdou jen do logu rozdílu. bez_verdiktu = kritéria, jejichž FAIL kolečko vyjmulo (krok mimo Povolení): čekají na majitele,
+// do celkem patří, do pass ne.
+const failText = x => typeof x === 'string' ? x : x && typeof x === 'object' && S(x.kriterium).trim() ? `${S(x.kriterium).trim()}${S(x.selhani).trim() ? `: ${S(x.selhani).trim()}` : ''}` : ''
+// Seznamy se zapisují od nejslabšího verdiktu k nejsilnějšímu a pozdější zápis přepisuje: kritérium ve dvou seznamech má horší verdikt
+// (fail > vadné > prostředí > částečně > pass > bez verdiktu).
+const mapaE2E = e => {
+  const m = new Map()
+  const pridej = (xs, verdikt, text = x => x) => { for (const x of (Array.isArray(xs) ? xs : [])) { const k = klicKrit(text(x)); if (k) m.set(k, verdikt) } }
+  pridej(e.bez_verdiktu, 'otazka'); pridej(e.pass_kriteria, 'pass'); pridej(e.castecna_kriteria, 'castecne')
+  pridej(e.prostredi, 'prostredi', x => x && x.kriterium); pridej(e.vadna_kriteria, 'vadne'); pridej(e.fail_kriteria, 'fail', failText)
+  return m
+}
+const pocetVerdiktu = (m, v) => [...m.values()].filter(x => x === v).length
+// Dvě čísla seznamy nenesou a berou se z návratu verifikátora, jednou a dřív, než blok seznamy upraví: FAIL bez jmen (fail nad počet
+// jmenovaných; kolo 2 pak měří všechna) a PASS bez jmen (návrat bez pass_kriteria, nebo prázdný seznam při hlášeném pass: celkem je
+// od verifikátora a pass je zbytek po ostatních seznamech).
+// FAIL bez jmen se odečítá od počtu jmenovaných položek, ne různých značek: dvě selhání téhož kritéria (dvě sekce) nejsou FAIL bez jména
+// a kolo 2 se kvůli nim nemá rozšířit na všechna kritéria (review N4).
+const bezJmenE2E = e => {
+  if (e.fail_bez_jmen != null && e.pass_bez_jmen != null) return e
+  const m = mapaE2E(e)
+  const failBez = Math.max(0, (Number(e.fail) || 0) - (Array.isArray(e.fail_kriteria) ? e.fail_kriteria : []).filter(x => klicKrit(failText(x))).length)
+  const bezSeznamu = !Array.isArray(e.pass_kriteria) || (!e.pass_kriteria.length && Number(e.pass) > 0)
+  return Object.assign(e, { fail_bez_jmen: failBez, pass_bez_jmen: bezSeznamu ? Math.max(0, (Number(e.celkem) || 0) - m.size - failBez) : 0 })
+}
+const bezDuplicitKrit = xs => { const v = new Map(); for (const x of cisty(xs)) v.set(klicKrit(x), x); return [...v.values()] }
+// Přepočítá celkem, pass, castecne a fail ze seznamů; castecna_kriteria a pass_kriteria nechá bez duplicit a jen s kritérii, kterým verdikt
+// zůstal. S kdo zaloguje rozdíl proti číslům verifikátora (jen u návratu, který blok ještě nepočítal).
+const spoctiE2E = (e, kdo = '') => {
+  const hlaseno = kdo && !e.spocteno ? ['celkem', 'pass', 'castecne', 'fail'].map(f => [f, Number(e[f]) || 0]) : []
+  bezJmenE2E(e)
+  const m = mapaE2E(e)
+  const pocty = { celkem: m.size + e.fail_bez_jmen + e.pass_bez_jmen, pass: pocetVerdiktu(m, 'pass') + e.pass_bez_jmen, castecne: pocetVerdiktu(m, 'castecne'), fail: pocetVerdiktu(m, 'fail') + e.fail_bez_jmen }
+  const rozdil = hlaseno.filter(([f, n]) => n !== pocty[f]).map(([f, n]) => `${f} ${n}, seznamy ${pocty[f]}`)
+  if (rozdil.length) log(`${kdo}: čísla verifikátora nesedí se seznamy kritérií (${rozdil.join('; ')}); platí seznamy`)
+  if (hlaseno.length && e.pass_bez_jmen) log(`${kdo}: návrat bez pass_kriteria, ${e.pass_bez_jmen} PASS bez jmen podle čísla celkem`)
+  const jen = (xs, verdikt) => bezDuplicitKrit(xs).filter(x => m.get(klicKrit(x)) === verdikt)
+  return Object.assign(e, pocty, { castecna_kriteria: jen(e.castecna_kriteria, 'castecne'), ...(Array.isArray(e.pass_kriteria) ? { pass_kriteria: jen(e.pass_kriteria, 'pass') } : {}), spocteno: true })
+}
+// Každý návrat se spočítá zvlášť (log rozdílu, FAIL a PASS bez jmen); kritérium jmenované dvěma skupinami se počítá jednou, s horším verdiktem.
+const mergeE2E = (parts, report, kdo = 'E2E') => {
   const ps = parts.filter(Boolean)
   if (!ps.length) return null
-  const sum = f => ps.reduce((n, p) => n + (Number(p[f]) || 0), 0)
+  const sp = parts.map((p, i) => p ? spoctiE2E({ ...p }, p.preneseno ? '' : `${kdo} verifikátor ${PISMENA[i]}`) : null).filter(Boolean)
+  const sum = f => sp.reduce((n, p) => n + (Number(p[f]) || 0), 0)
   const cat = f => ps.flatMap(p => p[f] || [])
-  return { vysledek: 'fail', celkem: sum('celkem'), pass: sum('pass'), castecne: sum('castecne'), fail: sum('fail'),
-    fail_kriteria: cat('fail_kriteria'), castecna_kriteria: cat('castecna_kriteria'), vadna_kriteria: cat('vadna_kriteria'), prostredi: cat('prostredi'), citelnost: cat('citelnost'),
-    zavazne_mimo_ak: cat('zavazne_mimo_ak'), kosmeticke: cat('kosmeticke'), report_path: report, prostredi_nasazeni: ps.map(vadaNasazeni).filter(Boolean).join(' | ') }
+  return spoctiE2E({ vysledek: 'fail', fail_bez_jmen: sum('fail_bez_jmen'), pass_bez_jmen: sum('pass_bez_jmen'), spocteno: true,
+    fail_kriteria: cat('fail_kriteria'), castecna_kriteria: cat('castecna_kriteria'), pass_kriteria: cat('pass_kriteria'), vadna_kriteria: cat('vadna_kriteria'), prostredi: cat('prostredi'), citelnost: cat('citelnost'),
+    zavazne_mimo_ak: cat('zavazne_mimo_ak'), kosmeticke: cat('kosmeticke'), report_path: report, prostredi_nasazeni: ps.map(vadaNasazeni).filter(Boolean).join(' | ') })
 }
 const e2eZeleny = r => !!r && (Number(r.fail) || 0) === 0 && !(r.fail_kriteria || []).length && !vadaNasazeni(r)
 const e2e = async (k, o = {}) => {
@@ -733,18 +949,18 @@ const e2e = async (k, o = {}) => {
     const chybi = e2eSkupiny.map((_, i) => i).filter(i => !vys[i])
     if (chybi.length) return { chybi: chybi.map(i => nic(`e2e:kolečko:${k}:${PISMENA[i]}`, `verifikátor ${PISMENA[i]}`)).join('; ') }
     vys.forEach((r, i) => { if (!r.preneseno && e2eZeleny(r)) e2eZelene.set(i, r) })
-    return { ...mergeE2E(vys, vys.map(x => x.report_path).filter(Boolean).join(' + ')), prenesene_sekce: [...prenos].flatMap(i => e2eSkupiny[i]) }
+    return { ...mergeE2E(vys, vys.map(x => x.report_path).filter(Boolean).join(' + '), `E2E ${k}`), prenesene_sekce: [...prenos].flatMap(i => e2eSkupiny[i]) }
   }
   return e2eProhlizec(k, { ...o, report: o.report || rep('e2e', k) })
 }
 const e2eNic = (x, k) => x && !x.chybi ? '' : x ? x.chybi : nic(`${runtimeDopad ? 'e2e' : 'kriteria'}:kolečko:${k}`, 'verifikátor')
 const e2eProhlizec = (k, o) => runSePredavkou(`${ramec}
 
-Úkol: E2E verifikace kolečka, kolo ${k}${o.sekce ? ` (verifikátor ${o.cast} z ${o.pocet}${o.samostatne ? '' : ' souběžných'})` : ''}: projdi scénáře z ${e2ePath} proti běžící aplikaci${appPristup ? ` (přístup: ${appPristup})` : ' (přístup podle CLAUDE.md projektu)'}${o.sekce ? `, ale VÝHRADNĚ sekce: ${o.sekce.join(' | ')}; ${o.samostatne ? 'ostatní sekce už ověřili ostatní verifikátoři a nad aplikací teď běžíš sám' : 'ostatní verifikátoři souběžně ověřují ostatní sekce nad touž aplikací'}, do jejich dat nesahej` : ''}${o.jen ? `. Obnova: přeměř VÝHRADNĚ tato kritéria: ${o.jen.join(' | ')}; ostatní verdikty se přebírají z minulého kola, jejich plochy neměř; celkem = počet přeměřených kritérií` : ''}${o.fail ? `. Kolo 2 po opravě: přeměř VÝHRADNĚ kritéria, která v kole 1 selhala: ${o.fail.join(' | ')}; u ostatních jen ověř, že se jejich plocha načte bez chyby (smoke), verdikty z kola 1 nepřeměřuj; celkem = počet přeměřených kritérií, smoke selhání vrať ve fail_kriteria s předponou „smoke:“` : ''}, verdikt per kritérium PASS / PASS-částečně / FAIL s důkazy do reportu ${o.report}. Neověřuješ kód: nezakládej worktree, nic neinstaluj, nespouštěj testy ani typecheck. Prohlížeč bez okna (bez --headed), na konci agent-browser close. Nasazení není tvoje fáze: nic nenasazuješ a handoff nečteš; když nasazená revize není commit kolečka (shodu uznej i u pozdějšího commitu, který od něj mění jen docs/) nebo přihlášení nefunguje, vrať to v prostredi_nasazeni a kritéria neměř. Čísla přepočítej sám dotazem ze scénáře, nikdy je nepřebírej z journalu ani z reportů. Kritérium, které nejde poctivě vyhodnotit (nesplnitelné v prostředí E2E, koliduje s jiným kritériem nebo Ne-cílem vize, nález je předřezový a mimo rozsah), dej do vadna_kriteria s dokladem druhu; do fail ho nepočítej. Kritérium, jehož měření nejde provést kvůli prostředí (nestálá síť, chyba cizí služby, měřicí stanoviště je tento stroj proti produkci), vrať hned v tomto kole v prostredi s důkazem a návrhem (odkud měřit, nebo přijmout), ne jako FAIL. Vadu čitelnosti, která kritérium neshazuje, vrať v citelnost, ne jako FAIL. Vrať jen počty, FAIL, částečná a vadná kritéria, závažné nálezy mimo kritéria (bezpečnost, data) zvlášť od kosmetických. Testovací data s prefixem ${o.sekce ? `[E2E-${o.cast}]` : '[E2E]'}, po sobě ukliď.${obnovaVeta('Deploy a E2E')}`,
+Úkol: E2E verifikace kolečka, kolo ${k}${o.sekce ? ` (verifikátor ${o.cast} z ${o.pocet}${o.samostatne ? '' : ' souběžných'})` : ''}: projdi scénáře z ${e2ePath} proti běžící aplikaci${appPristup ? ` (přístup: ${appPristup})` : ' (přístup podle CLAUDE.md projektu)'}${o.sekce ? `, ale VÝHRADNĚ sekce: ${o.sekce.join(' | ')}; ${o.samostatne ? 'ostatní sekce už ověřili ostatní verifikátoři a nad aplikací teď běžíš sám' : 'ostatní verifikátoři souběžně ověřují ostatní sekce nad touž aplikací'}, do jejich dat nesahej` : ''}${o.jen ? `. Obnova: přeměř VÝHRADNĚ tato kritéria: ${o.jen.join(' | ')}; ostatní verdikty se přebírají z minulého kola, jejich plochy neměř a do seznamů kritérií dej jen přeměřená` : ''}${o.fail ? `. Kolo 2 po opravě: přeměř VÝHRADNĚ kritéria, která v kole 1 selhala: ${o.fail.join(' | ')}; u ostatních jen ověř, že se jejich plocha načte bez chyby (smoke), verdikty z kola 1 nepřeměřuj a do seznamů kritérií dej jen přeměřená; smoke selhání vrať ve fail_kriteria s předponou „smoke:“` : ''}, verdikt per kritérium PASS / PASS-částečně / FAIL s důkazy do reportu ${o.report}. ${PASTI_CTI} Neověřuješ kód: nezakládej worktree, nic neinstaluj, nespouštěj testy ani typecheck. Prohlížeč bez okna (bez --headed), na konci agent-browser close. Nasazení není tvoje fáze: nic nenasazuješ a handoff nečteš; když nasazená revize není commit kolečka (shodu uznej i u pozdějšího commitu, který od něj mění jen docs/) nebo přihlášení nefunguje, vrať to v prostredi_nasazeni a kritéria neměř. Čísla přepočítej sám dotazem ze scénáře, nikdy je nepřebírej z journalu ani z reportů. Kritérium, které nejde poctivě vyhodnotit (nesplnitelné v prostředí E2E, koliduje s jiným kritériem nebo Ne-cílem vize, nález je předřezový a mimo rozsah), dej do vadna_kriteria s dokladem druhu; do fail ho nepočítej. Kritérium, jehož měření nejde provést kvůli prostředí (nestálá síť, chyba cizí služby, měřicí stanoviště je tento stroj proti produkci), vrať hned v tomto kole v prostredi s důkazem a návrhem (odkud měřit, nebo přijmout), ne jako FAIL. Vadu čitelnosti, která kritérium neshazuje, vrať v citelnost, ne jako FAIL. Každé změřené kritérium vrať v právě jednom seznamu (pass_kriteria jen značky, částečná, FAIL, vadná, prostředí), počty z nich skládá blok; závažné nálezy mimo kritéria (bezpečnost, data) vrať zvlášť od kosmetických. ${ZIVY_E2E} ${CERSTVA_ROZHODNUTI} Testovací data s prefixem ${o.sekce ? `[E2E-${o.cast}]` : '[E2E]'}, po sobě ukliď.${obnovaVeta('Deploy a E2E')}`,
   { label: `e2e:kolečko:${k}${o.sekce ? `:${o.cast}` : ''}`, phase: 'Deploy a E2E', agentType: 'dev-pipeline:e2e-verifier', schema: E2E, ...M.opusM })
 const e2eKriteriaKolecka = k => runSePredavkou(`${ramec}
 
-Úkol: kolečko nemá runtime dopad (projekt nasazuje uživatel). Projdi kritéria z ${e2ePath} bod po bodu a každé dolož konkrétním důkazem (výstup příkazu, existence a obsah souboru, spuštěný test), verdikt per kritérium do ${rep('e2e', k)}. Kritérium, které nejde poctivě vyhodnotit, dej do vadna_kriteria s dokladem druhu, do fail ho nepočítej. Dočasné artefakty po sobě ukliď, pracovní strom nech čistý. Vrať jen počty, FAIL, částečná a vadná kritéria.${obnovaVeta('Deploy a E2E')}`,
+Úkol: kolečko nemá runtime dopad (projekt nasazuje uživatel). Projdi kritéria z ${e2ePath} bod po bodu a každé dolož konkrétním důkazem (výstup příkazu, existence a obsah souboru, spuštěný test), verdikt per kritérium do ${rep('e2e', k)}. Kritérium, které nejde poctivě vyhodnotit, dej do vadna_kriteria s dokladem druhu, do fail ho nepočítej. Dočasné artefakty po sobě ukliď, pracovní strom nech čistý. Každé kritérium vrať v právě jednom seznamu (pass_kriteria jen značky, částečná, FAIL, vadná), počty z nich skládá blok.${obnovaVeta('Deploy a E2E')}`,
   { label: `kriteria:kolečko:${k}`, phase: 'Deploy a E2E', agentType: 'general-purpose', schema: E2E, ...M.opusM })
 const e2eMinule = () => runSePredavkou(`${ramec}
 
@@ -753,7 +969,7 @@ const e2eMinule = () => runSePredavkou(`${ramec}
 
 const fixE2E = (e, k) => runSePredavkou(`${ramec}
 
-Úkol: E2E kolečka selhalo (kolo ${k}): report ${e.report_path}, FAIL kritéria: ${(e.fail_kriteria || []).join(' | ') || `${e.fail} bez jmen, viz report`}. Každý nález je hypotéza: reprodukuj, oprav příčinu, testy a typecheck zelené. Operaci nad platformou nebo živým systémem, kterou oprava vyžaduje a scénář ji nejmenuje, sám neprováděj ani nepřipravuj v konfiguraci: vrať ji v novy_krok_po_nasazeni s důvodem, kritériem a oporou (doslovná citace Povolení vize nebo rozhodnutí majitele; bez opory nech prázdné). Necommituj, commit a deploy dělá další krok.${standardy}`,
+Úkol: E2E kolečka selhalo (kolo ${k}): report ${e.report_path}, FAIL kritéria: ${(e.fail_kriteria || []).join(' | ') || `${e.fail} bez jmen, viz report`}. Každý nález je hypotéza: reprodukuj, oprav příčinu, testy a typecheck zelené. Operaci nad platformou nebo živým systémem, kterou oprava vyžaduje a scénář ji nejmenuje, sám neprováděj ani nepřipravuj v konfiguraci: vrať ji v novy_krok_po_nasazeni s důvodem, kritériem a oporou (doslovná citace Povolení vize nebo rozhodnutí majitele, do jehož účelu a hranic krok spadá; počet zápisů oporu neruší, krok mimo účel nebo hranice nech bez opory a rozhodne o něm majitel). ${CERSTVA_ROZHODNUTI} Necommituj, commit a deploy dělá další krok.${standardy}`,
   { label: `fix-e2e:kolečko:${k}`, phase: 'Deploy a E2E', agentType: 'dev-pipeline:fix', schema: FIX, ...M.opusM })
 
 // Jedno kolo review nad diffem opravy po E2E (1.11.0, spec F1, jako ve stavbě): mez řádků není. Blokující opraví jedna vlna oprav, ostatní jdou
@@ -784,7 +1000,7 @@ const revizeOpravy = async (f, co, stitek) => {
     return true
   }
   followMimoBalicky([re])
-  const vys = await parallel(bal.map((b, i) => () => fixBalicek(co, b.zdroje, b, i)))
+  const vys = await parallel(bal.map((b, i) => () => fixBalicekDavkami(co, b, i)))
   followZOprav(bal.map((b, i) => ({ f: vys[i], b })), fuMapa([re]))
   vys.filter(Boolean).forEach(sber)
   const followIds = new Set(cisty(re.follow_up_ids))
@@ -809,11 +1025,12 @@ const celySeznam = xs => JSON.stringify((xs || []).map(x => { const t = typeof x
 // Závěr ověří hashe bezpečnostních commitů: v bez-dluhu fix agent hlásil commit, který nevznikl, a blok to nepoznal (řez 23).
 const close = souhrn => runSePredavkou(`${ramec}
 
-Úkol: závěr kolečka.${souhrn.security.length ? ` (0) Ověř bezpečnostní commity kolečka ${souhrn.security.join(', ')}: git cat-file -t <hash> musí vrátit commit; který ho nevrátí, vrať v chybejici_commity a v journalu ho uveď jako chybějící; hash nikdy nedopočítávej.` : ''} (1) Připoj do docs/journal.md heredocem záznam „Review kolečko“: datum, nálezy per kolo (${souhrn.kola}), co zásadního se změnilo (commity ${souhrn.commity.join(', ') || 'žádné'}), kolik přinesla která bezpečnostní metodika (${souhrn.metodiky}), odmítnuté nálezy s důvodem: ${celySeznam(souhrn.odmitnute)}${souhrn.jinak.length ? `, opravy jinak, než nález tvrdil: ${celySeznam(souhrn.jinak)}` : ''}, sporné položky a vadná kritéria k rozhodnutí uživatele: ${celySeznam(souhrn.rozhodnuti)}, E2E ${souhrn.e2e}. (2) Připoj do docs/follow-ups.md pod nadpis „## Kolečko“ tyto položky (jedna odrážka = jedna, s kontextem, bez duplicit proti existujícím; každá začíná značkami „[kolečko · <oblast>] [<osud>]“, které položky už nesou: oblast „obecné“ nebo „review“ nahraď modulem nebo plochou ze slovníku projektu, osud (rozhodnutí | oprava | nápad | obsah) nech, chybí-li, doplň, a text položky s osudem rozhodnutí začni „rozhodne majitel:“ (Cíl, Ne-cíl, Rozhodnutí, Povolení, právní nebo obsahová věc) nebo „rozhodne orchestrátor:“ (ostatní), když ho nenese, obojí podle ${tvar}, sekce Follow-ups): ${celySeznam(souhrn.follow_ups)}. Položku „zlevnit stráž: <test>“ vynech, když ji follow-ups pro tentýž test už otevřenou nesou.${souhrn.dluh.length ? ` (2b) Položky dluhu opravené vlnou kolečka přeškrtni ve follow-ups tvarem ~~…~~ VYŘEŠENO <dnešní datum>: kolečko (hledej je podle textu): ${celySeznam(souhrn.dluh)}.` : ''}${souhrn.dluhUz.length ? ` (2c) Položky dluhu, které vlna ověřila jako už vyřešené nebo bezpředmětné, přeškrtni tvarem ~~…~~ VYŘEŠENO dříve (ověřilo kolečko) (hledej je podle textu): ${celySeznam(souhrn.dluhUz)}.` : ''} (3) Pusť formátovač projektu na dotčené docs/*.md, když ho projekt má. (4) Vytvoř marker \`touch ${cwd}/docs/.review-passed\` a ověř, že existuje. (5) Smaž docs/.deploy-unlocked, když existuje. (6) Zapiš do ${cwd}/docs/.vysledek-kolecko.json (soubor celý přepiš) přesně tento JSON, beze změny a bez zkracování: ${JSON.stringify({ follow_ups: souhrn.follow_ups, odmitnute: souhrn.odmitnute, reports: souhrn.reports, dluh_opraveno: souhrn.dluh, dluh_uz_vyreseno: souhrn.dluhUz, kandidati_minirezu: st.kandidati, prostredi: dedupR(st.prostredi) })}; cestu vrať ve vysledek_soubor (když zápis selže, nech pole prázdné). Necommituj (commituje další krok), do kódu nesahej.`,
+Úkol: závěr kolečka.${souhrn.security.length ? ` (0) Ověř bezpečnostní commity kolečka ${souhrn.security.join(', ')}: git cat-file -t <hash> musí vrátit commit; který ho nevrátí, vrať v chybejici_commity a v journalu ho uveď jako chybějící; hash nikdy nedopočítávej.` : ''} (1) Připoj do docs/journal.md heredocem záznam „Review kolečko“: datum, nálezy per kolo (${souhrn.kola}), co zásadního se změnilo (commity ${souhrn.commity.join(', ') || 'žádné'}), kolik přinesla která bezpečnostní metodika (${souhrn.metodiky}), odmítnuté nálezy s důvodem: ${celySeznam(souhrn.odmitnute)}${souhrn.jinak.length ? `, opravy jinak, než nález tvrdil: ${celySeznam(souhrn.jinak)}` : ''}, sporné položky a vadná kritéria k rozhodnutí uživatele: ${celySeznam(souhrn.rozhodnuti)}, E2E ${souhrn.e2e}. (2) Připoj do docs/follow-ups.md pod nadpis „## Kolečko“ tyto položky (jedna odrážka = jedna, s kontextem, bez duplicit proti existujícím; každá začíná značkami „[kolečko · <oblast>] [<osud>]“, které položky už nesou: oblast „obecné“ nebo „review“ nahraď modulem nebo plochou ze slovníku projektu, osud (rozhodnutí | oprava | nápad | obsah) nech, chybí-li, doplň, a text položky s osudem rozhodnutí začni „rozhodne majitel:“ (Cíl, Ne-cíl, Rozhodnutí, Povolení, právní nebo obsahová věc) nebo „rozhodne orchestrátor:“ (ostatní), když ho nenese, obojí podle ${tvar}, sekce Follow-ups): ${celySeznam(souhrn.follow_ups)}. Položku „zlevnit stráž: <test>“ vynech, když ji follow-ups pro tentýž test už otevřenou nesou.${souhrn.dluh.length ? ` (2b) Položky dluhu opravené vlnou kolečka přeškrtni ve follow-ups tvarem ~~…~~ VYŘEŠENO <dnešní datum>: kolečko (hledej je podle textu): ${celySeznam(souhrn.dluh)}.` : ''}${souhrn.dluhUz.length ? ` (2c) Položky dluhu, které vlna ověřila jako už vyřešené nebo bezpředmětné, přeškrtni tvarem ~~…~~ VYŘEŠENO dříve (ověřilo kolečko) (hledej je podle textu): ${celySeznam(souhrn.dluhUz)}.` : ''} (3) Pusť formátovač projektu na dotčené docs/*.md, když ho projekt má. (4) Vytvoř marker \`touch ${cwd}/docs/.review-passed\` a ověř, že existuje. (5) Smaž docs/.deploy-unlocked, když existuje. (6) Zapiš do ${cwd}/docs/.vysledek-kolecko.json (soubor celý přepiš) přesně tento JSON, beze změny a bez zkracování: ${JSON.stringify({ follow_ups: souhrn.follow_ups, odmitnute: souhrn.odmitnute, reports: souhrn.reports, dluh_opraveno: souhrn.dluh, dluh_uz_vyreseno: souhrn.dluhUz, kandidati_minirezu: st.kandidati, prostredi: dedupR(st.prostredi), rozhodnuti: souhrn.rozhodnuti, spory: cisty(st.spory) })}; cestu vrať ve vysledek_soubor (když zápis selže, nech pole prázdné). Necommituj (commituje další krok), do kódu nesahej.`,
   { label: 'závěr:kolečko', phase: 'Závěr', agentType: 'general-purpose', schema: CLOSE, ...M.sonM })
 
 // ---------- opravná vlna: opravy → brána → commit ----------
-const balickyZ = (r, prefix) => (r && r.balicky || []).map(b => ({ soubory: cisty((b.soubory || []).map(norm)), nalezy: cisty(b.nalezy), security: !!b.security, zdroje: [{ report: S(r.report_path), ids: cisty(b.nalezy) }] })).filter(b => b.soubory.length)
+const mapaNalezu = r => Object.fromEntries((r && Array.isArray(r.nalezy_soubory) ? r.nalezy_soubory : []).filter(x => x && S(x.id).trim() && Array.isArray(x.soubory)).map(x => [S(x.id).trim(), cisty(x.soubory.map(norm))]).filter(x => x[1].length))
+const balickyZ = (r, prefix) => { const nalezy_soubory = mapaNalezu(r); return (r && r.balicky || []).map(b => ({ soubory: cisty((b.soubory || []).map(norm)), nalezy: cisty(b.nalezy), security: !!b.security, zdroje: [{ report: S(r.report_path), ids: cisty(b.nalezy), nalezy_soubory }] })).filter(b => b.soubory.length) }
 // sloučí balíčky z více zdrojů do disjunktních množin souborů
 function sluc(balicky) {
   const out = []
@@ -832,24 +1049,26 @@ async function vlna(faze, ph, zprava, balicky, fu = new Map(), fixer = fixBalice
   // Nejdelší balíček první: při stropu souběhu Workflow se dlouhý fix agent nesmí řadit na konec dávky (běh web-podzim).
   balicky = [...balicky].sort((x, y) => y.soubory.length - x.soubory.length)
   zelenaBrana = null
-  const vysledky = await parallel(balicky.map((b, i) => () => fixer(faze, b.zdroje, b, i)))
+  // Balíček review nad 6 nálezů jde dávkami ve vlnách (fixBalicekDavkami); vlna dluhu má vlastní zadání a jde po balíčcích jako dřív.
+  const vysledky = await parallel(balicky.map((b, i) => () => fixer === fixBalicek ? fixBalicekDavkami(faze, b, i) : fixer(faze, b.zdroje, b, i)))
   followZOprav(balicky.map((b, i) => ({ f: vysledky[i], b })), fu)
   const opravy = vysledky.filter(Boolean)
+  const fixAgentu = opravy.reduce((s, f) => s + (Number(f.davek) || 1), 0)
   opravy.forEach(sber)
   const zmenil = opravy.some(zmenilo)
   if (opravy.some(f => f.rozsireny_zasah)) log(`${faze}: rozšířený zásah nahlášen (${opravy.filter(f => f.rozsireny_zasah).map(f => S(f.rozsireny_popis).slice(0, 80)).join(' | ')}); zkontroluje ho další kolo`)
-  if (!zmenil) { log(`${faze}: opravy nic nezměnily, brána a commit se vynechávají`); return { ok: true, fixAgentu: opravy.length, vysledky } }
+  if (!zmenil) { log(`${faze}: opravy nic nezměnily, brána a commit se vynechávají`); return { ok: true, fixAgentu,vysledky } }
   // Bezpečnostní balíčky, které něco změnily: jejich soubory a popis dostane krok commitu až po zelené bráně (bod 19).
   const secOpravy = balicky.map((b, i) => (b.security || (vysledky[i] && vysledky[i].security)) && zmenilo(vysledky[i]) ? { soubory: b.soubory, popis: `${cisty(b.zdroje.flatMap(z => z.ids)).join(', ') || 'bezpečnostní nálezy'}: ${cisty(vysledky[i].zmenena_mista).slice(0, 6).join('; ')}` } : null).filter(Boolean)
   const b = await brana(faze, ph)
-  if (!b.ok) return { ok: false, fixAgentu: opravy.length, detail: b.detail }
+  if (!b.ok) return { ok: false, fixAgentu,detail: b.detail }
   const c = await commit(faze, zprava, ph, secOpravy)
-  if (!c) return { ok: false, fixAgentu: opravy.length, detail: nic(`commit:kolečko:${faze}`, 'deploy agent (commit)') }
-  if (c.stav === 'failed') { sberSecurity(c); return { ok: false, fixAgentu: opravy.length, detail: `commit selhal: ${S(c.duvod)}${cisty(c.security_commity).length ? ` (fix(security) už commitnuté: ${cisty(c.security_commity).join(', ')})` : ''}` } }
+  if (!c) return { ok: false, fixAgentu,detail: nic(`commit:kolečko:${faze}`, 'deploy agent (commit)') }
+  if (c.stav === 'failed') { sberSecurity(c); return { ok: false, fixAgentu,detail: `commit selhal: ${S(c.duvod)}${cisty(c.security_commity).length ? ` (fix(security) už commitnuté: ${cisty(c.security_commity).join(', ')})` : ''}` } }
   sberCommit(c)
   if (secOpravy.length && !(c.security_commity || []).length) log(`${faze}: bezpečnostní opravy bez samostatného commitu (soubory nesou i jinou změnu), jdou řádkem fix(security) v commitu ${c.commit}`)
-  log(`${faze}: ${opravy.length} fix agentů, commit ${c.commit}${(c.security_commity || []).length ? `, fix(security) ${c.security_commity.join(', ')}` : ''}`)
-  return { ok: true, fixAgentu: opravy.length, vysledky }
+  log(`${faze}: ${fixAgentu} fix agentů, commit ${c.commit}${(c.security_commity || []).length ? `, fix(security) ${c.security_commity.join(', ')}` : ''}`)
+  return { ok: true, fixAgentu,vysledky }
 }
 const zapisVerify = v => ({ typecheck: v.typecheck, proslo: v.proslo, selhalo: v.selhalo, exit_kod: v.exit_kod, kontroly_ok: v.kontroly_ok, ...(v.opakovano === true ? { opakovano: true } : {}) })
 const pomaleVidene = new Set()
@@ -958,9 +1177,16 @@ if (!v1.ok) return selhani('code-review kolo 1', v1.detail)
 // brána, commit. Várky jdou až tři, dokud každá něco vyřídí (běh zaklad-dat: vlna vzala 40 z 593 položek jen ze tří posledních řezů
 // a skončila za 24 minut). Závěr opravené přeškrtne, ověřené jako už vyřešené přeškrtne „VYŘEŠENO dříve“; odmítnuté „mimo soubory
 // balíčku“ a „nový mechanismus“ jdou orchestrátorovi jako kandidáti mini-řezu.
+// Várky čitelnosti (1.12.0, spec N2): stavba vady čitelnosti z E2E neopravuje, zapisuje je do follow-ups s textem „čitelnost: <plocha>: <co>“.
+// Projekt s tisíci otevřených [oprava] by je v obecných várkách (nejvýš 3 × 40 podle závažnosti) nikdy nedostal na řadu, proto fáze začíná
+// várkami čitelnosti: až pět várek po 40, novější řez dřív. Položky nenesou cestu, místo v kódu dohledá sběrný agent podle plochy a textu;
+// položku bez nalezeného místa vynechá (bez_mista) a další várka ji podle řádku přeskočí. Řádky vzaté várkami čitelnosti obecný sběr vynechá
+// stejně jako řádky svých dřívějších várek (vynech, vzateTexty) a závěr je přeškrtne jako ostatní dluh. Počty čitelnosti nese návrat zvlášť
+// (dluh.citelnost), počty obecného dluhu je nezahrnují.
 vstup('Dluh')
 const DLUH_VARKA = 40
 const MAX_VAREK_DLUHU = 3
+const MAX_VAREK_CITELNOSTI = 5
 const DLUH = { type: 'object', required: ['balicky'], properties: {
   chyba: str('jen když skript follow-ups.py chybí nebo selhal: důvod; jinak nevyplňuj'),
   celkem: { type: 'integer', description: 'otevřené položky [oprava] ve follow-ups celkem' },
@@ -968,60 +1194,119 @@ const DLUH = { type: 'object', required: ['balicky'], properties: {
   balicky: { type: 'array', items: { type: 'object', required: ['soubory', 'polozky'], properties: { soubory: arr('disjunktní množina souborů, kterých se položky dotýkají, cesty relativní ke kořeni projektu'), polozky: { type: 'array', items: { type: 'object', required: ['id', 'text', 'radek'], properties: { id: str('D1, D2, …'), text: str('text položky z follow-ups doslova, včetně značky řezu a oblasti'), radek: { type: 'integer', description: 'číslo řádku položky z výstupu skriptu (pole radek)' } } } } } } },
   predavka: PREDAVKA,
 } }
+const CITELNOST = { type: 'object', required: ['balicky'], properties: {
+  chyba: str('jen když skript follow-ups.py chybí nebo selhal: důvod; jinak nevyplňuj'),
+  celkem: { type: 'integer', description: 'všechny otevřené položky [oprava], jejichž text začíná „čitelnost:“, i ty vzaté dřívější várkou' },
+  bez_mista: { type: 'integer', description: 'vynechané položky, jejichž místo v kódu jsi nenašel' },
+  bez_mista_radky: { type: 'array', items: { type: 'integer' }, description: 'čísla řádků vynechaných položek bez místa (pole radek z výstupu skriptu)' },
+  balicky: { type: 'array', items: { type: 'object', required: ['soubory', 'polozky'], properties: { soubory: arr('disjunktní množina souborů, ve kterých se vady opravují, cesty relativní ke kořeni projektu'), polozky: { type: 'array', items: { type: 'object', required: ['id', 'text', 'radek'], properties: { id: str('D1, D2, …'), text: str('text položky z follow-ups doslova, včetně značky řezu a oblasti'), radek: { type: 'integer', description: 'číslo řádku položky z výstupu skriptu (pole radek)' }, misto: str('soubor a místo v něm, kde se vada opravuje') } } } } } },
+  predavka: PREDAVKA,
+} }
 const sberDluhu = (varka, vynech, od) => runSePredavkou(`${ramec}
 
-Úkol: sběr dluhu z follow-ups${varka > 1 ? `, várka ${varka}` : ''} (nic neopravuješ, nic neškrtáš). Spusť \`python3 ${a.plugin_root}/scripts/follow-ups.py ${cwd} --osud oprava --json\` a vezmi otevřené položky [oprava] napříč všemi řezy a sekcemi${vynech.length ? ` kromě položek na řádcích ${vynech.join(', ')} (vzala je dřívější várka)` : ''}. Vyřaď položky, jejichž cesta v repu neexistuje (\`test -e\`), a jejich počet vrať v bez_cesty. Zbylé seřaď podle závažnosti: nejdřív BLOKUJE, bezpečnost a data, pak „rozhodne orchestrátor“, pak ostatní; při stejné závažnosti novější řez dřív. Vyber prvních nejvýš ${DLUH_VARKA}, dej jim id D${od + 1}, D${od + 2}, … a rozděl je do nejvýš 8 balíčků po disjunktních množinách souborů (podle cesty v položce; položku bez cesty zařaď podle oblasti k balíčku, jehož souborů se týká, jinak ji vynech). Vrať balíčky s texty položek doslova a číslem řádku (radek z výstupu skriptu) a celkový počet otevřených položek [oprava]. Když skript chybí nebo selže, vrať prázdné balíčky a chyba s důvodem.`,
+Úkol: sběr dluhu z follow-ups${varka > 1 ? `, várka ${varka}` : ''} (nic neopravuješ, nic neškrtáš). Spusť \`python3 ${a.plugin_root}/scripts/follow-ups.py ${cwd} --osud oprava --json\` a vezmi otevřené položky [oprava] napříč všemi řezy a sekcemi${vynech.length ? ` kromě položek na řádcích ${vynech.join(', ')} (vzala je dřívější várka)` : ''}; položky, jejichž text (pole text výstupu) začíná „čitelnost:“, nevybírej, patří várkám čitelnosti. Vyřaď položky, jejichž cesta v repu neexistuje (\`test -e\`), a jejich počet vrať v bez_cesty. Zbylé seřaď podle závažnosti: nejdřív BLOKUJE, bezpečnost a data, pak „rozhodne orchestrátor“, pak ostatní; při stejné závažnosti novější řez dřív. Vyber prvních nejvýš ${DLUH_VARKA}, dej jim id D${od + 1}, D${od + 2}, … a rozděl je do nejvýš 8 balíčků po disjunktních množinách souborů (podle cesty v položce; položku bez cesty zařaď podle oblasti k balíčku, jehož souborů se týká, jinak ji vynech). Vrať balíčky s texty položek doslova a číslem řádku (radek z výstupu skriptu) a celkový počet otevřených položek [oprava]. Když skript chybí nebo selže, vrať prázdné balíčky a chyba s důvodem.`,
   { label: varka > 1 ? `dluh:kolečko:${varka}` : 'dluh:kolečko', phase: 'Dluh', agentType: 'general-purpose', schema: DLUH, ...M.sonM })
-const fixDluh = (faze, zdroje, b, i) => runSePredavkou(`${ramec}
+const sberCitelnosti = (varka, vynech, od, bezMista) => runSePredavkou(`${ramec}
 
-Úkol: oprav dluh z docs/follow-ups.md (vlna dluhu kolečka). Report ${cwd}/docs/follow-ups.md, tvoje nálezy: ${(b.polozky || []).map(x => x.id).join(', ')}. Položky: ${(b.polozky || []).map(x => `${x.id}: ${x.text}`).join(' · ').slice(0, 4000)}. Sahej jen do souborů: ${b.soubory.join(', ')}; jiné soubory mohou souběžně opravovat jiní agenti. Spouštěj jen dotčené testy a typecheck${rychleText}; plnou suitu nespouštěj, patří bráně. Každá položka je hypotéza: ověř proti kódu. Co už je vyřešené nebo bezpředmětné (kód věc řeší, soubor nebo mechanismus už neexistuje), neopravuj a vrať v uz_vyreseno_ids. Co míří vedle, odmítni s důvodem; nový mechanismus ani změnu kontraktu nebo rozhodovací logiky nedělej, takovou položku odmítni s druhem „nový mechanismus“, položku, jejíž oprava potřebuje soubory mimo tvůj balíček, s druhem „mimo soubory balíčku“, ostatní odmítnuté s druhem „jiné“. Ve follow-ups nic neškrtej (přeškrtne závěr). Identifikátory opravených položek vrať v opravene_ids. Necommituj. ${POSLEDNI_VARKA}${standardy}`,
+Úkol: sběr čitelnosti z follow-ups${varka > 1 ? `, várka ${varka}` : ''} (nic neopravuješ, nic neškrtáš). Spusť \`python3 ${a.plugin_root}/scripts/follow-ups.py ${cwd} --osud oprava --text 'čitelnost:' --json\` a vezmi jen otevřené položky, jejichž text (pole text výstupu) začíná „čitelnost:“: vady čitelnosti z E2E všech řezů i kolečka; položku, která to slovo nese až uvnitř textu, vynech${vynech.length ? `. Vynech i položky na řádcích ${vynech.join(', ')} (vzala je dřívější várka)` : ''}${bezMista.length ? `${vynech.length ? ' a' : '. Vynech i položky'} na řádcích ${bezMista.join(', ')} (dřívější várka u nich místo nenašla)` : ''}. Jdi od novějšího řezu ke staršímu. Položky nenesou cestu: u každé dohledej místo v kódu podle plochy a textu položky (rg viditelného textu, komponenta nebo stránka plochy). Položku, jejíž místo nenajdeš, vynech, spočítej v bez_mista a její řádek vrať v bez_mista_radky. Vezmi prvních nejvýš ${DLUH_VARKA} položek s nalezeným místem, dej jim id D${od + 1}, D${od + 2}, … a rozděl je do nejvýš 8 balíčků po disjunktních množinách souborů, ve kterých se vady opravují. Vrať balíčky s texty položek doslova i se značkami („[řez NN · <oblast>] [oprava] čitelnost: …“), číslem řádku (radek z výstupu skriptu) a nalezeným místem (misto), a v celkem počet všech otevřených položek, jejichž text začíná „čitelnost:“. Když skript chybí nebo selže, vrať prázdné balíčky a chyba s důvodem.`,
+  { label: varka > 1 ? `dluh:kolečko:čitelnost:${varka}` : 'dluh:kolečko:čitelnost', phase: 'Dluh', agentType: 'general-purpose', schema: CITELNOST, ...M.sonM })
+const ZUZENI_CITELNOSTI = ' Položky jsou vady čitelnosti z E2E: oprav je zúžením (text, popisek, formát hodnoty, jednotka, rozložení); novou funkci ani změnu rozhodovací logiky nedělej.'
+const fixDluh = (faze, zdroje, b, i, citelnost = false) => runSePredavkou(`${ramec}
+
+Úkol: oprav dluh z docs/follow-ups.md (vlna dluhu kolečka). Report ${cwd}/docs/follow-ups.md, tvoje nálezy: ${(b.polozky || []).map(x => x.id).join(', ')}. Položky: ${(b.polozky || []).map(x => `${x.id}: ${x.text}${x.misto ? ` [místo: ${x.misto}]` : ''}`).join(' · ').slice(0, 4000)}. Sahej jen do souborů: ${b.soubory.join(', ')}; jiné soubory mohou souběžně opravovat jiní agenti. Spouštěj jen dotčené testy a typecheck${rychleText}; plnou suitu nespouštěj, patří bráně. Každá položka je hypotéza: ověř proti kódu. Co už je vyřešené nebo bezpředmětné (kód věc řeší, soubor nebo mechanismus už neexistuje), neopravuj a vrať v uz_vyreseno_ids. Co míří vedle, odmítni s důvodem; nový mechanismus ani změnu kontraktu nebo rozhodovací logiky nedělej, takovou položku odmítni s druhem „nový mechanismus“, položku, jejíž oprava potřebuje soubory mimo tvůj balíček, s druhem „mimo soubory balíčku“, ostatní odmítnuté s druhem „jiné“. Ve follow-ups nic neškrtej (přeškrtne závěr). Identifikátory opravených položek vrať v opravene_ids. Necommituj.${citelnost ? ZUZENI_CITELNOSTI : ''} ${POSLEDNI_VARKA}${standardy}`,
   { label: `fix:kolečko:${faze}:${i + 1}`, phase: 'Dluh', agentType: 'dev-pipeline:fix', schema: FIX, ...M.opusM })
+const fixDluhCitelnost = (faze, zdroje, b, i) => fixDluh(faze, zdroje, b, i, true)
 if (!a.plugin_root) log('dluh: bez plugin_root se vlna dluhu nekoná (skript follow-ups.py)')
 else {
   // Položka vzatá v dřívější várce se do další nevrátí: vylučuje se podle řádku a, když řádek chybí, podle normalizovaného textu
-  // (follow-ups se mezi várkami nemění, škrtá až závěr); nic se tak nepřeškrtne dvakrát (review 1.10.0 N15).
+  // (follow-ups se mezi várkami nemění, škrtá až závěr); nic se tak nepřeškrtne dvakrát (review 1.10.0 N15). Seznamy jsou společné
+  // várkám čitelnosti i obecného dluhu, číslování položek (D1, D2, …) běží přes oba druhy.
   const normText = t => S(t).replace(/\s+/g, ' ').trim().toLowerCase()
   const vynech = [], vzateTexty = new Set()
   let vzato = 0
-  for (let varka = 1; varka <= MAX_VAREK_DLUHU; varka++) {
-    const sd = await sberDluhu(varka, vynech, vzato)
-    const polozkyVarky = []
-    const bal = sd ? (sd.balicky || []).map(b => ({ soubory: cisty((b && b.soubory || []).map(norm)), polozky: (b && b.polozky || []).filter(x => x && S(x.id).trim() && S(x.text).trim()).map(x => ({ id: S(x.id).trim(), text: S(x.text).trim().slice(0, 600), ...(Number(x.radek) > 0 ? { radek: Math.round(Number(x.radek)) } : {}) })) })).filter(b => b.soubory.length && b.polozky.length).slice(0, 8) : []
-    let opakovane = 0
-    for (const b of bal) {
-      b.polozky = b.polozky.filter(x => {
-        if ((x.radek && vynech.includes(x.radek)) || vzateTexty.has(normText(x.text)) || polozkyVarky.some(y => normText(y.text) === normText(x.text))) { opakovane++; return false }
-        return polozkyVarky.length < DLUH_VARKA && !polozkyVarky.some(y => y.id === x.id) && polozkyVarky.push(x)
-      })
+  // Text za značkami řezu a osudu začíná „čitelnost:“ (tvar, který zapisuje stavba i kolečko z E2E).
+  const jeCitelnost = t => /^(?:\[[^\]]*\]\s*)*čitelnost:/i.test(S(t).trim())
+  // Várky jednoho druhu. Vrací detail selhání brány nebo commitu (kolečko končí fází dluh), jinak null.
+  const varky = async d => {
+    for (let varka = 1; varka <= d.max; varka++) {
+      const kde = varka > 1 ? `${d.jmeno} (várka ${varka})` : d.jmeno
+      const sd = await d.sber(varka)
+      const polozkyVarky = []
+      const bal = sd ? (sd.balicky || []).map(b => ({ soubory: cisty((b && b.soubory || []).map(norm)), polozky: (b && b.polozky || []).filter(x => x && S(x.id).trim() && S(x.text).trim()).map(x => ({ id: S(x.id).trim(), text: S(x.text).trim().slice(0, 600), ...(Number(x.radek) > 0 ? { radek: Math.round(Number(x.radek)) } : {}), ...(S(x.misto).trim() ? { misto: S(x.misto).trim().slice(0, 200) } : {}) })) })).filter(b => b.soubory.length && b.polozky.length).slice(0, 8) : []
+      let opakovane = 0, cizi = 0
+      for (const b of bal) {
+        b.polozky = b.polozky.filter(x => {
+          if ((x.radek && vynech.includes(x.radek)) || vzateTexty.has(normText(x.text)) || polozkyVarky.some(y => normText(y.text) === normText(x.text))) { opakovane++; return false }
+          if (d.jen && !d.jen(x.text)) { cizi++; return false }
+          return polozkyVarky.length < DLUH_VARKA && !polozkyVarky.some(y => y.id === x.id) && polozkyVarky.push(x)
+        })
+      }
+      if (cizi) log(`${kde}: ${cizi} položek${d.cizi}`)
+      if (opakovane) log(`${kde}: ${opakovane} položek vzatých v dřívější várce nebo zdvojených (podle řádku nebo textu) vyřazeno`)
+      const balicky = bal.filter(b => b.polozky.length).map(b => ({ soubory: b.soubory, security: false, zdroje: [{ report: `${cwd}/docs/follow-ups.md`, ids: b.polozky.map(x => x.id) }], polozky: b.polozky }))
+      if (!sd) { log(`${kde}: agent sběru nevrátil výsledek, ${varka > 1 ? 'další várka se nekoná' : d.nekona}`); break }
+      if (S(sd.chyba).trim()) { log(`${kde}: ${S(sd.chyba).slice(0, 200)}; ${varka > 1 ? 'další várka se nekoná' : d.nekona}`); break }
+      d.poSberu(sd)
+      if (!balicky.length) { log(varka > 1 ? `${kde}: ${d.zadnaDalsi}` : `${d.jmeno}: ${d.zadna}`); break }
+      log(`${kde}: ${polozkyVarky.length} položek v ${balicky.length} balíčcích (${d.souhrnSberu(sd)})`)
+      const vd = await vlna(varka > 1 ? `${d.jmeno} ${varka}` : d.jmeno, 'Dluh', `${d.zprava}${varka > 1 ? ` (várka ${varka})` : ''}`, sluc(balicky), new Map(), d.fixer)
+      const fixy = (vd.vysledky || []).filter(Boolean)
+      const opravene = new Set(fixy.flatMap(f => cisty(f.opravene_ids)))
+      const uzVyresene = new Set(fixy.flatMap(f => cisty(f.uz_vyreseno_ids)).filter(id => !opravene.has(id)))
+      const textId = new Map(polozkyVarky.map(x => [x.id, x.text]))
+      st.dluhOpravene.push(...polozkyVarky.filter(x => opravene.has(x.id)).map(x => x.text))
+      st.dluhUzVyresene.push(...polozkyVarky.filter(x => uzVyresene.has(x.id)).map(x => x.text))
+      for (const o of fixy.flatMap(f => f.odmitnuto || [])) {
+        const t = textId.get(S(o && o.id).trim())
+        if (t && (o.druh === 'mimo soubory balíčku' || o.druh === 'nový mechanismus') && !st.kandidati.some(k => k.polozka === t)) st.kandidati.push({ polozka: t, duvod: o.druh })
+      }
+      const opravenoVarky = polozkyVarky.filter(x => opravene.has(x.id)).length, uzVarky = polozkyVarky.filter(x => uzVyresene.has(x.id)).length
+      vzato += polozkyVarky.length
+      vynech.push(...polozkyVarky.map(x => x.radek).filter(Boolean))
+      for (const x of polozkyVarky) vzateTexty.add(normText(x.text))
+      d.pocty.polozek += polozkyVarky.length; d.pocty.opraveno += opravenoVarky; d.pocty.uz_vyreseno += uzVarky; d.pocty.varek = varka
+      d.zapis()
+      log(`${kde}: opraveno ${opravenoVarky}, už vyřešeno ${uzVarky}, odmítnuto nebo neopraveno ${polozkyVarky.length - opravenoVarky - uzVarky}`)
+      if (!vd.ok) return S(vd.detail)
+      if (!opravenoVarky && !uzVarky) { log(`${kde}: várka nic nevyřídila, další várka se nekoná`); break }
     }
-    if (opakovane) log(`dluh${varka > 1 ? ` (várka ${varka})` : ''}: ${opakovane} položek vzatých v dřívější várce nebo zdvojených (podle řádku nebo textu) vyřazeno`)
-    const balicky = bal.filter(b => b.polozky.length).map(b => ({ soubory: b.soubory, security: false, zdroje: [{ report: `${cwd}/docs/follow-ups.md`, ids: b.polozky.map(x => x.id) }], polozky: b.polozky }))
-    const kde = varka > 1 ? `dluh (várka ${varka})` : 'dluh'
-    if (!sd) { log(`${kde}: agent sběru nevrátil výsledek, ${varka > 1 ? 'další várka se nekoná' : 'vlna se nekoná'}`); break }
-    if (S(sd.chyba).trim()) { log(`${kde}: ${S(sd.chyba).slice(0, 200)}; ${varka > 1 ? 'další várka se nekoná' : 'vlna se nekoná'}`); break }
-    if (!balicky.length) { log(varka > 1 ? `${kde}: žádná další položka [oprava]` : 'dluh: žádná položka [oprava] k opravě'); break }
-    log(`${kde}: ${polozkyVarky.length} položek v ${balicky.length} balíčcích (otevřených [oprava] celkem ${Number(sd.celkem) || '?'}${Number(sd.bez_cesty) > 0 ? `, s neexistující cestou vyřazeno ${Number(sd.bez_cesty)}` : ''})`)
-    const faze = varka > 1 ? `dluh ${varka}` : 'dluh'
-    const vd = await vlna(faze, 'Dluh', `kolecko: dluh z follow-ups${varka > 1 ? ` (várka ${varka})` : ''}`, sluc(balicky), new Map(), fixDluh)
-    const fixy = (vd.vysledky || []).filter(Boolean)
-    const opravene = new Set(fixy.flatMap(f => cisty(f.opravene_ids)))
-    const uzVyresene = new Set(fixy.flatMap(f => cisty(f.uz_vyreseno_ids)).filter(id => !opravene.has(id)))
-    const textId = new Map(polozkyVarky.map(x => [x.id, x.text]))
-    st.dluhOpravene.push(...polozkyVarky.filter(x => opravene.has(x.id)).map(x => x.text))
-    st.dluhUzVyresene.push(...polozkyVarky.filter(x => uzVyresene.has(x.id)).map(x => x.text))
-    for (const o of fixy.flatMap(f => f.odmitnuto || [])) {
-      const t = textId.get(S(o && o.id).trim())
-      if (t && (o.druh === 'mimo soubory balíčku' || o.druh === 'nový mechanismus') && !st.kandidati.some(k => k.polozka === t)) st.kandidati.push({ polozka: t, duvod: o.druh })
-    }
-    const opravenoVarky = polozkyVarky.filter(x => opravene.has(x.id)).length, uzVarky = polozkyVarky.filter(x => uzVyresene.has(x.id)).length
-    vzato += polozkyVarky.length
-    vynech.push(...polozkyVarky.map(x => x.radek).filter(Boolean))
-    for (const x of polozkyVarky) vzateTexty.add(normText(x.text))
-    st.dluh = { polozek: vzato, opraveno: st.dluhOpravene.length, odmitnuto: vzato - st.dluhOpravene.length - st.dluhUzVyresene.length, uz_vyreseno: st.dluhUzVyresene.length, varek: varka }
-    log(`${kde}: opraveno ${opravenoVarky}, už vyřešeno ${uzVarky}, odmítnuto nebo neopraveno ${polozkyVarky.length - opravenoVarky - uzVarky}`)
-    if (!vd.ok) return selhani('dluh', vd.detail)
-    if (!opravenoVarky && !uzVarky) { log(`${kde}: várka nic nevyřídila, další várka se nekoná`); break }
+    return null
   }
+  // Várky čitelnosti: celkem a položky bez místa hlásí sběr; zbyva = otevřené položky čitelnosti, které po kolečku zůstanou ve follow-ups
+  // (odmítnuté a neopravené, bez nalezeného místa a ty nad strop várek).
+  const cit = { polozek: 0, opraveno: 0, uz_vyreseno: 0, varek: 0 }
+  const bezMistaRadky = []
+  let citCelkem = 0, bezMista = 0
+  const zapisCitelnost = () => { st.dluh = { ...st.dluh, citelnost: { polozek: cit.polozek, opraveno: cit.opraveno, zbyva: Math.max(0, Math.max(citCelkem, cit.polozek) - cit.opraveno - cit.uz_vyreseno) } } }
+  const selhaniCit = await varky({
+    jmeno: 'dluh čitelnost', max: MAX_VAREK_CITELNOSTI, zprava: 'kolecko: čitelnost z follow-ups', fixer: fixDluhCitelnost, jen: jeCitelnost, pocty: cit, zapis: zapisCitelnost,
+    cizi: ', jejichž text nezačíná „čitelnost:“, vyřazeno (zůstávají obecnému dluhu)',
+    sber: varka => sberCitelnosti(varka, vynech, vzato, bezMistaRadky),
+    poSberu: sd => {
+      citCelkem = Math.max(citCelkem, Number(sd.celkem) || 0)
+      for (const r of (Array.isArray(sd.bez_mista_radky) ? sd.bez_mista_radky : []).map(Number).filter(r => r > 0 && !bezMistaRadky.includes(r))) bezMistaRadky.push(Math.round(r))
+      bezMista = Math.max(bezMista, bezMistaRadky.length, Number(sd.bez_mista) || 0)
+    },
+    souhrnSberu: sd => `otevřených položek čitelnosti celkem ${Number(sd.celkem) || '?'}${Number(sd.bez_mista) > 0 ? `, bez nalezeného místa vynecháno ${Number(sd.bez_mista)}` : ''}`,
+    nekona: 'várky čitelnosti se nekonají', zadna: 'žádná položka čitelnosti k opravě', zadnaDalsi: 'žádná další položka čitelnosti',
+  })
+  zapisCitelnost()
+  if (cit.polozek || citCelkem) log(`dluh čitelnost: ${cit.polozek} položek ve ${cit.varek} várkách, opraveno ${cit.opraveno}, už vyřešeno ${cit.uz_vyreseno}${bezMista ? `, bez nalezeného místa ${bezMista}` : ''}; ve follow-ups zůstává ${st.dluh.citelnost.zbyva} otevřených položek čitelnosti${cit.varek >= MAX_VAREK_CITELNOSTI && st.dluh.citelnost.zbyva > 0 ? ` (strop ${MAX_VAREK_CITELNOSTI} várek)` : ''}`)
+  if (selhaniCit != null) return selhani('dluh', selhaniCit)
+  const obecny = { polozek: 0, opraveno: 0, uz_vyreseno: 0, varek: 0 }
+  // Obecný dluh položky čitelnosti nebere nikdy (review N1): ani ty, které várky čitelnosti nevzaly (bez nalezeného místa, nad strop várek,
+  // zbylé po várce, která nic nevyřídila). Ty zůstávají ve follow-ups (spec N2) a dluh.citelnost.zbyva je tak pravdivé; obecný fix by je
+  // opravil bez zúžení čitelnosti a závěr přeškrtl, ačkoli je návrat dál počítá jako otevřené.
+  const selhaniDluhu = await varky({
+    jmeno: 'dluh', max: MAX_VAREK_DLUHU, zprava: 'kolecko: dluh z follow-ups', fixer: fixDluh, pocty: obecny,
+    jen: x => !jeCitelnost(x), cizi: ' čitelnosti vyřazeno (zůstávají ve follow-ups, obecný dluh je nebere)',
+    zapis: () => { st.dluh = { ...st.dluh, polozek: obecny.polozek, opraveno: obecny.opraveno, odmitnuto: obecny.polozek - obecny.opraveno - obecny.uz_vyreseno, uz_vyreseno: obecny.uz_vyreseno, varek: obecny.varek } },
+    sber: varka => sberDluhu(varka, vynech, vzato),
+    poSberu: () => {},
+    souhrnSberu: sd => `otevřených [oprava] celkem ${Number(sd.celkem) || '?'}${Number(sd.bez_cesty) > 0 ? `, s neexistující cestou vyřazeno ${Number(sd.bez_cesty)}` : ''}`,
+    nekona: 'vlna se nekoná', zadna: 'žádná položka [oprava] k opravě', zadnaDalsi: 'žádná další položka [oprava]',
+  })
+  if (selhaniDluhu != null) return selhani('dluh', selhaniDluhu)
   if (st.kandidati.length) log(`dluh: ${st.kandidati.length} kandidátů mini-řezu (mimo soubory balíčku, nový mechanismus) jde orchestrátorovi`)
 }
 
@@ -1057,41 +1342,67 @@ const se = await sestavE2E()
 if (!se) return selhani('e2e', nic('e2e-scénáře:kolečko', 'agent E2E scénářů kolečka'))
 nastavSkupiny(se.e2e_sekce, se.kriterii)
 log(`E2E scénáře kolečka: ${se.kriterii} kritérií${se.poznamka ? ` (${S(se.poznamka).slice(0, 120)})` : ''}`)
-// Součty pro porovnání s Povolením předem (spec G1): odhad doby, sekce s čekáním a živé kusy.
+// Součty sekcí předem (spec G1): odhad doby a sekce s čekáním. Živé kusy se od 1.12.0 nesčítají (spec A6): Povolení je na účel a hranice,
+// ne na počet zápisů, a součet kusů není s čím porovnat.
 if (e2eSekce.length) {
   const soucetSekci = f => e2eSekce.reduce((n, s) => n + (Number(s[f]) || 0), 0)
-  log(`E2E sekce kolečka: ${e2eSekce.length} sekcí, odhad ${soucetSekci('doba')} min, s čekáním ${e2eSekce.filter(s => Number(s.cekani) > 0).length}, živých kusů ${soucetSekci('zive')}${e2eSkupiny.length >= 2 ? `, ${e2eSkupiny.length} skupin verifikátorů` : ', jeden verifikátor'}`)
+  log(`E2E sekce kolečka: ${e2eSekce.length} sekcí, odhad ${soucetSekci('doba')} min, s čekáním ${e2eSekce.filter(s => Number(s.cekani) > 0).length}${e2eSkupiny.length >= 2 ? `, ${e2eSkupiny.length} skupin verifikátorů` : ', jeden verifikátor'}`)
 }
 // Kritérium, které nejde změřit bez rozšíření Povolení, jde majiteli jako otázka (1.7.0), ne jako vadné kritérium po E2E.
 for (const x of cisty(se.rozhodnuti)) st.rozhodnuti.push(`[E2E kolečka · Povolení] ${x} · otázka: rozšířit Povolení, nebo čekat`)
 // Normalizace E2E (1.8.0, § 2.2, jako ve stavbě): fail_kriteria jako objekty {kriterium, selhani} (starší návrat: řetězce) jdou dál jako
 // řetězce; prostredi jen s důkazem (bez důkazu FAIL); vada nasazení v prostredi_nasazeni (starší návrat: text v prostredi).
 const vadaNasazeni = x => S(typeof (x && x.prostredi) === 'string' ? x.prostredi : x && x.prostredi_nasazeni).trim()
-const normE2E = x => {
+const normE2E = (x, kdo = 'E2E') => {
+  // Čísla bez jmen (FAIL nad počet jmenovaných, PASS bez seznamu) se berou z návratu dřív, než normalizace seznamy změní.
+  bezJmenE2E(x)
   const failObj = (x.fail_kriteria || []).filter(f => f && (typeof f === 'string' ? f.trim() : S(f.kriterium).trim()))
   x.fail_kriteria = cisty(failObj.map(f => typeof f === 'string' ? f : `${S(f.kriterium).trim()}${S(f.selhani).trim() ? `: ${S(f.selhani).trim()}` : ''}`.slice(0, 400)))
   x.prostredi_nasazeni = vadaNasazeni(x)
   const pk = (typeof x.prostredi === 'string' ? [] : x.prostredi || []).filter(y => y && typeof y === 'object' && S(y.kriterium).trim())
   const bezDukazu = pk.filter(y => !S(y.dukaz).trim())
   x.prostredi = pk.filter(y => S(y.dukaz).trim()).map(y => ({ kriterium: S(y.kriterium).trim().slice(0, 200), sekce: S(y.sekce).trim().slice(0, 120), dukaz: S(y.dukaz).trim().slice(0, 600), navrh: S(y.navrh).trim().slice(0, 300) }))
-  if (bezDukazu.length) { log(`E2E: ${bezDukazu.length} kritérií prostředí bez důkazu, počítají se jako FAIL`); x.fail_kriteria.push(...bezDukazu.map(y => `${S(y.kriterium).trim()} (prostředí bez důkazu)`)); x.fail = (Number(x.fail) || 0) + bezDukazu.length }
-  if ((Number(x.fail) || 0) === 0 && x.fail_kriteria.length) x.fail = x.fail_kriteria.length
+  if (bezDukazu.length) { log(`E2E: ${bezDukazu.length} kritérií prostředí bez důkazu, počítají se jako FAIL`); x.fail_kriteria.push(...bezDukazu.map(y => `${S(y.kriterium).trim()} (prostředí bez důkazu)`)) }
   x.citelnost = (x.citelnost || []).filter(y => y && typeof y === 'object' && S(y.co).trim()).map(y => ({ plocha: S(y.plocha).trim().slice(0, 160), co: S(y.co).trim().slice(0, 400), proc: S(y.proc).trim().slice(0, 300) }))
-  return x
+  // Počty až z normalizovaných seznamů (spec I2): prostředí bez důkazu už je mezi FAIL.
+  return spoctiE2E(x, kdo)
 }
 const bezDuplicitCit = xs => { const v = new Map(); for (const x of xs) v.set(textKrit(`${S(x && x.plocha)}|${S(x && x.co)}`), x); return [...v.values()] }
 const citelnostText = xs => (xs || []).map(x => `${S(x.plocha).trim()}: ${S(x.co).trim()}${S(x.proc).trim() ? ` (${S(x.proc).trim()})` : ''}`)
 // Obnova s jen_kriteria (spec G2): verdikty ostatních kritérií z minulého kola a přeměřené se složí jako kolo 2, přeměřené kritérium se nepočítá dvakrát.
-const slozJenKriteria = (minule, x) => {
-  const ost = (minule.kriteria || []).filter(y => y && S(y.kriterium).trim() && !jenKriteria.some(j => stejneKrit(j, y.kriterium)))
+// zmerena = kritéria výběru, která návrat obnovy přeměřil (jmenuje je, nebo je nesou jeho čísla bez jmen); ostatní kritéria výběru si drží
+// verdikt minulého kola.
+const slozJenKriteria = (minule, x, zmerena) => {
+  const ost = (minule.kriteria || []).filter(y => y && S(y.kriterium).trim() && !zmerena.some(j => stejneKrit(j, y.kriterium)))
   const dle = v => ost.filter(y => y.verdikt === v)
   const popisem = y => `${S(y.kriterium).trim()}${S(y.popis).trim() ? `: ${S(y.popis).trim()}` : ''}`
-  const n = f => Number(x[f]) || 0
-  return { ...x, celkem: ost.length + n('celkem'), pass: dle('pass').length + n('pass'), castecne: dle('castecne').length + n('castecne'), fail: dle('fail').length + n('fail'),
+  // Převzaté verdikty jdou do seznamů k přeměřeným a počty se z nich skládají znovu (spec I2).
+  return spoctiE2E({ ...x, spocteno: true, pass_kriteria: [...dle('pass').map(y => S(y.kriterium).trim()), ...(x.pass_kriteria || [])],
     fail_kriteria: cisty([...dle('fail').map(popisem), ...(x.fail_kriteria || [])]), castecna_kriteria: [...dle('castecne').map(popisem), ...(x.castecna_kriteria || [])], vadna_kriteria: [...dle('vadne').map(popisem), ...(x.vadna_kriteria || [])],
     prostredi: [...dle('prostredi').map(y => ({ kriterium: S(y.kriterium).trim(), sekce: '', dukaz: S(y.popis).trim() || 'verdikt z minulého kola', navrh: '' })), ...(x.prostredi || [])],
     zavazne_mimo_ak: cisty([...(minule.zavazne_mimo_ak || []), ...(x.zavazne_mimo_ak || [])]), kosmeticke: cisty([...(minule.kosmeticke || []), ...(x.kosmeticke || [])]), prenesena_kriteria: ost.length,
-    report_path: [minule.report_path, x.report_path].filter(Boolean).join(' + ') }
+    report_path: [minule.report_path, x.report_path].filter(Boolean).join(' + ') })
+}
+// Kolo 2 nad jmenovanými FAIL kola 1 (jako slozE2E stavby): verdikt kola 2 přepisuje FAIL kola 1, ostatní verdikty kola 1 platí dál a mezi
+// koly u nich vyhrává horší. FAIL kola 1, který kolo 2 nejmenuje, se bez FAIL v kole 2 počítá jako pass a log ho jmenuje; kritérium vyjmuté
+// kvůli kroku mimo Povolení se neměřilo a čeká na majitele (bez_verdiktu).
+const slozE2E = (e1, e2, vyjmuta, zKola1) => {
+  const m1 = mapaE2E(e1), klice2 = [...mapaE2E(e2).keys()]
+  const vKole2 = fk => klice2.some(x => stejneKrit(x, fk))
+  const neFail = t => m1.get(klicKrit(t)) !== 'fail'
+  const fail1 = cisty(e1.fail_kriteria)
+  const mlcky0 = fail1.filter(fk => !vyjmuta.includes(fk) && !vKole2(fk))
+  // Čísla kola 2 bez jmen patří mlčky přeměřeným FAIL kola 1 (jako slozE2E stavby, review N3): FAIL bez jmen platí celý, PASS bez jmen
+  // jen do počtu mlčky přeměřených, které FAIL nepokryl; zbytek mlčky je pass. Jinak se totéž kritérium počítalo dvakrát.
+  const fb2 = Number(e2.fail_bez_jmen) || 0, pb2 = Number(e2.pass_bez_jmen) || 0
+  const failKryje = Math.min(fb2, mlcky0.length), passKryje = Math.min(pb2, mlcky0.length - failKryje)
+  const mlcky = mlcky0.slice(failKryje + passKryje)
+  if (failKryje + passKryje) log(`E2E 2: ${mlcky0.length} kritérií, která v kole 1 selhala, kolo 2 nejmenuje; ${failKryje + passKryje} z nich nesou čísla kola 2 bez jmen (fail ${failKryje}, pass ${passKryje})`)
+  if (mlcky.length) log(`E2E 2: verifikátor nevrátil verdikt u ${mlcky.length} kritérií, která v kole 1 selhala (${mlcky.join(' | ').slice(0, 300)}); bez FAIL v kole 2 se počítají jako pass`)
+  return spoctiE2E({ ...e2, ...zKola1, fail_bez_jmen: fb2, pass_bez_jmen: (Number(e1.pass_bez_jmen) || 0) + passKryje, spocteno: true,
+    vadna_kriteria: cisty([...(e1.vadna_kriteria || []).filter(neFail), ...(e2.vadna_kriteria || [])]), prostredi: [...(e1.prostredi || []).filter(x => neFail(x && x.kriterium)), ...(e2.prostredi || [])],
+    castecna_kriteria: [...(e1.castecna_kriteria || []), ...(e2.castecna_kriteria || [])], pass_kriteria: [...(e1.pass_kriteria || []), ...mlcky.map(fk => znackaKrit(fk) || fk), ...(e2.pass_kriteria || [])],
+    bez_verdiktu: [...(e1.bez_verdiktu || []), ...fail1.filter(fk => vyjmuta.includes(fk) && !vKole2(fk))] })
 }
 const verdikt = e => (e.fail > 0 || (e.fail_kriteria || []).length) ? 'fail' : (e.vadna_kriteria || []).length ? 'vada-kriteria' : (e.prostredi || []).length ? 'prostredi' : e.castecne > 0 ? 'pass-castecne' : 'pass'
 const zapisE2E = e => { st.e2e = { vysledek: verdikt(e), celkem: e.celkem, pass: e.pass, castecne: e.castecne, fail: e.fail, castecna_kriteria: e.castecna_kriteria || [], vadna_kriteria: e.vadna_kriteria || [], prostredi: (e.prostredi || []).map(x => x.kriterium), ...(e.citelnost && e.citelnost.length ? { citelnost: citelnostText(e.citelnost).slice(0, 8).map(t => t.slice(0, 240)), citelnost_pocet: e.citelnost.length } : {}), ...(cisty(e.prenesene_sekce).length ? { prenesene_sekce: cisty(e.prenesene_sekce) } : {}), ...(e.prenesena_kriteria ? { prenesena_kriteria: e.prenesena_kriteria } : {}) } }
@@ -1105,16 +1416,24 @@ if (jenKriteria.length && runtimeDopad) {
     log(`obnova.jen_kriteria: přeměří se ${jenKriteria.length} kritérií, zbytek z ${znama.length} verdiktů minulého kola se přebírá`)
     const x = await e2e(1, { jen: jenKriteria, report: rep('e2e', 'obnova', '1') })
     if (e2eNic(x, 1)) return selhani('e2e', e2eNic(x, 1))
-    normE2E(x)
+    normE2E(x, 'E2E obnovy')
     if (vadaNasazeni(x)) { st.reports.push(x.report_path); return selhani('deploy', `E2E hlásí vadu nasazení: ${vadaNasazeni(x).slice(0, 600)}`) }
-    // Neproběhlo není spadlo: přeměřované kritérium se z převzatých verdiktů vyřadilo, bez měření by jeho FAIL zmizel.
-    if ((Number(x.celkem) || 0) < jenKriteria.length) { st.reports.push(x.report_path); return selhani('e2e', `obnova.jen_kriteria: mělo se přeměřit ${jenKriteria.length} kritérií, verifikátor vrátil celkem ${Number(x.celkem) || 0}`) }
-    e = slozJenKriteria(minule, x)
+    // Neproběhlo není spadlo, po značkách (review N2): stráž nad počtem pustila návrat, který místo kritéria z výběru jmenoval kritérium
+    // mimo něj, a FAIL přeměřovaného kritéria zmizel. Kritérium výběru, které návrat nejmenuje a nenesou ho ani jeho čísla bez jmen (ta
+    // patří nejmenovaným kritériím výběru), si drží verdikt minulého kola; bez něj by jeho FAIL zmizel a obnova selže.
+    const klice = [...mapaE2E(x).keys()]
+    const nejmenovana = jenKriteria.filter(j => !klice.some(k => stejneKrit(k, j)))
+    const cislaBez = Math.min(nejmenovana.length, (Number(x.fail_bez_jmen) || 0) + (Number(x.pass_bez_jmen) || 0))
+    const drzi = nejmenovana.slice(cislaBez)
+    const bezVerdiktu = drzi.filter(j => !znama.some(y => stejneKrit(j, y.kriterium)))
+    if (bezVerdiktu.length) { st.reports.push(x.report_path); return selhani('e2e', `obnova.jen_kriteria: verifikátor nevrátil verdikt u ${bezVerdiktu.join(' | ')} a minulé kolo ho nemá`) }
+    if (drzi.length) log(`obnova.jen_kriteria: verifikátor nevrátil verdikt u ${drzi.join(' | ')}; platí verdikt minulého kola`)
+    e = slozJenKriteria(minule, x, jenKriteria.filter(j => !drzi.includes(j)))
   }
 }
 if (!e) e = await e2e(1)
 if (e2eNic(e, 1)) return selhani('e2e', e2eNic(e, 1))
-normE2E(e)
+normE2E(e, 'E2E 1')
 // Vada nasazení (nasazená revize není commit kolečka, přihlášení nefunguje) není nález pro fix agenta: kolečko selže ve fázi deploy a obnova jde od ní.
 if (vadaNasazeni(e)) { st.reports.push(e.report_path); return selhani('deploy', `E2E hlásí vadu nasazení: ${vadaNasazeni(e).slice(0, 600)}`) }
 st.reports.push(e.report_path); zapisE2E(e)
@@ -1155,32 +1474,28 @@ if (verdikt(e) === 'fail') {
   // než jich jmenuje, nejde říct která, a kolo 2 měří všechna (revize 1.4.0: fail 2 bez jmen dal kolu 2 prázdný seznam a kolečko
   // prošlo bez přeměření). Bez runtime dopadu měří kolo 2 všechna kritéria vždy a skládat ho s kolem 1 by počty zdvojilo.
   const jmenovana = failKola1.filter(fk => !vyjmuta.includes(fk))
-  const vse = !runtimeDopad || (Number(e1.fail) || 0) > failKola1.length
-  if (vse && runtimeDopad) log(`E2E 1: fail ${e1.fail}, jmenovaných kritérií ${failKola1.length}; kolo 2 přeměří všechna`)
+  const vse = !runtimeDopad || (Number(e1.fail_bez_jmen) || 0) > 0
+  if (vse && runtimeDopad) log(`E2E 1: fail ${e1.fail}, z toho ${e1.fail_bez_jmen} bez jmen; kolo 2 přeměří všechna`)
   if (!vse && !jmenovana.length) {
     log('E2E: kolo 2 se nekoná, všechna FAIL kritéria kola 1 čekají na rozhodnutí majitele (krok mimo Povolení)')
-    e = { ...e1, fail: 0, fail_kriteria: [] }; zapisE2E(e)
+    e = spoctiE2E({ ...e1, fail_bez_jmen: 0, fail_kriteria: [], bez_verdiktu: [...(e1.bez_verdiktu || []), ...failKola1] }); zapisE2E(e)
   } else {
     const prenos = vse && runtimeDopad ? skupinyKPrenosu(zmenyOpravyE2E) : new Set()
     zmenyOpravyE2E = null
     if (prenos.size) log(`E2E: ${prenos.size} ${prenos.size === 1 ? 'skupina sekcí se přenáší' : 'skupiny sekcí se přenášejí'} z kola 1 (oblasti mimo opravu): ${[...prenos].flatMap(i => e2eSkupiny[i]).join(' | ')}`)
     const e2 = await e2e(2, { fail: vse ? null : jmenovana, prenos })
     if (e2eNic(e2, 2)) return selhani('e2e', `${e2eNic(e2, 2)} v kole 2`)
-    normE2E(e2)
+    normE2E(e2, 'E2E 2')
     if (vadaNasazeni(e2)) return selhani('deploy', `E2E v kole 2 hlásí vadu nasazení: ${vadaNasazeni(e2).slice(0, 600)}`)
     // Plné přeměření, které nezměřilo nic, není pass (neproběhlo není spadlo).
     if (vse && !(Number(e2.celkem) > 0) && Number(e1.celkem) > 0) return selhani('e2e', `kolo 2 mělo přeměřit všechna kritéria (${e1.celkem}) a vrátilo celkem 0`)
     // Kolo 2 měřilo jen FAIL kritéria kola 1: výsledné počty se skládají z obou kol. Závažné nálezy, kosmetika a kritéria prostředí
     // z kola 1 se také nesmí ztratit (kolo 2 je jen smoke), jinak by bezpečnostní nález z kola 1 zmizel bez opravy.
     const zKola1 = { zavazne_mimo_ak: cisty([...(e1.zavazne_mimo_ak || []), ...(e2.zavazne_mimo_ak || [])]), kosmeticke: cisty([...(e1.kosmeticke || []), ...(e2.kosmeticke || [])]), prostredi: [...(e1.prostredi || []), ...(e2.prostredi || [])], citelnost: bezDuplicitCit([...(e1.citelnost || []), ...(e2.citelnost || [])]), prenesene_sekce: cisty([...(e1.prenesene_sekce || []), ...(e2.prenesene_sekce || [])]) }
-    // Kolo 2 přes všechna kritéria bez přenesených skupin: čitelnost platí jen z něj, kolo 1 by ji zdvojilo.
-    if (vse) e = { ...e2, ...zKola1, ...(prenos.size ? {} : { citelnost: e2.citelnost || [] }) }
-    else {
-      const vadna = cisty([...(e1.vadna_kriteria || []), ...(e2.vadna_kriteria || [])])
-      const castecne = (Number(e1.castecne) || 0) + (Number(e2.castecne) || 0)
-      e = { ...e2, celkem: Number(e1.celkem) || 0, castecne, vadna_kriteria: vadna, castecna_kriteria: [...(e1.castecna_kriteria || []), ...(e2.castecna_kriteria || [])], ...zKola1,
-        pass: Math.max(0, (Number(e1.celkem) || 0) - (Number(e2.fail) || 0) - castecne - vadna.length - zKola1.prostredi.length) }
-    }
+    // Kolo 2 přes všechna kritéria bez přenesených skupin: čitelnost platí jen z něj, kolo 1 by ji zdvojilo. Kritéria prostředí platí jen
+    // z kola 2 i s přenesenou skupinou (ta je v e2 přes mergeE2E): kritérium, které kolo 2 změřilo jako PASS, nejde majiteli jako otázka (review N1).
+    if (vse) e = { ...e2, ...zKola1, prostredi: e2.prostredi || [], ...(prenos.size ? {} : { citelnost: e2.citelnost || [] }) }
+    else e = slozE2E(e1, e2, vyjmuta, zKola1)
     st.reports.push(e2.report_path); zapisE2E(e)
     log(`E2E 2 (${vse ? 'všechna kritéria' : 'jen FAIL kola 1'}): ${verdikt(e)} (${e.pass}/${e.celkem}, fail ${e.fail})`)
     if (verdikt(e) === 'fail') {
@@ -1228,7 +1543,7 @@ if ((e.zavazne_mimo_ak || []).length) {
 
 // ---------- 5. závěr ----------
 vstup('Závěr')
-const kola = `thermo ${st.thermo.nalezu}/${st.thermo.blokeru} (opraveno ${st.thermo.opraveno}); kolo 1 ${st.review.kolo1.nalezu} nálezů, ${st.review.kolo1.blokujicich} blokujících, ${st.review.kolo1.fix_agentu} fix agentů; dluh ${st.dluh.polozek} položek ve ${st.dluh.varek} várkách, opraveno ${st.dluh.opraveno}, už vyřešeno ${st.dluh.uz_vyreseno}; bezpečnost ${st.security.nalezu} nálezů, ${st.security.blokujicich} blokujících, commity ${cisty(st.security.commity).length}`
+const kola = `thermo ${st.thermo.nalezu}/${st.thermo.blokeru} (opraveno ${st.thermo.opraveno}); kolo 1 ${st.review.kolo1.nalezu} nálezů, ${st.review.kolo1.blokujicich} blokujících, ${st.review.kolo1.fix_agentu} fix agentů; dluh ${st.dluh.polozek} položek ve ${st.dluh.varek} várkách, opraveno ${st.dluh.opraveno}, už vyřešeno ${st.dluh.uz_vyreseno}${st.dluh.citelnost.polozek || st.dluh.citelnost.zbyva ? `, čitelnost z follow-ups ${st.dluh.citelnost.polozek} položek, opraveno ${st.dluh.citelnost.opraveno}, zbývá ${st.dluh.citelnost.zbyva}` : ''}; bezpečnost ${st.security.nalezu} nálezů, ${st.security.blokujicich} blokujících, commity ${cisty(st.security.commity).length}`
 const c = await close({ kola, commity: cisty([...st.commity, ...st.security.commity]), security: cisty(st.security.commity), metodiky, odmitnute: cisty(st.odmitnute), jinak: cisty(st.jinak), rozhodnuti: dedupR(st.rozhodnuti), follow_ups: osudy(st.follow_ups), reports: cisty(st.reports), dluh: cisty(st.dluhOpravene), dluhUz: cisty(st.dluhUzVyresene), e2e: `${st.e2e.vysledek} ${st.e2e.pass}/${st.e2e.celkem}${st.e2e.castecne ? ` (částečně ${st.e2e.castecne})` : ''}` })
 st.review_passed = !!(c && c.ok && c.review_passed)
 st.vysledekSoubor = c && c.ok ? S(c.vysledek_soubor).trim() : ''
@@ -1239,5 +1554,5 @@ if (st.chybejici.length) log(`závěr: bezpečnostní commity neexistují: ${st.
 const cz = await commit('závěr', 'kolecko: závěr', 'Závěr')
 if (cz && cz.stav !== 'failed') sberCommit(cz)
 else log(`závěr: commit docs selhal (${cz ? S(cz.duvod).slice(0, 120) : 'bez výsledku'}), dokumenty zůstávají v pracovním stromě`)
-log(`kolečko hotové: ${cisty([...st.commity, ...st.security.commity]).filter(h => !st.chybejici.includes(h)).length} commitů, ${dedupR(st.rozhodnuti).length} rozhodnutí, dluh opraveno ${st.dluh.opraveno}, review_passed ${st.review_passed}`)
+log(`kolečko hotové: ${cisty([...st.commity, ...st.security.commity]).filter(h => !st.chybejici.includes(h)).length} commitů, ${dedupR(st.rozhodnuti).length} rozhodnutí, dluh opraveno ${st.dluh.opraveno}${st.dluh.citelnost.polozek ? `, čitelnost opraveno ${st.dluh.citelnost.opraveno} z ${st.dluh.citelnost.polozek}` : ''}, review_passed ${st.review_passed}`)
 return navrat('hotovo', '', '')

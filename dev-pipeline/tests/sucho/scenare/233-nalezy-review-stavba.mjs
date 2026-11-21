@@ -1,7 +1,8 @@
 // 233 · stavba · 1.11.0 (nálezy review a plan-checku verze): důkaz mimo řez kryje jedno selhání, neopravený blokující nález review opravy nezmizí,
 // druhé zastavení neztratí seznamy, obnova převezme prostředí, cesty thermo a skutečnou revizi části, čitelnost přežije selhání i skok na uzavření,
-// krok po nasazení opravy čitelnosti se nepočítá jako nenasazení, podmínky nasazení se nesekají a nesplněná neprojde potichu.
-import { argsStavby, casti, kontrola, stub, e2ePass, oprava, zelenaBrana, hash, NIC } from '../stuby.mjs'
+// podmínky nasazení se nesekají a nesplněná neprojde potichu. Od 1.12.0 (spec N1) stavba čitelnost neopravuje: větve kroku po nasazení opravy
+// čitelnosti a jejího vrácení zmizely s opravnou cestou, zdvojení mezi koly se měří na follow-ups v zadání uzavření.
+import { argsStavby, casti, kontrola, stub, e2ePass, oprava, hash, NIC } from '../stuby.mjs'
 import { spust } from '../harness.mjs'
 
 const FAIL = (extra = {}) => e2ePass(8, { vysledek: 'fail', pass: 7, fail: 1, fail_kriteria: [{ kriterium: 'AK1 Export', selhani: '500' }], ...extra })
@@ -74,36 +75,23 @@ export default {
     ms.obsahuje(ms.jeden('uzavření:řez 05:selhání'), CIT_TEXT, 'čitelnost v uzavření selhání')
     pod('selhání', ms)
 
-    // Skok na uzavření: oprava se nekoná, položky jdou do follow-ups.
+    // Skok na uzavření: položky z reportu přerušeného běhu jdou do follow-ups i do návratu jako z živého E2E.
     const skok = await spust({ blok: 'blok-stavby', args: argsStavby({ ...A, obnova: { od_faze: 'uzavreni', znacka: 'Z233', pokus: 1 } }), odpoved: l => l === 'obnova-stav:řez 05' ? STAV({ brana_nad_head: true, e2e: { vysledek: 'pass', celkem: 8, pass: 8, castecne: 0, fail: 0, citelnost: CIT } }) : null })
     const msk = kontrola(skok.volani)
     msk.nic(/^fix-citelnost/, 'oprava při skoku na uzavření')
     msk.obsahuje(msk.jeden('uzavření:řez 05'), CIT_TEXT, 'čitelnost při skoku na uzavření')
+    msk.obsahuje(msk.jeden('uzavření:řez 05'), '"citelnost":[{"plocha":"Přehled","co":"zkratka","proc":"nepozná metriku"}]', 'čitelnost v souboru výsledku při skoku')
+    msk.rovno(skok.vysledek && skok.vysledek.e2e && [skok.vysledek.e2e.citelnost, skok.vysledek.e2e.citelnost_pocet], [['Přehled: zkratka (nepozná metriku)'], 1], 'čitelnost v návratu při skoku')
     pod('skok na uzavření', msk)
 
-    // Selhání kroku po nasazení opravy čitelnosti: oprava je nasazená a návrat nese její commit.
-    const cCit = hash('cit-233')
-    const kr = await spust({ blok: 'blok-stavby', args: argsStavby(), odpoved: l => l === 'e2e:řez 05:1' ? e2ePass(8, { citelnost: CIT }) : l === 'deploy:řez 05:4' ? stub(l, { commit: cCit, kroky_po_nasazeni: [{ id: 9, krok: 'k', stav: 'selhalo', duvod: 'd' }] }) : null })
-    const mk = kontrola(kr.volani)
-    mk.obsahuje(mk.jeden('uzavření:řez 05'), 'oprava je nasazená, selhal krok po nasazení', 'follow-up')
-    mk.rovno(kr.vysledek && kr.vysledek.commit, cCit, 'commit opravy v návratu')
-    pod('krok po nasazení', mk)
-
-    // Vrácení čitelnosti se ověřuje proti markeru; nesedí = follow-up to řekne.
-    const CERVENA = zelenaBrana({ selhalo: 1, exit_kod: 1, selhavajici: ['x.test.ts'] })
-    const vr = await spust({ blok: 'blok-stavby', args: argsStavby(), odpoved: l => l === 'e2e:řez 05:1' ? e2ePass(8, { citelnost: CIT }) : /^verify:řez 05:cit(-2)?$/.test(l) ? CERVENA : l === 'fix-citelnost:řez 05:vraceni' ? oprava({ rozsireny_zasah: true, zmenena_mista: ['apps/sucho/rez.ts: zbylo'] }) : null })
-    const mv = kontrola(vr.volani)
-    mv.obsahuje(mv.jeden('fix-citelnost:řez 05:vraceni'), 'tree-hash.sh', 'kontrola stromu')
-    mv.obsahuje(mv.jeden('uzavření:řez 05'), 'vrácení není úplné', 'neúplné vrácení')
-    pod('vrácení', mv)
-
-    // Kolo 2 přes všechna kritéria čitelnost nezdvojí.
+    // Kolo 2 přes všechna kritéria čitelnost nezdvojí: follow-up je v zadání uzavření jednou.
+    const kolikrat = (b, co) => { const u = b.volani.find(x => x.label === 'uzavření:řez 05'); return u ? u.prompt.split(co).length - 1 : -1 }
     const dvoj = await spust({ blok: 'blok-stavby', args: argsStavby({ runtime_dopad: false }), odpoved: l => l === 'kriteria:řez 05:1' ? FAIL({ citelnost: CIT }) : l === 'kriteria:řez 05:2' ? e2ePass(8, { citelnost: CIT }) : null })
-    const fcd = dvoj.volani.find(x => x.label === 'fix-citelnost:řez 05')
-    k.rovno(fcd ? (fcd.prompt.match(/Přehled: zkratka/g) || []).length : -1, 1, 'položka čitelnosti jednou')
+    k.rovno(kolikrat(dvoj, `[oprava] ${CIT_TEXT}"`), 1, 'položka čitelnosti ve follow-ups jednou')
+    k.rovno(dvoj.vysledek && dvoj.vysledek.e2e && dvoj.vysledek.e2e.citelnost_pocet, 1, 'položka čitelnosti v návratu jednou')
     const zm = await spust({ blok: 'blok-stavby', args: argsStavby({ runtime_dopad: false }), odpoved: l => l === 'kriteria:řez 05:1' ? FAIL({ citelnost: CIT }) : l === 'kriteria:řez 05:2' ? e2ePass(8, { citelnost: [{ plocha: 'Jiná plocha', co: 'nejasné' }] }) : null })
-    const fcz = zm.volani.find(x => x.label === 'fix-citelnost:řez 05')
-    k.ok(fcz && !fcz.prompt.includes('Přehled: zkratka') && fcz.prompt.includes('Jiná plocha'), 'plné kolo 2: čitelnost jen z něj')
+    k.ok(kolikrat(zm, '[oprava] čitelnost: Přehled: zkratka') === 0 && kolikrat(zm, '[oprava] čitelnost: Jiná plocha: nejasné"') === 1, 'plné kolo 2: čitelnost jen z něj')
+    k.ok(![...dvoj.volani, ...zm.volani].some(x => /^fix-citelnost/.test(x.label)), 'oprava čitelnosti se nekoná')
 
     // Návrat drží limit i s desítkami položek čitelnosti; celý seznam nese soubor výsledku.
     const CIT25 = Array.from({ length: 25 }, (_, i) => ({ plocha: `Plocha ${i}`, co: 'x'.repeat(300), proc: 'y'.repeat(200) }))

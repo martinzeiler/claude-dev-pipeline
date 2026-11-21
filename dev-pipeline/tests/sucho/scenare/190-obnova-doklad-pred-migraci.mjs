@@ -16,10 +16,15 @@ export default {
     const k = kontrola(volani)
     k.navrat(v, { ok: true, vysledek: 'hotovo' })
     k.nic(/^doklad:/, 'nový doklad před migrací po obnově')
+    // 1.12.0 (spec J1): commit řezu před dokladem (běh 0) jde jen s novým dokladem; s dokladem z přerušeného běhu commitne řez běh 1 jako dřív.
+    k.nic(/^deploy:řez 05:0$/, 'commit před dokladem bez nového dokladu')
+    k.neobsahuje(k.jeden('deploy:řez 05:1'), 'Commit řezu už existuje', 'větu o commitu před dokladem')
+    k.obsahuje(k.jeden('deploy:řez 05:1'), 'Doklad vznikl dřív v přerušeném běhu a zachycuje stav před prvním zápisem: platí dál', 'platnost dokladu z přerušeného běhu')
     k.obsahuje(k.jeden('deploy:řez 05:1'), DOKLAD, 'deploy s dokladem z přerušeného běhu')
     k.ok(logy.some(l => /doklad před migrací z přerušeného běhu platí/.test(l)), 'log dokladu')
     const bc = await spust({ blok: 'blok-stavby', args: argsStavby({ ...ARGS, obnova: { od_faze: 'deploy', znacka: 'Z190b', pokus: 1, bez_cache: true } }), odpoved: l => l === 'obnova-stav:řez 05' ? { commit_rezu: '', head_shodny: false, nasazeni_dolozeno: false, provedene_kroky: [], brana_nad_head: true, strom_cisty: true } : null })
     k.ok(bc.volani.some(x => /^verify:/.test(x.label)) && bc.volani.some(x => /^implement:/.test(x.label)), 'bez_cache se zelenou bránou bez nasazení nic nepřeskakuje')
+    k.rovno(bc.volani.filter(x => /^(deploy|doklad):/.test(x.label)).map(x => x.label), ['deploy:řez 05:0', 'doklad:řez 05', 'deploy:řez 05:1'], 'bez dokladu z přerušeného běhu: commit, doklad, nasazení')
     return k.chyby
   },
 }

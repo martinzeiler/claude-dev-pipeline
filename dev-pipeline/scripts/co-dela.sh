@@ -34,7 +34,7 @@
 #     Obnova přes resumeFromRunId píše do téhož journalu a stavový soubor přerušeného běhu přepíše až při doběhnutí:
 #     journal o víc než 5 s novější než stavový soubor = obnovený běh, který běží.
 #   Labely agentů (části, kontrakt a jeho poloviny :a/:b po stropu předávek, integrace, oprava, nástupce po předávce :nN;
-#     fix:řez NN:kolo K:balíček B:dávka D; fix-citelnost:řez NN[:vraceni], e2e-stav:kolečko, dluh:kolečko, obnova-stav:řez NN
+#     fix:řez NN:kolo K:balíček B:dávka D a fix:kolečko:<fáze>:<i>:dávka D; sonda:<label> po třech voláních bez odpovědi, e2e-stav:kolečko, dluh:kolečko[:čitelnost], obnova-stav:řez NN
 #     (v obnově až uprostřed běhu, po voláních z cache), thermo:báze, krok na pozadí) se vypisují čitelně (implement řez 05 · část K2 (název části) · pokus 1 ·
 #     nástupce 2); název části z docs/.stavba-NN.json.
 #   Předávky jen z docs/.kontext.jsonl (záznamy udalost predavka, hook hlídač kontextu): za běh a za řez přes všechny
@@ -354,8 +354,14 @@ def tisice(n):
 # typ:řez NN[:část K|:kontrakt|:integrace|:oprava][:číslo][:písmeno]; nástupce po předávce má na konci :n2 až :n4.
 # Holé číslo znamená podle typu pokus, kolo review, běh nebo balíček oprav; za „oprava“ je to vždy pokus.
 CISLO_JAKO = {"implement": "pokus", "review": "kolo", "prd-check": "kolo", "verify": "běh", "deploy": "běh", "e2e": "běh",
-              "kriteria": "běh", "fix-e2e": "běh", "fix": "balíček", "dluh": "balíček", "fix-dluh": "balíček", "obnova-stav": "běh"}
+              "kriteria": "běh", "fix-e2e": "běh", "fix": "balíček", "dluh": "várka", "fix-dluh": "balíček", "obnova-stav": "běh"}
 NASTUPCE = re.compile(r":n\d+$")
+
+def je_nastupce(label):
+    """Agent po předávce (label končí :nN). Sonda selhaného agenta (sonda:<label>) nese label nástupce, ale předávka není."""
+    label = str(label or "")
+    return bool(NASTUPCE.search(label)) and not label.startswith("sonda:")
+
 POKUS = re.compile(r"implement:řez\s*[0-9a-z]+:(?:[^:]+:)?(\d+)(?::[ab])?(?::n\d+)?$")
 
 _NAZVY_CASTI = {}
@@ -375,6 +381,8 @@ def nazvy_casti(rez):
 def citelny(label):
     """implement:řez 05:část K2:1:n2 → implement řez 05 · část K2 (název) · pokus 1 · nástupce 2 (neznámé kusy beze změny).
     Holé „K2“ bez vize v ruce nikdo nepřečte: název části je z args stavby."""
+    if str(label or "").startswith("sonda:"):
+        return "sonda · " + citelny(str(label)[len("sonda:"):])
     kusy = str(label or "").split(":")
     typ, hlava, dal, rez = kusy[0], kusy[0], [], None
     for i, k in enumerate(kusy[1:], 1):
@@ -708,7 +716,7 @@ for wf in sorted(_wfs):
         "wf": wf, "name": name, "rez": rez, "start": start, "hotovo": len(done), "live": live,
         "faze": faze, "cur": cur, "faze_start": faze_start, "hotove_faze": hotove, "pokus": max(pokusy) if pokusy else None,
         "restarty": restarty, "selhani": len(failed_ids), "obnova": obnova,
-        "predavky": sum(1 for e in by_key.values() if NASTUPCE.search(e.get("label") or "")),
+        "predavky": sum(1 for e in by_key.values() if je_nastupce(e.get("label"))),
         "journal_mt": journal_mt, "args_rez": args_rez(state),
     })
 

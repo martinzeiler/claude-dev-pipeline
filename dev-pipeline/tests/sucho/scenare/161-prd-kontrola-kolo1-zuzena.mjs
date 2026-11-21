@@ -20,7 +20,7 @@ export default {
     for (const t of ['Kolo 1 kontroluje jen to, co jde ověřit proti kódu a prostředí', 'Vracíš jen BLOKUJE a OVĚŘIT PRVNÍ; formulační a stylové nálezy nepiš ani do reportu',
       'U každého BLOKUJE napiš do reportu navržené znění', 'Osy úplnosti vůči vizi, rozsahu a optimality v kole 1 nekontroluj (patří refreshi ve stavbě)',
       'Spor nebo předpoklad (Odchylky, Rizika, záznam vize-spory, který PRD jmenuje) bez citace řádku vize', 'doklad_pred: true bez sekce „Doklad před nasazením“ s dotazy je BLOKUJE',
-      'bez stanoviště jiného než stroj běhu nebo bez tolerance je BLOKUJE', 'zapisuje do živého systému bez doslova citovaného Povolení, je BLOKUJE',
+      'bez stanoviště jiného než stroj běhu nebo bez tolerance je BLOKUJE', 'zapisuje do živého systému bez doslova citovaného Povolení nebo mimo jeho účel a hranice, je BLOKUJE', 'strop počtu zápisů v PRD nebo scénáři je nález',
       `Standardy pro review: ${PLUGIN}/standardy/SLOVNIK-NAVRHU.md a ${PLUGIN}/standardy/STANDARD-REVIEW.md, plus CODING_STANDARDS.md projektu`,
       'žádný soubor ve dvou částech', 'bez cyklu', 'posuň rozhraní do Kontraktu', 'každá nese počet kritérií, odhad minut, bez_soubehu a oblasti']) k.obsahuje(ks, t)
     for (const t of ['Kontroluj osy A (úplnost', 'D (rozsah řezu) a E (optimalita', 'odhad architekta bývá polovina skutečnosti', 'FORMULACE']) k.neobsahuje(ks, t, `staré znění kontroly: ${t}`)

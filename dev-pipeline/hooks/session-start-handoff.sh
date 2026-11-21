@@ -11,6 +11,7 @@
 # a jen pro session s session_id z markeru: PreCompact proběhne i bez compactu a cizí session v projektu není
 # orchestrátor. Trigger (manual, auto) nechává pre-compact.sh v dočasném souboru session. co-dela.sh a závěrečná
 # zpráva počítají compacty orchestrátora odtud.
+# Vstup nese source (startup | resume | compact): při startup a resume orchestrátorské session hook maže razítko cronu.
 set -uo pipefail
 
 input=$(cat)
@@ -36,7 +37,11 @@ if [ "$msid" != "$sid" ]; then
   emit "dev-pipeline: v projektu běží orchestrace vize (${mvize:-?}) v jiné session ($msid, od ${mstart:-?}). Tahle session není orchestrátor: chovej se jako běžná ruční session, nesahej na docs/handoff.md ani na běh."
 fi
 
-# Orchestrátorská session. Při startup se skill invokuje znovu a text dostane čerstvý;
+# Orchestrátorská session. Nový proces (startup, resume) nemá cron kontroly stavu, ten zanikl s minulým procesem: razítko
+# docs/.cron-od se maže, Stop hook pak ve stavu „běží“ vyžádá nový cron. Compact proces nemění, razítko zůstává.
+case "$src" in startup|resume) rm -f "$proj/docs/.cron-od" 2>/dev/null ;; esac
+
+# Při startup se skill invokuje znovu a text dostane čerstvý;
 # injektuje se jen po compactu a resume, kdy skill soubory nikdo znovu nenačte.
 case "$src" in
   compact)

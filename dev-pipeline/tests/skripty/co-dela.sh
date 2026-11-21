@@ -71,6 +71,16 @@ o=$(cd_run); printf '%s' "$o" | grep -q 'implement řez 05 · část K2 · pokus
 rm "$proj/docs/.kontext.jsonl"
 o=$(cd_run); printf '%s' "$o" | grep -q 'kontext agentů: předávek 1$' && ok || ko "bez-logu-zaloha: $o"
 printf '%s' "$o" | grep -q 'předávek řezu' && ko "bez-logu-blok: $o" || ok
+# sonda selhaného nástupce (sonda:…:n2) nese label nástupce, ale předávka není: blok řezu 07 má jednu, běh dvě
+mkdir -p "$sess/subagents/workflows/wf_bezi-7"
+printf "phases: [\n  { title: 'Části' },\n]\n" > "$sess/workflows/scripts/blok-stavby-wf_bezi-7.js"
+{
+  jq -cn '{type:"started", agentId:"g1", key:"g1", label:"implement:řez 07:K1:1:n2", phase:"Části"}'
+  jq -cn '{type:"started", agentId:"g2", key:"g2", label:"sonda:implement:řez 07:K1:1:n2", phase:"Části"}'
+} > "$sess/subagents/workflows/wf_bezi-7/journal.jsonl"
+o=$(cd_run)
+printf '%s\n' "$o" | grep -q '^▶ stavba řezu 07 .* · předávek 1$' && printf '%s' "$o" | grep -q 'kontext agentů: předávek 2$' && ok || ko "sonda-neni-predavka: $o"
+rm -rf "$sess/subagents/workflows/wf_bezi-7" "$sess/workflows/scripts/blok-stavby-wf_bezi-7.js"
 
 # --zprava: čísla běhu jako JSON (cena z usage posledního záznamu zprávy, syntetická odpověď se nepočítá; od z markeru)
 jq -cn '{type:"assistant", message:{id:"o1", model:"claude-opus-5-5", usage:{input_tokens:1, output_tokens:0}}}' > "$sess.jsonl"
@@ -93,8 +103,13 @@ printf "phases: [\n  { title: 'Kontrakt' },\n  { title: 'Review' },\n]\n" > "$se
 {
   jq -cn '{type:"started", agentId:"d1", key:"d1", label:"fix:řez 06:kolo 1:balíček 2:dávka 3", phase:"Review"}'
   jq -cn '{type:"started", agentId:"d2", key:"d2", label:"implement:řez 06:kontrakt:2:b", phase:"Kontrakt"}'
+  jq -cn '{type:"started", agentId:"d3", key:"d3", label:"sonda:implement:řez 06:K2:2", phase:"Kontrakt"}'
+  jq -cn '{type:"started", agentId:"d4", key:"d4", label:"dluh:kolečko:čitelnost:2", phase:"Review"}'
+  jq -cn '{type:"started", agentId:"d5", key:"d5", label:"fix:kolečko:dluh čitelnost 2:3", phase:"Review"}'
 } > "$sess/subagents/workflows/wf_bezi-4/journal.jsonl"
 o=$(cd_run)
+printf '%s' "$o" | grep -q 'sonda · implement řez 06 · část K2 · pokus 2' && ok || ko "label-sonda: $o"
+printf '%s' "$o" | grep -q 'dluh kolečko · čitelnost · várka 2' && printf '%s' "$o" | grep -q 'fix kolečko · dluh čitelnost 2 · balíček 3' && ok || ko "label-citelnost: $o"
 printf '%s' "$o" | grep -q 'fix řez 06 · kolo 1 · balíček 2 · dávka 3' && ok || ko "label-davka: $o"
 printf '%s' "$o" | grep -q 'implement řez 06 · kontrakt · pokus 2 · polovina b' && ok || ko "label-polovina: $o"
 printf '%s' "$o" | grep -q '^▶ stavba řezu 06 · pokus 2 ' && ok || ko "pokus-z-poloviny: $o"

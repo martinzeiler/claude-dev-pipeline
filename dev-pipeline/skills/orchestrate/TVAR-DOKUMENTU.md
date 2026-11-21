@@ -5,7 +5,7 @@ Pro agenty bloků: co kde leží, kdo to píše a v jakém tvaru; args, návraty
 ## Soubory běhu
 
 - `docs/produkt.md` (vize session): produktová severka napříč vizemi
-- `docs/vize/<slug>.md`, přílohy `docs/vize/<slug>/` (vize session): Cíle, Ne-cíle, Rozhodnutí, Mantinely a Povolení, UI plochy, Plán řezů; tělo kolem 85 kB, podklady v přílohách; během běhu neměnná
+- `docs/vize/<slug>.md`, přílohy `docs/vize/<slug>/` (vize session): Cíle, Ne-cíle, Rozhodnutí, Mantinely a Povolení, UI plochy, Plán řezů; během běhu neměnná
 - `docs/prd/rez-NN-<slug>.md` (PRD architekt; status a commit uzavření): PRD řezu, u řezu s částmi kostra (níže)
 - `docs/prd/rez-NN-cast-K1.md` (autor části): PRD části: postup ověřený proti kódu, precedent, pasti, testy k chování, mapa souborů a symbolů
 - `docs/e2e/rez-NN.md` (PRD architekt): E2E scénáře v nezávislých sekcích (níže)
@@ -23,19 +23,19 @@ Pro agenty bloků: co kde leží, kdo to píše a v jakém tvaru; args, návraty
 
 `docs/handoff.md` píše jen orchestrátor, do 4 kB. Hlavička `# Běh vize <slug>`, řádky `stav běhu: <hodnota>`, `branch: vize/<slug> · vize: docs/vize/<slug>.md · start: <datum>`, `session: <session_id>`; sekce Plán (živá kopie) s tabulkou `# | název | body vize | definice hotového | závislosti | stav | commit | E2E | pozn.`, Změny plánu (`- <datum> řez NN: <co a proč>`) a Poznámky pro navázání.
 
-`stav běhu:` (čte ho Stop hook): `běží workflow <blok> řez NN (task <id>)`, `běží agent <co> (task <id>)` · `čeká: <krok>` · `zastaveno: (<písmeno>) <důvod>` · `zastaveno: odklad řez NN do <čas> (obnova cronem)` · `hotovo`, `hotovo (merge main)`.
+`stav běhu:` `běží workflow <blok> řez NN (task <id>)`, `běží agent <co> (task <id>)` · `čeká: <krok>` · `zastaveno: (<písmeno>) <důvod>` · `zastaveno: odklad řez NN do <čas> (obnova cronem)` · `hotovo`, `hotovo (merge main)`.
 
 ## PRD a E2E
 
 Frontmatter PRD: `rez`, `slug`, `status` (`in_progress` | `done` | `skipped`), `vize`, `body_vize` (`[C2, F4]`), `runtime_dopad` (`ne` = jen testy, tooling, dokumentace, bez deploye), `lesen` (`ano` = zkušební rozhraní s řádkem plánu na odstranění), `casti` (`K1,K2`, jen kostra), `pokusy` (blok stavby), `commit` (uzavření).
 
-**Malý řez** (do ~2 k změněných řádků) má PRD celé. **Kostra řezu s částmi** nese cíl, rozsah, Pojmy, kritéria s ID, zákazy, UI plochu, doklad, Pozor na, Nasazení a kroky po něm, sekci Kontrakt (sdílené typy, schéma a migrace, signatury rozhraní mezi částmi, registrace tras; do ~800 řádků, chování patří částem) a sekci Části s tabulkou `část | název | soubory a oblasti | kritéria | odhad řádků vč. testů | závisí na | poznámka`. Část má ~500 až ~800 řádků v odhadu včetně testů a měřidel (skutečnost bývá ~2× odhad), disjunktní soubory (sdílené do Kontraktu), vlastní kritéria a závislosti bez cyklu.
+**Malý řez** (do ~2 k změněných řádků) má PRD celé. **Kostra řezu s částmi** nese cíl, rozsah, Pojmy, kritéria s ID, zákazy, UI plochu, doklad, Pozor na, Nasazení a kroky po něm, sekci Kontrakt (sdílené typy, schéma a migrace, signatury rozhraní mezi částmi, registrace tras; do ~800 řádků, chování patří částem) a sekci Části s tabulkou `část | název | soubory a oblasti | kritéria | odhad řádků vč. testů | závisí na | poznámka`. Část má disjunktní soubory (sdílené do Kontraktu), vlastní kritéria a závislosti bez cyklu.
 
-**Kritérium** má tvar „**AKn Název do 6 slov.** …“, je vlastnost s měřidlem, ne výčet jmen, ověřitelná testem, měřidlem nebo E2E krokem na nejvyšším švu. Kritérium nad kódem nese `[měřidlo]` a měří ho brána. Kritérium nad sítí, výkonem nebo cizí službou nese `N` běhů střídavě se základem, stanoviště jiné než tento stroj a toleranci (medián proti mediánu základu); bez stanoviště je to otázka pro majitele (`prostředí`). Kritérium nad daty vznikajícími časem má krok výroby dat podle Povolení.
+**Kritérium** má tvar „**AKn Název do 6 slov.** …“, je vlastnost s měřidlem, ne výčet jmen, ověřitelná testem, měřidlem nebo E2E krokem na nejvyšším švu. Kritérium nad kódem nese `[měřidlo]` a měří ho brána. Kritérium nad sítí, výkonem nebo cizí službou bez stanoviště jiného než tento stroj je otázka pro majitele (`prostředí`). Kritérium nad daty vznikajícími časem má krok výroby dat podle Povolení.
 
 **Nasazení a kroky po něm:** číslovaný seznam, číslo kroku je `id` a mezi verzemi PRD se nemění; podmíněný krok má obě větve (provedení, nebo `nevztahuje-se` s hodnotou). Krok před nasazením nezávislý na kódu řezu přiděluje PRD implementaci nebo části s citací Povolení. Krok, který spotřebuje jednorázový souhlas nebo jiný nevratný zdroj, provádí deploy po bráně, ne implementace ani část. Doklad před nasazením (migrace mění nebo maže data, nebo nasazení přepíše protějšek kritéria) má vlastní sekci s dotazy; `doklad_pred` bez ní je blokující nález.
 
-**E2E scénáře:** kroky v sekcích nezávislých na sobě (žádná nezávisí na datech, která jiná vytváří nebo maže); sekce nese odhad doby, dotčené oblasti PRD a `bez_soubehu`, když ji nejde měřit souběžně. Měřidlo nad populací má odhad doby (počet × čas na položku).
+**E2E scénáře:** kroky v sekcích nezávislých na sobě (žádná nezávisí na datech, která jiná vytváří nebo maže); sekce nese odhad doby, dotčené oblasti PRD a `bez_soubehu`, když ji nejde měřit souběžně.
 
 ## Vize-spory
 
@@ -51,7 +51,7 @@ Nadpis `## <YYYY-MM-DD> | řez NN | <agent>` a pole:
 **Uzavřel orchestrátor:** <navržená odpověď platí | bezpředmětné: řez NN | spojeno s <nadpis>> (<datum>)
 ```
 
-Větší chybu zapíše orchestrátor záznamem jen s řádkem `**Měl bys vědět:** <věta>`.
+Větší chybu zapíše orchestrátor záznamem jen s řádkem `**Měl bys vědět:** <věta>`. Otázka k záznamu, který orchestrátor už uzavřel, je nový záznam s odkazem.
 
 Zapisuje kdokoli; záznam bez citace řádku vize je blokující nález kontroly PRD. Běh pokračuje **konzervativní volbou**: ta znamená menší zásah do kódu a dat, ne menší splnění zadání. Právní, etická a obsahová rozhodnutí (co smí být na webu, čí jméno nebo fotka, souhlas, licence, vhodnost textu, co smí kdo dělat podle cizího práva) nejsou tvoje: udělej, co vize a podklady říkají, a riziko zapiš sem jako otázku s navrženou odpovědí „ponechat“, aby ji majitel potvrdil nebo obrátil. Vynechat, zjemnit nebo neudělat smíš jen to, co vize, mantinel nebo zákaz výslovně vylučuje. Zastavení (e) a bezpečnostní nálezy tím zůstávají.
 
@@ -59,7 +59,7 @@ Zapisuje kdokoli; záznam bez citace řádku vize je blokující nález kontroly
 
 ## Follow-ups
 
-Backlog napříč vizemi. Nadpis `## Řez NN <název>` zakládá uzavření jen pro svůj řez, kolečko píše pod `## Kolečko`. Položka: `- [řez NN · <oblast>] [<osud>] <text; u opravy cesta k souboru nebo místo UI>`. Osud: `rozhodnutí` (text začíná `rozhodne majitel:` u Cíle, Ne-cíle, Rozhodnutí, Povolení, právní nebo obsahové věci, jinak `rozhodne orchestrátor:`; říká, co by rozhodlo), `oprava` (cesta k souboru nebo konkrétní místo UI, bez rozhodnutí), `nápad` (návrh funkce nebo změny), `obsah` (text, data, obrázky od majitele). Vyřešené se přeškrtávají `~~…~~ VYŘEŠENO <datum>: <čím>`; zamítá jen vize session s důvodem; žádné promlčení. Nikdo ho nečte celý: `python3 <plugin_root>/scripts/follow-ups.py <cwd> [--osud X] [--oblast Y] [--rez NN] [--json]`; `[oprava]` opravuje vlna dluhu v kolečku, „rozhodne majitel“ vypíše zpráva, ostatní rozhodnutí řeší orchestrátor ve finále.
+Nadpis `## Řez NN <název>` zakládá uzavření jen pro svůj řez, kolečko píše pod `## Kolečko`. Položka: `- [řez NN · <oblast>] [<osud>] <text; u opravy cesta k souboru nebo místo UI>`. Osud: `rozhodnutí` (text začíná `rozhodne majitel:` u Cíle, Ne-cíle, Rozhodnutí, Povolení, právní nebo obsahové věci, jinak `rozhodne orchestrátor:`; říká, co by rozhodlo), `oprava` (cesta k souboru nebo konkrétní místo UI, bez rozhodnutí), `nápad` (návrh funkce nebo změny), `obsah` (text, data, obrázky od majitele). Vyřešené se přeškrtávají `~~…~~ VYŘEŠENO <datum>: <čím>`; zamítá jen vize session s důvodem. Nikdo ho nečte celý: `python3 <plugin_root>/scripts/follow-ups.py <cwd> [--osud X] [--oblast Y] [--rez NN] [--json]`; `[oprava]` opravuje vlna dluhu v kolečku, „rozhodne majitel“ vypíše zpráva, ostatní rozhodnutí řeší orchestrátor ve finále.
 
 ## Pojmy a rozhodnutí
 
@@ -69,7 +69,7 @@ Backlog napříč vizemi. Nadpis `## Řez NN <název>` zakládá uzavření jen 
 
 > **Čekání na čas.** Kritérium, krok nebo scénář, který potřebuje data vznikající časem (provoz, plánované úlohy, činnost uživatelů, den, noc), změří běh nad daty, která sám vyrobí podle Povolení vize (ruční spuštění, testovací data, kratší okno), hned po nasazení. Na organický čas běh čeká jen tam, kde to vize výslovně vede jako rozhodnutí majitele s odhadem, o kolik hodin se běh prodlouží. Když Povolení výrobu dat nepokrývá, kritérium není „nesplnitelné v prostředí E2E“: je to otázka pro majitele (rozšířit Povolení, nebo čekat).
 
-Čekání přes ~30 min ve stavbě nedrží slot: verifikátor změří start a průběh, vrátí `k_domereni`, doměří orchestrátor.
+Čekání přes ~30 min ve stavbě nedrží slot: verifikátor změří start a průběh, vrátí `k_domereni`, doměří orchestrátor; stejně kritérium nad vyčerpanou kvótou platformy.
 
 ## Feedback pipeline
 
@@ -81,5 +81,6 @@ Vadu pipeline samotné hlásí agent v návratu s dokladem (soubor a řádek, v�
 - **Dokumenty čti po sekcích:** vizi, PRD, scénáře a jiný dokument nad ~200 řádků `grep -n '^## '` a pak `sed -n a,bp` jen sekcí, které tvá role potřebuje. Kód symbolem (Serena), kde je language server; soubor do 350 řádků celý jedním Read, větší guard odmítne.
 - **Proces na pozadí:** `run_in_background` a čekání v tomtéž tahu smyčkou s pevným počtem iterací (`for i in $(seq 1 26); do …; sleep 10; done`), jedno čekací volání nejvýš 4,5 minuty; `Monitor` v agentovi bloku nečeká.
 - **Žádné otázky na uživatele**; handoff nečteš; auto-paměť se během běhu nepíše.
+- **Živý systém:** zapisuj jen v účelu a hranicích Povolení ze zadání, počet zápisů nehlídej; maž jen, co běh založil nebo co Povolení jmenuje. Změnu, kterou vrátit neumíš, zapiš do vize-spory řádkem `**Měl bys vědět:**` (systém, objekt, jak ručně).
 - **Sdílený strom:** po restartu i po předávce začni inventurou (`git status`, `git diff --stat`); cizí soubory neupravuj, neformátuj, nevracej; pracuj jen v hranici souborů své role, změnu jinde vrať v návratu. Mazání s proměnnou jen chráněně (`rm -f "${S:?}"/soubor`); žádný `git checkout`, `stash` ani `clean`.
-- **Jména souborů** v `docs/reviews/` a `docs/e2e/`: `rez-NN-<co>.md`, `kolecko-<co>.md`; nikdy summary, findings, analysis, report-.
+- **Jména souborů** v `docs/reviews/` a `docs/e2e/`: `rez-NN-<co>.md`, `kolecko-<co>.md`, `pasti.md`; nikdy summary, findings, analysis, report-.

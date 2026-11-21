@@ -79,10 +79,20 @@ export const zelenaBrana = (extra = {}) => ({
 })
 
 // E2E od 1.8.0: prostredi je pole kritérií, která nejde změřit kvůli prostředí; vada nasazení je prostredi_nasazeni (text).
-export const e2ePass = (celkem, extra = {}) => ({
-  vysledek: 'pass', celkem, pass: celkem, castecne: 0, fail: 0, fail_kriteria: [], castecna_kriteria: [], vadna_kriteria: [],
-  zavazne_mimo_ak: [], kosmeticke: [], report_path: `${CWD}/docs/reviews/sucho-e2e.md`, prostredi: [], prostredi_nasazeni: '', ...extra,
-})
+// Od 1.12.0 (spec I1) je povinné pass_kriteria a počty skládá blok ze seznamů. Věrný verifikátor jmenuje tolik značek PASS, kolik hlásí
+// v čísle pass, a žádnou, kterou nese jiný jeho seznam: stub je doplní od AK<od> (od = první číslo značky; souběžní verifikátoři měří různá
+// kritéria, proto výchozí stub posouvá od podle písmena skupiny). Scénář, který měří rozpor čísel a seznamů, předá pass_kriteria sám.
+const znackaStubu = x => { const m = /^\W*(AK\d+[a-z]?)\b/i.exec(S(typeof x === 'string' ? x : x && x.kriterium)); return m ? m[1].toUpperCase() : '' }
+export const znacky = (n, od = 1, vynech = []) => { const out = []; for (let i = od; out.length < n; i++) if (!vynech.includes(`AK${i}`)) out.push(`AK${i}`); return out }
+export const odSkupiny = pismeno => 1 + 20 * Math.max(0, 'abcdefghijklmnopqrstuvwxyz'.indexOf(S(pismeno)))
+export const e2ePass = (celkem, extra = {}, od = 1) => {
+  const r = {
+    vysledek: 'pass', celkem, pass: celkem, castecne: 0, fail: 0, fail_kriteria: [], castecna_kriteria: [], vadna_kriteria: [],
+    zavazne_mimo_ak: [], kosmeticke: [], report_path: `${CWD}/docs/reviews/sucho-e2e.md`, prostredi: [], prostredi_nasazeni: '', ...extra,
+  }
+  const jinde = [r.fail_kriteria, r.castecna_kriteria, r.vadna_kriteria, typeof r.prostredi === 'string' ? [] : r.prostredi, r.k_domereni || []].flat().map(znackaStubu).filter(Boolean)
+  return 'pass_kriteria' in extra ? r : { ...r, pass_kriteria: znacky(Math.max(0, Number(r.pass) || 0), od, jinde) }
+}
 
 export const oprava = (extra = {}) => ({
   opraveno: 1, opravene_ids: [], zmenena_mista: ['apps/sucho/rez.ts: uloz'], odmitnuto: [], jinak_nez_nalez: [], rozsireny_zasah: false,
@@ -130,7 +140,8 @@ export function vychozi(label, prompt, opts, stav) {
     case 'review': case 'security': return { nalezu: 0, blokujicich: 0, balicky: [], report_path, follow_up_ids: [] }
     case 'triáž': return { nalezu: 0, opravit_ted: 0, follow_up: 0, odmitnuto: 0, balicky: [], report_path, follow_ups: [], odmitnute: [], sporne: [] }
     // Věrný fix vrací v opravene_ids (od 1.6.0 povinné) nálezy, které mu zadání přidělilo: stavba „tvoje nálezy: …“, kolečko „: nálezy …“.
-    case 'fix': case 'fix-thermo': case 'fix-brana': case 'fix-e2e': case 'fix-security': case 'fix-citelnost': return oprava({ opravene_ids: pridelene(prompt) })
+    // Label fix-citelnost od 1.12.0 neexistuje (spec N1: stavba čitelnost neopravuje); kdyby se vrátil, harness ho ohlásí jako neznámý.
+    case 'fix': case 'fix-thermo': case 'fix-brana': case 'fix-e2e': case 'fix-security': return oprava({ opravene_ids: pridelene(prompt) })
     // Věrný agent brány vrací jako vystup_path cestu, kam mu zadání výstup uložit (blok ji smí předat E2E místo rep()).
     case 'verify': { const m = /ulož do (\S+?\.md)/.exec(S(prompt)); return zelenaBrana(m ? { vystup_path: m[1] } : {}) }
     case 'doklad': return { ok: true, path: `${cwd}/docs/e2e/rez-${nn}-doklad-pred.md`, souhrn: 'stub' }
@@ -141,20 +152,24 @@ export function vychozi(label, prompt, opts, stav) {
     }
     // Stav obnovy (1.8.0, § 2.3): výchozí stub nic nedokládá, blok běží celý pokus (obnova scénáře 14, 37, 42–44, 111 to předpokládají).
     case 'obnova-stav': return { commit_rezu: '', head_shodny: false, nasazeni_dolozeno: false, provedene_kroky: [] }
-    // Sběr dluhu kolečka (1.8.0, § 2.6): bez položek se vlna nekoná (od 1.10.0 i v dalších várkách, label dluh:kolečko:N).
+    // Sběr dluhu kolečka (1.8.0, § 2.6): bez položek se vlna nekoná (od 1.10.0 i v dalších várkách, label dluh:kolečko:N). Od 1.12.0
+    // (spec N2) předchází sběr čitelnosti (dluh:kolečko:čitelnost[:N]): výchozí stub nevrací žádnou položku, fáze pokračuje obecným dluhem.
     case 'dluh': return { balicky: [], celkem: 0 }
     // Rozdělení větve do oblastí pro code-review kolečka (1.10.0): výchozí jedna oblast, review jde jedním reviewerem jako dřív.
     case 'oblasti': return { oblasti: [{ nazev: 'sucho', cesty: ['apps/sucho'], radku: 900 }], vsechny_adresare: ['apps/sucho'] }
     case 'commit': return { stav: 'commit-only', commit: hash(`${label}#${stav ? stav.pocty[label] : 0}`), security_commity: [], duvod: '' }
-    case 'e2e': case 'kriteria': return e2ePass(l.pismeno ? 4 : (Number(a.kriteria) || 8), { report_path })
+    case 'e2e': case 'kriteria': return e2ePass(l.pismeno ? 4 : (Number(a.kriteria) || 8), { report_path }, l.pismeno ? odSkupiny(l.pismeno) : 1)
     // Verdikty minulého kola pro obnovu kolečka s jen_kriteria (1.11.0): výchozí stub nic nezná, kolečko přeměří všechna kritéria.
     case 'e2e-stav': return { kriteria: [] }
     case 'e2e-scénáře': return { e2e_path: `${cwd}/docs/e2e/kolecko.md`, kriterii: 5, plochy: ['sucho'] }
     case 'diagnose': return { pricina: 'stub', doporuceni: 'stub', smycka_postavena: true }
-    case 'uzavření': return { ok: true, thermo_nesesouhlaseno: 0, chybejici_doklady: [], commit_overeny: '', chybejici_commity: [], kontext: 'implement 180 k, 0 compactů, 0 předávek' }
+    case 'uzavření': return { ok: true, thermo_nesesouhlaseno: 0, chybejici_doklady: [], commit_overeny: '', chybejici_commity: [], kontext: 'implement 180 k, 0 compactů, čtení 30 kB' }
     case 'závěr': return { ok: true, review_passed: true, chybejici_commity: [] }
     // Načítací agent args (1.6.0): vrátí args bloku jako ze souboru; číslo řezu podle labelu, kolečko „kolecko“.
     case 'args': return l.kolecko ? { ...argsKolecko(), rez: 'kolecko' } : { ...argsStavby(), rez: nn }
+    // Sonda dostupnosti agentů (1.12.0, spec F1): blok ji volá po třech voláních téhož labelu bez výsledku, bez schématu. Výchozí stub
+    // odpoví, takže bez výsledku zůstalo jen to jedno zadání; scénář limitu účtu vrací NIC i pro label sonda:<label>.
+    case 'sonda': return 'ok'
     default: return undefined
   }
 }
@@ -212,8 +227,9 @@ export function rozhrani(k, volani, { vyjimky = /^(uzavření|závěr):/ } = {})
   const porus = {}
   const pridej = (pravidlo, v) => { (porus[pravidlo] = porus[pravidlo] || []).push(v.label) }
   for (const v of volani) {
-    // Načítací agent args (1.6.0) běží před rámcem bloku a předávku nedělá: jen přečte soubor.
-    if (parsujLabel(v.label).typ === 'args') continue
+    // Načítací agent args (1.6.0) běží před rámcem bloku a předávku nedělá: jen přečte soubor. Sonda dostupnosti (1.12.0) je jedno
+    // volání bez rámce a bez schématu.
+    if (['args', 'sonda'].includes(parsujLabel(v.label).typ)) continue
     if (!v.klice.includes('predavka')) pridej('schéma bez pole predavka (§ 1.2)', v)
     for (const [id, veta] of Object.entries(RAMEC)) if (!veta.test(v.prompt)) pridej(`rámec bez věty ${id} „${veta.source}“ (§ 1.8)`, v)
     // Agenti o limitu kontextu nevědí (§ 0.13); uzavření a závěr kontext jen vykazují z docs/.kontext.jsonl (§ 3 CLOSE).

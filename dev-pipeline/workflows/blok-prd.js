@@ -5,7 +5,7 @@ export const meta = {
   phases: [
     { title: 'PRD', detail: 'PRD architekt píše PRD a E2E scénáře; velký řez rozdělí na části (kostra s Kontraktem a tabulkou Částí), malý řez píše celý' },
     { title: 'Autoři částí', detail: 'jen u řezu s částmi: autor každé části souběžně píše PRD své části ověřené proti kódu své oblasti' },
-    { title: 'Kontrola', detail: 'prd-check kolo 1 kostry (u malého řezu celého PRD) a souběžně každé části, plné reporty do souborů' },
+    { title: 'Kontrola', detail: 'prd-check kolo 1 kostry (u malého řezu celého PRD) a souběžně každé části, plné reporty do souborů; bez jediné kontroly blok končí ok: false s fází kontrola, při limitu účtu s fází agenti' },
     { title: 'Zapracování', detail: 'nejdřív kostra (nálezy, požadavky částí na Kontrakt), pak souběžně části; vrací změněná místa' },
     { title: 'Delta kontrola', detail: 'prd-check jen nad změněnými místy, po dokumentech s aspoň dvěma blokujícími nálezy kola 1; u lehkého profilu a lehkého PRD mini-řezu nikdy' },
     { title: 'Zbylé blokující', detail: 'jen když delta nechá blokující nálezy: jedno zapracování bez další kontroly, přeměří ho refresh ve stavbě' },
@@ -19,7 +19,7 @@ if (typeof a === 'string') { try { a = JSON.parse(a) } catch { a = null } }
 // je potřetí opsal do notifikace; stavba 8 dostala mapu kostry řezu 7. Skript Workflow soubory číst neumí, proto soubor načte agent.
 if (a && typeof a === 'object' && a.args_file) {
   const n = await nactiArgs(a)
-  if (!n.ok) { log(`blok-prd: ${n.duvod} – nic se nespustilo`); return { ok: false, rez: n.rez, duvod: n.duvod } }
+  if (!n.ok) { log(`blok-prd: ${n.duvod} – nic se nespustilo`); return { ok: false, rez: n.rez, ...(n.faze ? { faze: n.faze, predavky: 0 } : {}), duvod: n.duvod } }
   a = n.args
 }
 if (!a || typeof a !== 'object' || !a.cwd || !a.vize || a.rez == null || a.rez === '' || !a.plan_row) {
@@ -108,14 +108,30 @@ async function parallelOdNejdelsiho(items, delka, fn) {
 }
 // Opakování po chybě zná stav předchůdce jen z pracovního stromu (třída C2: restart začínal od nuly nad rozdělanou prací).
 const poChybe = 'Předchozí běh tohoto zadání skončil bez výsledku a pracovní strom může nést jeho rozdělanou práci: začni inventurou (git status, git diff --stat) a navaž na ni, nezačínej od nuly.'
+// Limit účtu není selhání bloku (1.12.0, spec F1, jako ve stavbě): po třetím volání bez výsledku běží sonda, jedno levné volání na modelu
+// selhaného volání. Bez odpovědi platí příznak agentiDole, žádné další run() nic nespouští a blok skončí ok: false s fází agenti (dřív vrátil
+// ok: true bez kontroly, což vypadalo jako schválitelné PRD). Sonda běží vždy za třetím voláním téhož labelu a nikdy po úspěšném volání;
+// výjimka s textem limitu nastaví příznak rovnou.
+const LIMIT_UCTU = /usage limit|hit your .{0,40}limit|too far out to wait/i
+let agentiDole = ''
 async function run(prompt, opts) {
   const label = opts.label || 'agent'
+  if (agentiDole) return null
   for (let i = 0; i <= 2; i++) {
     let r = null
-    try { r = await agent(i >= 1 ? `${prompt}\n\n${poChybe}` : prompt, opts) } catch (e) { log(`${label}: spuštění selhalo (${String(e && e.message || e).slice(0, 120)})`) }
+    try { r = await agent(i >= 1 ? `${prompt}\n\n${poChybe}` : prompt, opts) } catch (e) {
+      const chyba = String(e && e.message || e)
+      log(`${label}: spuštění selhalo (${chyba.slice(0, 120)})`)
+      if (LIMIT_UCTU.test(chyba)) { agentiDole = `${label}: ${chyba.slice(0, 300)}`; log(`${label}: limit účtu, agenti neběží; blok nic dalšího nespouští`); return null }
+    }
     if (r) return r
+    if (agentiDole) return null
     if (i < 2) { log(`${label}: agent nevrátil výsledek, opakuji (${i + 1}/2)`); await cekej(15000 * (i + 1)) }
   }
+  let sonda = null
+  try { sonda = await agent('Sonda dostupnosti agentů: odpověz jedním slovem „ok“. Nic nečti, nespouštěj ani neměň.', { label: `sonda:${label}`, phase: opts.phase, model: opts.model, effort: 'low' }) } catch (e) { log(`sonda:${label}: spuštění selhalo (${String(e && e.message || e).slice(0, 120)})`) }
+  if (sonda) log(`${label}: sonda odpověděla, agenti běží; bez výsledku zůstalo jen toto zadání`)
+  else if (!agentiDole) { agentiDole = `${label}: tři volání bez výsledku a sonda bez odpovědi`; log(`${label}: sonda bez odpovědi, agenti neběží (limit účtu?); blok nic dalšího nespouští`) }
   return null
 }
 // Štafeta: agent, který práci předal (zpráva PŘEDÁVKA z hooku hlídače kontextu), dostane nástupce se stejným zadáním
@@ -315,7 +331,8 @@ const PRD_SCHEMA = {
     lesen: { type: 'boolean', description: 'řez staví lešení (zkušební UI nebo nástroj mimo produktové plochy vize)' },
     lesen_popis: str('co je lešení, za jakou přístupovou hranicí sedí a kdy se odstraní'),
     zapis_do_ziveho: { type: 'boolean', description: 'řez zapisuje do živého vnějšího systému' },
-    zapis_popis: str('do jakého systému, jaké operace a o které Povolení z vize se opírá (doslovně)'),
+    // Povolení se cituje účelem a hranicemi, ne výčtem operací a mezí (1.12.0, spec A4, A6).
+    zapis_popis: str('do jakého systému a pod jakým účtem řez zapisuje, k jakému účelu a v jakých hranicích, a které Povolení z vize to dovoluje (citace doslova); počet zápisů neuváděj'),
     runtime_dopad: { type: 'boolean', description: 'false = řez bez runtime dopadu (jen testy, tooling, dokumentace)' },
     nove_ui_plochy: arr('UI plochy, které PRD zavádí a vize je v seznamu UI ploch nejmenuje (prázdné = žádné)'),
     pokryte_body_vize: arr('čísla Cílů a požadavků vize, které řez plní (C1, F3, …)'),
@@ -402,7 +419,12 @@ const KRITERIA_SIT = 'Kritérium nad sítí, výkonem stránky nebo cizí služb
 // 1.6.0 (běh web-rijen, všech 6 vadných kritérií ve stavbě vzniklo v bloku PRD): populace dotazem a zmrazená v dokladu (řez 06 to
 // udělal sám, plugin to nepředepisoval), protějšek na předchozím nasazení nad sdíleným backendem měřil nový svět (řez 03 AK1),
 // rozpor dvou kritérií, absolutní práh bez rezervy a predikát měřidla bez prototypu (mini-řez 11 AK3, AK5, AK6).
-const pravidlaKriterii = `Kritéria: vlastnost + kanál deklarované výjimky + měřidlo, nikdy „právě tyto N jmenované soubory/výjimky“ ani opsané číslo bez dotazu; měřitelná nad pracovním stromem před uzavíracím commitem a v prostředí, které E2E má (bez credentialu, který verifikátor nemá). Populaci nad daty, která řez (nebo souběžný řez) mění, urči dotazem (predikát v PRD), spuštěným jednou v dokladu před prvním zápisem a zmrazeným jako seznam identit (ID/slug); kroky i E2E ji berou jen z dokladu a dotaz po zápisu nepřepočítávají; počet z vize je jen kontrola. Kontrolní protějšek na předchozím nasazení smí jen tam, kde rozdíl vzniká v kódu, který to nasazení samo nese; když hodnotu počítá backend nebo data, které řez mění, a předchozí nasazení je čte živě (sdílené API, databáze, keš), ukazuje po nasazení už nový stav: předepiš datový protějšek (dotaz nad dnešními daty, stará logika z git objektů git grep <symbol> <rev>), nebo stav před nasazením v dokladu. Dvě kritéria se nesmí vylučovat a kritérium nestojí na předpokladu, který PRD samo označuje za neověřený; absolutní práh nad stránkami mimo plochu řezu, jehož dnešní rezerva je pod rozptylem měření, se měří A/B proti předchozímu stavu; predikát měřidla, které řez teprve staví, ověř prototypem nad dnešním stavem. Kritérium nad kódem (výčet, počet, vlastnost kódu) má měřidlo v repu (skript nebo dotaz) a v PRD značku [měřidlo]; měří ho brána nad odevzdávaným stromem, E2E ověřuje jen chování běžící aplikace; měřidlo nad starší revizí smí jen přes git objekty (git show, git grep <rev>), nikdy přes worktree ani instalaci. Měřidlo nebo krok po nasazení, který prochází populaci (stránky, záznamy, soubory), má v PRD nebo ve scénáři E2E, na který PRD odkazuje, odhad doby: počet položek × čas na položku; nad ~10 minut ho předepiš souběžně (pool 8–16) nebo na vzorku s důvodem a velikostí vzorku; populace do ~20 položek nebo lokální měřidlo pod minutu je malá a odhad nemá. Nálezy z minulých řezů a follow-upy nejsou kritéria tohoto řezu, patří do sekce „Pozor na“ nebo mimo rozsah. Každé kritérium začíná ID a názvem do 6 slov („**AK7 Rozpad útraty podle modelu.** …“): orchestrátor kritérium uživateli jmenuje názvem, holé ID je pro něj nečitelné. ${KRITERIA_SIT} ${CEKANI_NA_CAS} V PRD to znamená: kritérium nad daty vznikajícími časem má v sekci „Nasazení a kroky po něm“ krok, který data vyrobí podle Povolení (citace Povolení, počet běhů, odhad doby); když Povolení výrobu dat nepokrývá, napiš kritérium se značkou „čeká na rozhodnutí majitele“ a vrať ho v cekani (kritérium s názvem, co by data vyrobilo, odhad hodin čekání). Pojmy kostry ber z docs/pojmy.md, když existuje; nové termíny vrať v nove_pojmy. Standardy pro review (standardy/ pluginu, CODING_STANDARDS.md projektu) nečteš: řídíš se CLAUDE.md projektu.`
+// Živý systém (1.12.0, spec A4, A6): Povolení je na účel a hranice, ne na počet zápisů. Mez opsaná z vize do scénáře („plán sekce ≤ 30“)
+// platila dál i po tom, co ji majitel zvedl, a verifikátor podle ní vrátil kritéria jako vadná.
+const ZIVY_PRD = 'Zápis do živého systému (kritérium, krok, scénář) piš jen v účelu a hranicích Povolení z vize a cituj z něj doslova systém, účet, účel a hranice; strop počtu zápisů do PRD ani scénářů nepiš, ani když ho starší vize nese.'
+// Stránka pastí projektu (spec K4): zadání ji jmenuje, jinak ji architekt nečte; doplňuje ji uzavření řezu.
+const PASTI_CTI = `Stránku pastí ověřování ${cwd}/docs/e2e/pasti.md, když existuje, přečti dřív, než začneš.`
+const pravidlaKriterii = `Kritéria: vlastnost + kanál deklarované výjimky + měřidlo, nikdy „právě tyto N jmenované soubory/výjimky“ ani opsané číslo bez dotazu; měřitelná nad pracovním stromem před uzavíracím commitem a v prostředí, které E2E má (bez credentialu, který verifikátor nemá). Populaci nad daty, která řez (nebo souběžný řez) mění, urči dotazem (predikát v PRD), spuštěným jednou v dokladu před prvním zápisem a zmrazeným jako seznam identit (ID/slug); kroky i E2E ji berou jen z dokladu a dotaz po zápisu nepřepočítávají; počet z vize je jen kontrola. Kontrolní protějšek na předchozím nasazení smí jen tam, kde rozdíl vzniká v kódu, který to nasazení samo nese; když hodnotu počítá backend nebo data, které řez mění, a předchozí nasazení je čte živě (sdílené API, databáze, keš), ukazuje po nasazení už nový stav: předepiš datový protějšek (dotaz nad dnešními daty, stará logika z git objektů git grep <symbol> <rev>), nebo stav před nasazením v dokladu. Dvě kritéria se nesmí vylučovat a kritérium nestojí na předpokladu, který PRD samo označuje za neověřený; absolutní práh nad stránkami mimo plochu řezu, jehož dnešní rezerva je pod rozptylem měření, se měří A/B proti předchozímu stavu; predikát měřidla, které řez teprve staví, ověř prototypem nad dnešním stavem. Kritérium nad kódem (výčet, počet, vlastnost kódu) má měřidlo v repu (skript nebo dotaz) a v PRD značku [měřidlo]; měří ho brána nad odevzdávaným stromem, E2E ověřuje jen chování běžící aplikace; měřidlo nad starší revizí smí jen přes git objekty (git show, git grep <rev>), nikdy přes worktree ani instalaci. Měřidlo nebo krok po nasazení, který prochází populaci (stránky, záznamy, soubory), má v PRD nebo ve scénáři E2E, na který PRD odkazuje, odhad doby: počet položek × čas na položku; nad ~10 minut ho předepiš souběžně (pool 8–16) nebo na vzorku s důvodem a velikostí vzorku; populace do ~20 položek nebo lokální měřidlo pod minutu je malá a odhad nemá. Nálezy z minulých řezů a follow-upy nejsou kritéria tohoto řezu, patří do sekce „Pozor na“ nebo mimo rozsah. Každé kritérium začíná ID a názvem do 6 slov („**AK7 Rozpad útraty podle modelu.** …“): orchestrátor kritérium uživateli jmenuje názvem, holé ID je pro něj nečitelné. ${KRITERIA_SIT} ${CEKANI_NA_CAS} V PRD to znamená: kritérium nad daty vznikajícími časem má v sekci „Nasazení a kroky po něm“ krok, který data vyrobí podle Povolení (citace Povolení, počet běhů, odhad doby); když Povolení výrobu dat nepokrývá, napiš kritérium se značkou „čeká na rozhodnutí majitele“ a vrať ho v cekani (kritérium s názvem, co by data vyrobilo, odhad hodin čekání). ${ZIVY_PRD} Pojmy kostry ber z docs/pojmy.md, když existuje; nové termíny vrať v nove_pojmy. Standardy pro review (standardy/ pluginu, CODING_STANDARDS.md projektu) nečteš: řídíš se CLAUDE.md projektu.`
 // Kroky po nasazení páruje blok stavby mezi nasazeními podle čísla (spec 1.6.0 § 1.1): v běhu web-rijen je deploy přeformuloval
 // a párování podle textu shodilo řez 02 na tři pokusy. Podmíněný krok (spec 1.7.0 § 1.6): v běhu sonnet-5-5 vrátil deploy tři
 // podmíněné kroky řezu 04 jako vynechano („podmínka nenastala“) a blok to vzal jako selhání nasazení, pokus 2 ze 3.
@@ -438,6 +460,13 @@ async function hlidejCasti(vady, prevezmi, poAutorech) {
 
 // ---------- 1. PRD ----------
 let prd
+// Agenti neodpovídají ani na sondu (1.12.0, spec F3): každý návrat bloku je pak ok: false s fází agenti. Obnova jde přes resumeFromRunId
+// se stejnými args; čas resetu limitu blok nezná, čte ho orchestrátor z notifikace.
+const bezAgentu = () => {
+  log(`blok PRD řez ${NN} zastaven: agenti neběží (${agentiDole.slice(0, 200)}); čeká na obnovu přes resumeFromRunId se stejnými args`)
+  return { ok: false, rez: NN, faze: 'agenti', duvod: `agenti neběží: ${agentiDole}`.slice(0, 600), ...(prd && prd.prd_path ? { prd_path: prd.prd_path } : {}), predavky: predavekCelkem }
+}
+const neuspech = r => agentiDole ? bezAgentu() : r
 // Část nad PREROSTLA řádků odhadu architekta: jedno volání rozdělí přerostlé části na části do ~PREROSTLA ř. s disjunktními soubory
 // dřív, než autoři začnou psát; druhé kolo není, část nad stropem i po rozdělení jde dál s logem (a při odhadu nad STROP_CASTI
 // stavbě v casti_nad_stropem). Návrat se slučuje s tabulkou architekta (review 1.9.0 N1): část, kterou agent nevrátil, zůstává
@@ -641,7 +670,7 @@ if (rezim === 'zapracovani') {
     if (o.odhad_radku != null) prd.odhad_radku = o.odhad_radku
     return vadyCasti(casti, v)
   }, false)
-  if (chybaCasti) return { ok: false, rez: NN, duvod: chybaCasti, prd_path: prd.prd_path, predavky: predavekCelkem }
+  if (chybaCasti) return neuspech({ ok: false, rez: NN, duvod: chybaCasti, prd_path: prd.prd_path, predavky: predavekCelkem })
 } else {
   phase('PRD')
   log(`blok PRD řez ${NN}: ${S(row.nazev || row.name || '')}`)
@@ -649,18 +678,18 @@ if (rezim === 'zapracovani') {
   // běhu bez-dluhu protočil Ø 433 k (vlastní výstup 125 k, čtení kódu 119 k) a 22 z 25 přes 300 k; malý řez jede jako dřív.
   const prdPrompt = `${ramec}
 
-Úkol: napiš PRD a E2E scénáře řezu ${NN} podle přiděleného řádku plánu. Řez vybral orchestrátor, ty ho nevybíráš ani nerozšiřuješ; rozsah je řádek plánu a body vize v něm. Když realita kódu plán nesnese, napiš odchylku do odchylky_od_planu a PRD piš na to, co jde postavit a ověřit.
+Úkol: napiš PRD a E2E scénáře řezu ${NN} podle přiděleného řádku plánu. Řez vybral orchestrátor, ty ho nevybíráš ani nerozšiřuješ; rozsah je řádek plánu a body vize v něm. Když realita kódu plán nesnese, napiš odchylku do odchylky_od_planu a PRD piš na to, co jde postavit a ověřit. ${PASTI_CTI}
 Řádek plánu: ${JSON.stringify(row)}
 ${stavPoMinulem ? `Stav po předchozím řezu (fakt, přečti): ${stavPoMinulem}\n` : ''}${hypotezy.length ? `Hypotézy od orchestrátora k ověření (ne fakta): ${hypotezy.join(' | ')}\n` : ''}${kontraktPrd ? `Řez závisí na řezu ${kontraktRez}, který se právě staví; jeho PRD je kontrakt: ${kontraktPrd}. Rozhraní, symboly a data, které z něj potřebuješ, ber jako dané a v PRD je označ „předpoklad podle PRD řezu ${kontraktRez}“; proti kódu je neověřuj, kód je ještě nemá (stavba tvé PRD před implementací přeměří nad dnešním stromem).\n` : ''}${profil === 'lehky' ? 'Profil řezu je lehký (bez runtime dopadu: měřidlo, otisk, dokumentace, skript): PRD krátké, kritéria dokládaná příkazem nebo souborem, žádné E2E v prohlížeči.\n' : ''}${pravidlaKriterii}
 Follow-ups a spory: z ${followUps} a ${spory} čti jen záznamy, které se dotýkají bodů vize, modulů a cest tohoto řezu (grep podle F čísel, jmen modulů a cest z řádku plánu), plus posledních 10 záznamů; celé soubory nečti. Dotčené otevřené follow-ups dej do PRD do sekce „Pozor na“ (past se opravuje v řezu, když je ve změněných souborech; jinak zůstane follow-up).
-Doklad před nasazením: když řez nese migraci, která mění, přesouvá nebo maže existující data, nebo je nevratná, když kritérium potřebuje jako protějšek stav, který nasazení sdíleného backendu přepíše, nebo když populaci nad daty, která řez mění, je třeba zmrazit před prvním zápisem${appPristup ? ', nebo když pokyny majitele k prostředí žádají doklad před každou migrací' : ''}, napiš do PRD sekci „Doklad před nasazením“ (co přesně se před nasazením zachytí: tabulky, počty, vzorky, zmrazená populace, dotazy jen pro čtení) a vrať doklad_pred: true; u aditivní migrace a u řezu, který nic z toho nepotřebuje, doklad nepředepisuj.
+Doklad před nasazením: když řez nese migraci, která mění, přesouvá nebo maže existující data, nebo je nevratná, když kritérium potřebuje jako protějšek stav, který nasazení sdíleného backendu přepíše, nebo když populaci nad daty, která řez mění, je třeba zmrazit před prvním zápisem${appPristup ? ', nebo když pokyny majitele k prostředí žádají doklad před každou migrací' : ''}, napiš do PRD sekci „Doklad před nasazením“ (co přesně se před nasazením zachytí: tabulky, počty, vzorky, zmrazená populace, dotazy jen pro čtení) a vrať doklad_pred: true; u aditivní migrace a u řezu, který nic z toho nepotřebuje, doklad nepředepisuj. Doklad jde vždy do docs/e2e/rez-${NN}-doklad-pred.md (pořizuje ho blok stavby nad commitem řezu před nasazením); docs/e2e/rez-${NN}-pred.md je výstup kroku před nasazením, ne doklad.
 ${krokyCislovane} ${krokyPred}
 E2E scénáře piš v sekcích, které jsou na sobě nezávislé (žádná sekce nezávisí na datech, která jiná sekce vytváří nebo maže); když scénáře mají aspoň dvě sekce, vrať v e2e_sekce každou sekci s počtem kritérií, která ověřuje, odhadem minut verifikace (doba_min, podle sekce Doba a kroků scénáře), bez_soubehu: true, když ji scénář nedovoluje měřit souběžně s jinou sekcí (zátěž produkce, měření výkonu), a oblasti (oblasti PRD, kterých se sekce dotýká; stavba po opravě přeměřuje jen dotčené sekce); blok stavby podle nich skládá souběžné verifikátory.
 Části: odhadni změněné řádky celého řezu včetně testů, fixtur a měřidel (odhad_radku); přesun a rozdělení souboru počítej dvakrát (smazání i přidání), data (JSON, překlady) počítej zvlášť a do velikosti části jen tehdy, když je část píše ručně. Řez do ~2 k řádků je malý: napiš PRD celé jako dosud a vrať casti: [] (jedna část není rozdělení). Větší řez rozděl na části, každou ~500–${PREROSTLA} změněných řádků podle tvého odhadu včetně testů, fixtur a měřidel (skutečnost bývá ${SKUTECNOST_NASOBEK}× tvůj odhad: část nad ~${PREROSTLA} řádků v tvém odhadu rozděl; část pod ~500 řádků nezakládej: přidej ji k části se stejnými soubory nebo do Kontraktu), s vlastními soubory (disjunktními: žádný soubor ve dvou částech, sdílené věci patří do Kontraktu), vlastními kritérii a závislostmi (zavisi_na, bez cyklu), a napiš kostru: frontmatter navíc s casti: K1,K2,…; cíl, rozsah, všechna kritéria s ID (AK1, AK2, …), zákazy, UI plochu, doklad, „Pozor na“, sekci „Nasazení a kroky po něm“, když řez po nasazení něco potřebuje (patří do kostry, ne do části: deploy ji čte jen z kostry); sekci „## Kontrakt“ (sdílené typy, schéma a migrace, signatury rozhraní mezi částmi, registrace tras; kontrakt_potreba: true, když z ní vzniká kód, který musí stát před částmi) a sekci „## Části“ s tabulkou | část | název | soubory a oblasti | kritéria | odhad řádků vč. testů | závisí na | poznámka | a pod ní nejdelší cestou závislostí se součtem odhadů na ní (Nejdelší cesta: K1 → K3 → K4, ~2 800 ř.): části na ní stavějí za sebou, a cesta přes 3 a víc částí nad ~${PREROSTLA} ř. je vada, posuň rozhraní do Kontraktu, ať části jdou souběžně. Kontrakt nese typy, rozhraní, schéma a migrace a sdílené konstanty, chování (logika, validace, skripty) patří částem; odhadni i jeho řádky (kontrakt_odhad_radku), strop ~${PREROSTLA} jako u části: Kontrakt staví jeden agent před všemi částmi. Technický postup, precedent, pasti a mapu symbolů jednotlivých částí do kostry nepiš: napíšou je souběžně autoři částí do docs/prd/rez-${NN}-cast-K.md, každý nad kostrou a kódem své oblasti; kód proto čti jen tolik, kolik potřebuješ na rozdělení a Kontrakt. Postup u řezu s částmi: hned po rozdělení zapiš osnovu kostry (nadpisy, tabulka Části s odhady, Kontrakt, kritéria) dřív, než začneš číst kód částí, teprve pak doplňuj ostatní sekce a E2E scénáře; přílohy vize (docs/vize/<slug>/) čti jen grepem podle bodů řezu. Když 1,5 × součet odhadů částí přesahuje ~${ROZDELIT_RADKU} řádků nebo částí je přes ${ROZDELIT_CASTI}, vrať rozdelit_navrh (jak řez rozdělit na dva podle rizika a závislostí) a kostru přesto napiš: blok skončí po tobě a orchestrátor rozhodne, jestli řez rozdělí, nebo pokračuje autory částí nad tvou kostrou.
 Na kód odkazuj souborem a jménem symbolu, nikdy číslem řádku.
 ${appPristup ? `Pokyny majitele k prostředí (přístup, nasazení, doklady): ${appPristup}\n` : ''}Soubory: docs/prd/rez-${NN}-<slug>.md a docs/e2e/rez-${NN}.md (frontmatter a formát podle pravidel běhu a tvé instrukce). Nic jiného needituj. Kontrolu PRD dělá jiný agent.`
   prd = await runSePredavkou(prdPrompt, { label: `prd:řez ${NN}`, phase: 'PRD', agentType: 'dev-pipeline:prd', schema: PRD_SCHEMA, model: 'opus', effort: 'high' })
-  if (!prd) return { ok: false, rez: NN, duvod: vycerpane.has(`prd:řez ${NN}`) ? nic(`prd:řez ${NN}`, 'PRD agent') : 'PRD agent nevrátil výsledek ani po opakování', predavky: predavekCelkem }
+  if (!prd) return neuspech({ ok: false, rez: NN, duvod: vycerpane.has(`prd:řez ${NN}`) ? nic(`prd:řez ${NN}`, 'PRD agent') : 'PRD agent nevrátil výsledek ani po opakování', predavky: predavekCelkem })
   sporyVse.push(...seznam(prd.spory)); pridejPojmy(prd)
   const vadyArch = []
   casti = normCasti(prd.casti, vadyArch)
@@ -684,6 +713,7 @@ ${appPristup ? `Pokyny majitele k prostředí (přístup, nasazení, doklady): $
       { label: `prd-fix:řez ${NN}:rozdělit`, phase: 'PRD', agentType: 'dev-pipeline:prd', schema: ROZDELIT_SCHEMA, model: 'opus', effort: 'high' })
     prd.rozdelit_navrh = S(n && n.rozdelit_navrh).trim() || `blok: ${ODHAD_NASOBEK} × odhad částí = ${odhadSkutecnost} ř. (strop ${ROZDELIT_RADKU}), částí ${casti.length}; architekt návrh rozdělení nevrátil`
   }
+  if (agentiDole) return bezAgentu()
   if (S(prd.rozdelit_navrh).trim() && casti.length) {
     log('návrh rozdělit řez: blok končí po architektovi, rozhodne orchestrátor (při nerozdělení pokračuje od_faze „autori“ nad touto kostrou)')
     return navratBloku({ fin: prd, faze: 'architekt', castiNad: casti.filter(c => c.odhad_radku > STROP_CASTI).map(c => ({ id: c.id, odhad: c.odhad_radku })) })
@@ -699,7 +729,7 @@ ${appPristup ? `Pokyny majitele k prostředí (přístup, nasazení, doklady): $
     if (o.odhad_radku != null) prd.odhad_radku = o.odhad_radku
     return vadyCasti(casti, v)
   }, false)
-  if (chybaCasti) return { ok: false, rez: NN, duvod: chybaCasti, prd_path: prd.prd_path, predavky: predavekCelkem }
+  if (chybaCasti) return neuspech({ ok: false, rez: NN, duvod: chybaCasti, prd_path: prd.prd_path, predavky: predavekCelkem })
 }
 
 // ---------- 2. autoři částí ----------
@@ -717,7 +747,7 @@ Napiš ${c.prd_path}: technický postup ověřený proti kódu, precedent v kód
 Kostru ani soubory jiných částí needituj: co část potřebuje sdílet a Kontrakt to nepokrývá, vrať v kontrakt_doplnit; nové termíny projektu vrať v nove_pojmy. Rozsah části nerozšiřuj. Nic jiného needituj. Kontrolu dělá jiný agent.`
   const autori = await parallelOdNejdelsiho(casti, c => c.odhad_radku, c => runSePredavkou(castPrompt(c), { label: `prd-část:řez ${NN}:${c.id}`, phase: 'Autoři částí', agentType: 'dev-pipeline:prd', schema: CAST_SCHEMA, model: 'opus', effort: 'high' }))
   const chybi = casti.filter((c, i) => !autori[i]).map(c => c.id)
-  if (chybi.length) return { ok: false, rez: NN, duvod: chybi.map(id => nic(`prd-část:řez ${NN}:${id}`, `autor části ${id}`)).join('; '), prd_path: prd.prd_path, predavky: predavekCelkem }
+  if (chybi.length) return neuspech({ ok: false, rez: NN, duvod: chybi.map(id => nic(`prd-část:řez ${NN}:${id}`, `autor části ${id}`)).join('; '), prd_path: prd.prd_path, predavky: predavekCelkem })
   casti = casti.map((c, i) => ({ ...c, prd_path: S(autori[i].prd_path).trim() || c.prd_path }))
   autori.forEach(r => { sporyVse.push(...seznam(r.spory)); pridejPojmy(r) })
   kontraktDoplnit = autori.flatMap((r, i) => seznam(r.kontrakt_doplnit).map(x => `${casti[i].id}: ${x}`))
@@ -735,8 +765,8 @@ const predpokladKontrakt = kontraktPrd ? ` Tvrzení označená „předpoklad po
 // 1.6.0 (běh web-rijen): protějšek nad sdíleným backendem „potvrdily“ tři kontroly měřením před nasazením (řez 03 AK1); nejistý
 // nález nad kritériem přesně předpověděl vadné kritérium mini-řezu 11 (AK6), ale nikdo ho nespustil. Nespustitelný nejistý nález jde
 // stavbě v overit_prvni, ne mezi blokující: nafoukl by deltu a zapracování by ho stejně nespustilo (Martin 6. 10.).
-const vadnaKriteria = 'kritérium tvaru „právě tyto N jmenované soubory/výjimky“ nebo opsané číslo bez dotazu je nález „výčet místo vlastnosti“; kritérium nad kódem bez měřidla v repu a značky [měřidlo] je nález; kritérium závislé na uzavíracím commitu, na credentialu, který E2E prostředí nemá, nebo na nálezu z minulého řezu mimo rozsah tohoto je nález; měřidlo nebo krok po nasazení nad populací (stránky, záznamy, soubory) bez odhadu doby (počet položek × čas na položku, v PRD nebo ve scénáři E2E, na který PRD odkazuje; populace do ~20 položek nebo lokální měřidlo pod minutu odhad nemá), nebo s odhadem nad ~10 minut bez souběhu (pool 8–16) či vzorku s důvodem a velikostí, je nález; populace zadaná počtem nebo výčtem bez dotazu, nebo dotaz přepočítávaný po krocích, které mění data jeho predikátu, je nález; kontrolní protějšek na předchozím nasazení, jehož hodnotu počítá backend nebo data, které řez mění, je nález „protějšek měří nový svět“ (posuď ho proti přechodnému stavu „starý frontend nad novým backendem“ v sekci Nasazení, ne měřením dnešní produkce); dvě kritéria, která nejde splnit současně, a kritérium stojící na předpokladu, který PRD samo označuje za neověřený, jsou nález; absolutní práh nad stránkami mimo plochu řezu, jehož dnešní rezerva je pod rozptylem měření a který se neměří A/B proti předchozímu stavu, je nález; predikát měřidla, které řez teprve staví, bez ověření prototypem nad dnešním stavem je nález; kritérium nad daty vznikajícími časem bez kroku, který je vyrobí podle Povolení (citace, počet běhů, odhad doby), je nález „neměřitelné v okně E2E“, pokud ho PRD nevede se značkou „čeká na rozhodnutí majitele“ (a v cekani) a pokud jeho čekání nevede vize jako rozhodnutí majitele s odhadem hodin (Provozní poznámky, řádek „Čekání na čas“; takové kritérium se měří po čekání a nález není; ' + CEKANI_NA_CAS + '); kritérium nad sítí, výkonem stránky nebo cizí službou bez N běhů střídavě se základem, bez stanoviště jiného než stroj běhu nebo bez tolerance je BLOKUJE, a kritérium, které má měřit z tohoto stroje proti produkci, má být vedené jako „prostředí“ (otázka pro majitele), ne jako měřitelné; kritérium, krok nebo scénář, který zapisuje do živého systému bez doslova citovaného Povolení, je BLOKUJE. Nejistý nález nad kritériem spusť; když to nejde (měřidlo nebo predikát staví až řez), vrať ho v overit_prvni s kritériem a hypotézou (stavba ho ověří jako první) a mezi blokující ho nepočítej'
-const spolecneK1 = `Spor nebo předpoklad (Odchylky, Rizika, záznam vize-spory, který PRD jmenuje) bez citace řádku vize, podle kterého autor jel, je BLOKUJE: nález řekne, co má autor ve vizi najít. doklad_pred: true bez sekce „Doklad před nasazením“ s dotazy je BLOKUJE. Doklad před nasazením: PRD ho předepisuje právě tehdy, když migrace mění, přesouvá nebo maže existující data, nebo je nevratná, když kritérium potřebuje jako protějšek stav, který nasazení sdíleného backendu přepíše, nebo když populaci nad daty, která řez mění, je třeba zmrazit před prvním zápisem${appPristup ? ', nebo když pokyny majitele žádají doklad před každou migrací' : ''}; chybějící i zbytečný doklad je nález. Kroky sekce „Nasazení a kroky po něm“ jsou číslovaný seznam (číslo kroku je jeho id, podle něj deploy páruje kroky mezi nasazeními); nečíslovaný krok je nález; podmíněný krok bez větve „nevztahuje se“ (co deploy vrátí, když podmínka nenastala) je nález; krok před nasazením nezávislý na kódu řezu (měření stavu před změnou, příprava dat), který PRD dává deployi místo implementaci nebo části, je nález. Sekce E2E scénářů musí být vzájemně nezávislé (žádná nezávisí na datech jiné) a každá nese počet kritérií, odhad minut, bez_soubehu a oblasti. Follow-ups a vize-spory čti jen grepem podle bodů vize, modulů a cest řezu, ne celé.${predpokladKontrakt}${appPristup ? ` Pokyny majitele k prostředí: ${appPristup}` : ''}${standardy ? ` ${standardy}` : ''}`
+const vadnaKriteria = 'kritérium tvaru „právě tyto N jmenované soubory/výjimky“ nebo opsané číslo bez dotazu je nález „výčet místo vlastnosti“; kritérium nad kódem bez měřidla v repu a značky [měřidlo] je nález; kritérium závislé na uzavíracím commitu, na credentialu, který E2E prostředí nemá, nebo na nálezu z minulého řezu mimo rozsah tohoto je nález; měřidlo nebo krok po nasazení nad populací (stránky, záznamy, soubory) bez odhadu doby (počet položek × čas na položku, v PRD nebo ve scénáři E2E, na který PRD odkazuje; populace do ~20 položek nebo lokální měřidlo pod minutu odhad nemá), nebo s odhadem nad ~10 minut bez souběhu (pool 8–16) či vzorku s důvodem a velikostí, je nález; populace zadaná počtem nebo výčtem bez dotazu, nebo dotaz přepočítávaný po krocích, které mění data jeho predikátu, je nález; kontrolní protějšek na předchozím nasazení, jehož hodnotu počítá backend nebo data, které řez mění, je nález „protějšek měří nový svět“ (posuď ho proti přechodnému stavu „starý frontend nad novým backendem“ v sekci Nasazení, ne měřením dnešní produkce); dvě kritéria, která nejde splnit současně, a kritérium stojící na předpokladu, který PRD samo označuje za neověřený, jsou nález; absolutní práh nad stránkami mimo plochu řezu, jehož dnešní rezerva je pod rozptylem měření a který se neměří A/B proti předchozímu stavu, je nález; predikát měřidla, které řez teprve staví, bez ověření prototypem nad dnešním stavem je nález; kritérium nad daty vznikajícími časem bez kroku, který je vyrobí podle Povolení (citace, počet běhů, odhad doby), je nález „neměřitelné v okně E2E“, pokud ho PRD nevede se značkou „čeká na rozhodnutí majitele“ (a v cekani) a pokud jeho čekání nevede vize jako rozhodnutí majitele s odhadem hodin (Provozní poznámky, řádek „Čekání na čas“; takové kritérium se měří po čekání a nález není; ' + CEKANI_NA_CAS + '); kritérium nad sítí, výkonem stránky nebo cizí službou bez N běhů střídavě se základem, bez stanoviště jiného než stroj běhu nebo bez tolerance je BLOKUJE, a kritérium, které má měřit z tohoto stroje proti produkci, má být vedené jako „prostředí“ (otázka pro majitele), ne jako měřitelné; kritérium, krok nebo scénář, který zapisuje do živého systému bez doslova citovaného Povolení nebo mimo jeho účel a hranice, je BLOKUJE; strop počtu zápisů v PRD nebo scénáři je nález (Povolení se dává na účel, počet zápisů běh nehlídá). Nejistý nález nad kritériem spusť; když to nejde (měřidlo nebo predikát staví až řez), vrať ho v overit_prvni s kritériem a hypotézou (stavba ho ověří jako první) a mezi blokující ho nepočítej'
+const spolecneK1 = `Spor nebo předpoklad (Odchylky, Rizika, záznam vize-spory, který PRD jmenuje) bez citace řádku vize, podle kterého autor jel, je BLOKUJE: nález řekne, co má autor ve vizi najít. doklad_pred: true bez sekce „Doklad před nasazením“ s dotazy je BLOKUJE. Doklad pod jiným jménem souboru než docs/e2e/rez-${NN}-doklad-pred.md je BLOKUJE (docs/e2e/rez-${NN}-pred.md je výstup kroku před nasazením, ne doklad). Doklad před nasazením: PRD ho předepisuje právě tehdy, když migrace mění, přesouvá nebo maže existující data, nebo je nevratná, když kritérium potřebuje jako protějšek stav, který nasazení sdíleného backendu přepíše, nebo když populaci nad daty, která řez mění, je třeba zmrazit před prvním zápisem${appPristup ? ', nebo když pokyny majitele žádají doklad před každou migrací' : ''}; chybějící i zbytečný doklad je nález. Kroky sekce „Nasazení a kroky po něm“ jsou číslovaný seznam (číslo kroku je jeho id, podle něj deploy páruje kroky mezi nasazeními); nečíslovaný krok je nález; podmíněný krok bez větve „nevztahuje se“ (co deploy vrátí, když podmínka nenastala) je nález; krok před nasazením nezávislý na kódu řezu (měření stavu před změnou, příprava dat), který PRD dává deployi místo implementaci nebo části, je nález. Sekce E2E scénářů musí být vzájemně nezávislé (žádná nezávisí na datech jiné) a každá nese počet kritérií, odhad minut, bez_soubehu a oblasti. Follow-ups a vize-spory čti jen grepem podle bodů vize, modulů a cest řezu, ne celé.${predpokladKontrakt}${appPristup ? ` Pokyny majitele k prostředí: ${appPristup}` : ''}${standardy ? ` ${standardy}` : ''}`
 // Kolo 1 jen proti kódu a prostředí (spec 1.8.0 § 2.11, experiment): osy úplnosti, rozsahu a optimality patří refreshi ve stavbě;
 // návrat jen BLOKUJE a OVĚŘIT PRVNÍ; u blokujícího nálezu navržené znění, které zapracování aplikuje.
 const vystupK1 = 'Osy úplnosti vůči vizi, rozsahu a optimality v kole 1 nekontroluj (patří refreshi ve stavbě). Vracíš jen BLOKUJE a OVĚŘIT PRVNÍ; formulační a stylové nálezy nepiš ani do reportu. U každého BLOKUJE napiš do reportu navržené znění (text, který má v PRD stát, ne popis změny); do hlavičky reportu počet nálezů podle osy.'
@@ -774,6 +804,15 @@ if (rezim === 'novy') {
     : runSePredavkou(checkPrompt(1), { ...CHECK, label: `prd-check:řez ${NN}:1`, phase: 'Kontrola' }))
   k1 = kk || null
   casti.forEach((c, i) => { k1C[c.id] = kc[i] || null })
+  if (agentiDole) return bezAgentu()
+  // Bez jediné kontroly (1.12.0, spec F3) blok nové PRD nevrací: ok: true s kontrola: null vypadalo jako schválitelné PRD, ačkoli PRD nikdo
+  // proti kódu neověřil. Zapracování se nespouští; orchestrátor blok pustí znovu přes resumeFromRunId. Jedna chybějící kontrola z více
+  // (kontrola.bez_kontroly) blok dál nezastaví.
+  if (!k1 && casti.every(c => !k1C[c.id])) {
+    const duvod = `kontrola PRD neproběhla (${1 + casti.length} kontrol bez výsledku)`
+    log(`${duvod}: blok končí bez zapracování`)
+    return { ok: false, rez: NN, faze: 'kontrola', duvod, prd_path: prd.prd_path, predavky: predavekCelkem }
+  }
   if (!k1) log(`prd-check kolo 1 ${casti.length ? 'kostry ' : ''}nevrátil výsledek, pokračuji bez kontroly`)
   else logCheck(`prd-check 1${casti.length ? ' kostra' : ''}`, k1)
   for (const c of casti) k1C[c.id] ? logCheck(`prd-check 1 část ${c.id}`, k1C[c.id]) : log(`prd-check kolo 1 části ${c.id} nevrátil výsledek, pokračuji bez kontroly části`)
@@ -828,7 +867,7 @@ ${castiPravidla}${casti.length ? kostraCteni(false) : ''} ${krokyCislovane} ${kr
       const bezNalezu = odebrane.filter(id => !nalezyOrch.some(n => ODEBRANI.test(n) && jmenuje(n, id)))
       if (bezNalezu.length) {
         log(`zapracování odebralo části ${bezNalezu.join(', ')}, které žádný nález orchestrátora nežádá odebrat; blok končí, rozhodne orchestrátor`)
-        return { ok: false, rez: NN, duvod: `zapracování odebralo části ${bezNalezu.join(', ')}, které žádný nález nežádá (nálezy: ${spojCele(nalezyOrch, 600)})`, prd_path: prd.prd_path, casti_odebrane: bezNalezu, predavky: predavekCelkem }
+        return neuspech({ ok: false, rez: NN, duvod: `zapracování odebralo části ${bezNalezu.join(', ')}, které žádný nález nežádá (nálezy: ${spojCele(nalezyOrch, 600)})`, prd_path: prd.prd_path, casti_odebrane: bezNalezu, predavky: predavekCelkem })
       }
       if (odebrane.length) {
         const odebranyOdhad = casti.filter(c => odebrane.includes(c.id)).reduce((n, c) => n + (Number(c.odhad_radku) || 0), 0)
@@ -846,10 +885,10 @@ ${castiPravidla}${casti.length ? kostraCteni(false) : ''} ${krokyCislovane} ${kr
       let posledni = fix
       const prevezmi = o => { posledni = o; const v = []; casti = sPuvodnimi ? sloucCasti(casti, o.casti) : normCasti(o.casti, v); return vadyCasti(casti, v) }
       const chyba = await hlidejCasti(prevezmi(fix), prevezmi, true)
-      if (chyba) return { ok: false, rez: NN, duvod: chyba, prd_path: prd.prd_path, predavky: predavekCelkem }
+      if (chyba) return neuspech({ ok: false, rez: NN, duvod: chyba, prd_path: prd.prd_path, predavky: predavekCelkem })
       const zmenaTabulky = puvodni ? rozdilTabulky(posledni, ocekavane, jedina) : ''
       if (!puvodni) log('zapracování bez puvodni: tabulku Částí blok nezná, rozdíl se neměří')
-      if (zmenaTabulky) { log(`${zmenaTabulky}; blok končí, rozhodne orchestrátor`); return { ok: false, rez: NN, duvod: zmenaTabulky, prd_path: prd.prd_path, predavky: predavekCelkem } }
+      if (zmenaTabulky) { log(`${zmenaTabulky}; blok končí, rozhodne orchestrátor`); return neuspech({ ok: false, rez: NN, duvod: zmenaTabulky, prd_path: prd.prd_path, predavky: predavekCelkem }) }
     } else if (casti.length) {
       // Změnilo-li zapracování Kontrakt nebo Části, sjednotí se s kostrou všechny části, ne jen ty s nálezy.
       const pred = JSON.stringify(casti)
@@ -858,15 +897,15 @@ ${castiPravidla}${casti.length ? kostraCteni(false) : ''} ${krokyCislovane} ${kr
       casti = sloucCasti(casti, fix.casti)
       // Zapracování smí přesunout závislosti mezi částmi: cyklus hlídá blok i tady (autoři už psali, id a počet zůstávají).
       const chyba = await hlidejCasti(vadyCasti(casti), o => { posledni = o; opravaZmenena = seznam(o.zmenena_mista); casti = sloucCasti(casti, o.casti); return vadyCasti(casti) }, true)
-      if (chyba) return { ok: false, rez: NN, duvod: chyba, prd_path: prd.prd_path, predavky: predavekCelkem }
+      if (chyba) return neuspech({ ok: false, rez: NN, duvod: chyba, prd_path: prd.prd_path, predavky: predavekCelkem })
       const zmenaTabulky = rozdilTabulky(posledni, ocekavane)
-      if (zmenaTabulky) { log(`${zmenaTabulky}; blok končí, rozhodne orchestrátor`); return { ok: false, rez: NN, duvod: zmenaTabulky, prd_path: prd.prd_path, predavky: predavekCelkem } }
+      if (zmenaTabulky) { log(`${zmenaTabulky}; blok končí, rozhodne orchestrátor`); return neuspech({ ok: false, rez: NN, duvod: zmenaTabulky, prd_path: prd.prd_path, predavky: predavekCelkem }) }
       kostraZmenena = seznam([...seznam(fix.zmenena_mista), ...opravaZmenena]).filter(x => /kontrakt|části/i.test(x))
       if (!kostraZmenena.length && JSON.stringify(casti) !== pred) kostraZmenena = ['tabulka Části (soubory, kritéria nebo závislosti částí)']
     } else if (objekty(fix.casti).length) log('zapracování vrátilo části u malého řezu: ignoruji, nemají autora ani kontrolu')
   } else {
     log(rezim === 'zapracovani' ? 'zapracování nálezů selhalo, PRD zůstává beze změny' : `zapracování ${casti.length ? 'kostry' : 'nálezů'} selhalo, ${casti.length ? 'kostra zůstává' : 'PRD zůstává'} v podobě po kole 1`)
-    if (rezim === 'zapracovani') return { ok: false, rez: NN, duvod: nic(`prd-fix:řez ${NN}`, 'PRD agent v režimu zapracování'), predavky: predavekCelkem }
+    if (rezim === 'zapracovani') return neuspech({ ok: false, rez: NN, duvod: nic(`prd-fix:řez ${NN}`, 'PRD agent v režimu zapracování'), predavky: predavekCelkem })
   }
 }
 if (rezim === 'novy' && casti.length) {
@@ -1037,6 +1076,7 @@ if (rezim === 'zapracovani' && k2 && casti.length) {
 }
 // Zapracování zbylých blokujících smí změnit, na co se orchestrátor ptá (cekani) a rozsah kroků po nasazení.
 const fixNavrat = fixZbyle ? { ...(fix || {}), ...Object.fromEntries(['cekani', 'kroky_po_nasazeni', 'prostredi'].filter(k => fixZbyle[k] != null).map(k => [k, fixZbyle[k]])) } : fix
+if (agentiDole) return bezAgentu()
 return navratBloku({
   fin,
   fix: fixNavrat,
@@ -1086,14 +1126,29 @@ async function nactiArgs(volani) {
   }
   const prompt = `Řez ${nnVolani}: načtení args bloku PRD.
 Přečti ${soubor} a vrať jeho pole; pole _pole opiš přesně. Hodnoty opiš přesně, nic nezkracuj, nepřeformuluj ani nedoplňuj; pole, které v souboru není, vynech. Pole, které schéma nemá, vynech; hodnotu nikdy nepřesouvej do jiného pole. Když ${soubor} chybí nebo není platný JSON, vyplň jen cwd, rez a chyba. Jiné soubory nečti, nic nespouštěj ani needituj.`
+  // Limit účtu už na startu (review N5): načítací agent bez výsledku dostane sondu jako run(), výjimka s textem limitu platí hned. Bez
+  // odpovědi blok vrátí ok: false s fází agenti jako run() po limitu, ne obecný důvod: orchestrátor ho pak vede obnovou po resetu limitu.
+  // run() a LIMIT_UCTU jsou definované níž a tady by byly v TDZ, proto vlastní kopie.
+  let agentiDoleArgs = ''
   const nacti = async p => {
     let x = null
-    for (let i = 0; i <= 2 && !x; i++) {
+    for (let i = 0; i <= 2 && !x && !agentiDoleArgs; i++) {
       try { x = await agent(p, { label: `args:řez ${nnVolani}`, phase: 'PRD', agentType: 'dev-pipeline:nacteni-args', schema, model: 'sonnet', effort: 'low' }) }
-      catch (e) { log(`args:řez ${nnVolani}: spuštění selhalo (${T(e && e.message || e).slice(0, 120)})`) }
+      catch (e) {
+        const chyba = T(e && e.message || e)
+        log(`args:řez ${nnVolani}: spuštění selhalo (${chyba.slice(0, 120)})`)
+        if (/usage limit|hit your .{0,40}limit|too far out to wait/i.test(chyba)) agentiDoleArgs = `args:řez ${nnVolani}: ${chyba.slice(0, 300)}`
+      }
+    }
+    if (!x && !agentiDoleArgs) {
+      let sonda = null
+      try { sonda = await agent('Sonda dostupnosti agentů: odpověz jedním slovem „ok“. Nic nečti, nespouštěj ani neměň.', { label: `sonda:args:řez ${nnVolani}`, phase: 'PRD', model: 'sonnet', effort: 'low' }) } catch (e) { log(`sonda:args:řez ${nnVolani}: spuštění selhalo (${T(e && e.message || e).slice(0, 120)})`) }
+      if (sonda) log(`args:řez ${nnVolani}: sonda odpověděla, agenti běží; bez výsledku zůstalo jen načtení args`)
+      else agentiDoleArgs = `args:řez ${nnVolani}: tři volání bez výsledku a sonda bez odpovědi`
     }
     return x
   }
+  const bezAgentuArgs = () => ({ ok: false, rez: nnVolani, faze: 'agenti', duvod: `agenti neběží: ${agentiDoleArgs}`.slice(0, 600) })
   // Kontrola opisu (spec 1.7.0 § 1.4): skript zapíše do souboru _pole (klíče sloučeného souboru bez prázdných hodnot). Načítací
   // agent v běhu sonnet-5-5 ztratil kontrakt_rez (PRD 03), vymyslel rezim „config“ z deploy_mode (PRD 06) a ve stavbě obnova: {}.
   // Sémantika je ve všech třech blocích stejná: pole volání se nekontrolují; prázdná hodnota je chybějící pole a do args nejde;
@@ -1114,7 +1169,7 @@ Přečti ${soubor} a vrať jeho pole; pole _pole opiš přesně. Hodnoty opiš p
   const textRozdilu = d => `chybí: ${d.chybi.join(', ') || '–'}; navíc: ${d.navic.join(', ') || '–'}${d.jinak.length ? `; jiný obsah: ${d.jinak.join(', ')}` : ''}`
   const bezPrazdnych = x => Object.fromEntries(Object.entries(x).filter(([k, v]) => VOLANI.includes(k) || !prazdne(v)))
   let r = await nacti(prompt)
-  if (!r) return { ok: false, rez: nnVolani, duvod: `načtení ${volani.args_file} nevrátilo výsledek` }
+  if (!r) return agentiDoleArgs ? bezAgentuArgs() : { ok: false, rez: nnVolani, duvod: `načtení ${volani.args_file} nevrátilo výsledek` }
   if (T(r.chyba).trim()) return { ok: false, rez: nnVolani, duvod: `args_file: ${T(r.chyba).trim().slice(0, 300)}` }
   const nnSoubor = T(r.rez).trim() ? T(r.rez).trim().padStart(2, '0') : ''
   if (nnSoubor !== nnVolani) return { ok: false, rez: nnVolani, duvod: `args_file patří řezu ${nnSoubor || '(bez rez)'}, volání je pro řez ${nnVolani}` }
@@ -1126,6 +1181,7 @@ Přečti ${soubor} a vrať jeho pole; pole _pole opiš přesně. Hodnoty opiš p
     if (nesedi(d)) {
       log(`args:řez ${nnVolani}: opis nesedí (${textRozdilu(d)}), načítám znovu`)
       const r2 = await nacti(`${prompt}\nMinule chybělo: ${d.chybi.join(', ') || 'nic'}, navíc bylo: ${d.navic.join(', ') || 'nic'}${d.jinak.length ? `, jiný obsah než v souboru měla pole: ${d.jinak.join(', ')}` : ''}. Chybějící pole opiš ze souboru; pole navíc vrať jen tehdy, když v souboru opravdu je. Hodnotu nikdy nepřesouvej do jiného pole a nic nedoplňuj.`)
+      if (!r2 && agentiDoleArgs) return bezAgentuArgs()
       if (!r2 || T(r2.chyba).trim()) return { ok: false, rez: nnVolani, duvod: `args_file: opis nesedí (${textRozdilu(d)}) a nové načtení nevrátilo platný výsledek` }
       r = r2
       d = rozdil(r, pole1, delkyZ(r) || delky1)

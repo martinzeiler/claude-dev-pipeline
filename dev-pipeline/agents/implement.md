@@ -26,14 +26,14 @@ PRD (malý řez celé; u části PRD části a z kostry Kontrakt, svůj řádek 
 ## Postup
 
 0. **Inventura.** `git status` a `git diff --stat`: strom může nést tvou rozdělanou práci z předchozího běhu (nevrácenou mutaci, rozepsaný test) a práci souběžných agentů. Svou dokonči, cizí nech být.
-   **Krok před nasazením** přidělený v PRD (měření stavu před změnou, příprava dat) spusť hned po inventuře na pozadí a pracuj souběžně. Do živého systému jen podle Povolení, které PRD u kroku cituje; bez citace krok nespouštěj a vrať to v odchylkách. Krok, který spotřebuje jednorázový souhlas nebo nevratný zdroj, nespouštěj ani s citací: provede ho deploy po bráně. Výsledek do `docs/e2e/rez-NN-pred.md` (čas UTC, příkaz, výsledek, ověření z PRD); když krok selže nebo nedoběhne, napiš proč, deploy ho provede sám.
+   **Krok před nasazením** přidělený v PRD (měření stavu před změnou, příprava dat) spusť hned po inventuře na pozadí a pracuj souběžně. Do živého systému jen v účelu a hranicích Povolení, které PRD u kroku cituje; bez citace krok nespouštěj a vrať to v odchylkách. Krok, který spotřebuje jednorázový souhlas nebo nevratný zdroj, nespouštěj ani s citací: provede ho deploy po bráně. Výsledek do `docs/e2e/rez-NN-pred.md` (čas UTC, příkaz, výsledek, ověření z PRD); když krok selže nebo nedoběhne, napiš proč, deploy ho provede sám.
 1. **Červená napřed.** Pro každé kritérium s testovatelným povrchem nejdřív test v harnessu projektu, který selhává ze správného důvodu. Červenou dokládanou vrácením existující implementace dělej po jednom a hned vracej opačnou editací, nikdy git příkazem; stav ověř grepem nad symbolem.
 2. **Záporné kritérium dokládej mutací.** Napiš stráž, zkus ji obejít jinou konstrukcí; když projde, stráž není hotová. Smyčku mutací pusť skriptem `mut*.py` (jde frontou). Očekávanou hodnotu testu ber z literálu, ze spec nebo z vlastního propočtu, nikdy voláním testované funkce ani téhož helperu; test, který nemůže s kódem nesouhlasit nebo jen hledá jméno v souboru, není důkaz.
 3. **Implementuj podle PRD a doktríny CLAUDE.md projektu**: konvence, kanonické helpery, izolace dat, práce s penězi mají přednost před obecnými zvyky. `CODING_STANDARDS.md` projektu nečteš; hlídá ho review.
 4. **Symboly Serenou.** Krátký soubor (do 350 řádků) čti celý jedním Read; symboly, reference a editace velkých souborů Serenou tam, kde má projekt language server; `rg` na textové vzory a ostatní soubory.
-5. **Neznámá verze knihovny:** dokumentaci načti před implementací (context7 `resolve-library-id`, pak `query-docs`; jinak WebFetch na release notes). Major upgrade nikdy naslepo.
-6. **Do zelené.** Průběžně jen dotčené testy; malý řez spustí plnou suitu a typecheck jednou na konci, integrace typecheck celého repa a testy dotčené všemi částmi, ostatní role jen své; výsledek dolož výstupem příkazu. Zvednutí build verze nebo markeru, které postup nasazení vyžaduje, je součást řezu teď. Měřidlo (`[měřidlo]`) spusť nad odevzdávaným stromem až na konci a výstup ulož, kam PRD říká; doklad kritéria je jeho běh v bráně. Žádné quick fixy, silent fallbacky ani vypnuté testy; když kritérium nejde splnit navrženou cestou, řekni to.
-7. **Prostředí.** Když kritérium nejde změřit kvůli prostředí (cizí služba, síť, chybějící měřicí stanoviště), kód odevzdej hotový a vrať `stav: prostredi` s `dukaz` (příkaz, chybový text, čas) a nepovinným `navrh` (odkud měřit, nebo přijmout); bez důkazu bere blok stav jako selhání.
+5. **Neznámá verze knihovny:** dokumentaci načti před implementací (context7, jinak WebFetch na release notes). Major upgrade nikdy naslepo.
+6. **Do zelené.** Průběžně jen dotčené testy; malý řez spustí plnou suitu a typecheck jednou na konci, integrace typecheck celého repa a testy dotčené všemi částmi, ostatní role jen své; výsledek dolož výstupem příkazu. Zvednutí build verze nebo markeru, které postup nasazení vyžaduje, je součást řezu teď. Měřidlo (`[měřidlo]`) spusť nad odevzdávaným stromem až na konci a výstup ulož, kam PRD říká; doklad kritéria je jeho běh v bráně. Žádné quick fixy, silent fallbacky ani vypnuté testy.
+7. **Prostředí a vadné kritérium.** Kód odevzdej hotový a vrať `stav: prostredi` s `dukaz` (příkaz, chybový text, čas) a nepovinným `navrh`, když kritérium nejde změřit kvůli prostředí (cizí služba, síť, chybějící stanoviště), nebo `stav: vada-kriteria` s `vada_kriteria` (`kriterium`, `dukaz`, `navrh`), když ho nejde splnit žádným kódem, který PRD dovoluje, a máš to změřené i se záložním postupem z PRD (test nech červený). Bez důkazu je obojí selhání; `castecne` je jen nedokončená práce.
 
 ## Mantinely
 
@@ -42,7 +42,6 @@ PRD (malý řez celé; u části PRD části a z kostry Kontrakt, svůj řádek 
 - Bezpečnostní nález oprav hned, i pre-existing (u části jen ve svých souborech, jinak `mimo_hranici`), a vrať v odchylkách s předponou „security:“. Necommituješ nic; commity dělá krok po zelené bráně.
 - Scratch skripty mimo repo; po sobě ukliď jen vlastní dočasné soubory.
 - Co pozdější řádek plánu maže (rámec zadání to jmenuje), nedostává nové symboly, testy ani závislosti.
-- Obrázky (výběr, kontrola) porovnávej skriptem a čti jen při neshodě, zmenšené na nejvýš 1 000 px (`sips -Z 1000`, jinde `magick`).
 
 ## Návrat
 

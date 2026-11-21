@@ -2,12 +2,13 @@
 """Přehled docs/follow-ups.md podle osudu a oblasti, aby nikdo nemusel číst celý soubor.
 
 Použití:
-  follow-ups.py <cwd> [--osud <osud>] [--oblast <text>] [--rez <NN|kolecko>] [--json] [--soubor <cesta>]
+  follow-ups.py <cwd> [--osud <osud>] [--oblast <text>] [--rez <NN|kolecko>] [--text <text>] [--json] [--soubor <cesta>]
 
 Bez voleb: počty osud × oblast a seznam položek [rozhodnutí] (ty jediné potřebují majitele).
   --osud oprava      položky daného osudu seskupené podle oblasti a cesty (adresář první cesty v textu)
   --oblast <text>    jen oblasti, které text obsahují (bez ohledu na velikost písmen)
   --rez 5 | 05 | kolecko   jen položky daného řezu (ze značky, jinak z nadpisu sekce)
+  --text <text>      jen položky, jejichž text za značkami řetězec obsahuje (bez ohledu na velikost písmen)
   --json             strojový výstup pro agenty: {soubor, otevrene, uzavrene, pocty, polozky[]}
   --soubor <cesta>   jiný soubor než <cwd>/docs/follow-ups.md
 
@@ -156,13 +157,13 @@ def main(argv):
         print(__doc__.strip())
         return 0
     cwd = os.path.abspath(argv[0])
-    opt = {"osud": None, "oblast": None, "rez": None, "json": False, "soubor": None}
+    opt = {"osud": None, "oblast": None, "rez": None, "text": None, "json": False, "soubor": None}
     i = 1
     while i < len(argv):
         a = argv[i]
         if a == "--json":
             opt["json"] = True
-        elif a in ("--osud", "--oblast", "--rez", "--soubor") and i + 1 < len(argv):
+        elif a in ("--osud", "--oblast", "--rez", "--text", "--soubor") and i + 1 < len(argv):
             opt[a[2:]] = argv[i + 1]
             i += 1
         else:
@@ -189,6 +190,9 @@ def main(argv):
     if opt["rez"]:
         r = "kolecko" if KOLECKO.search(opt["rez"]) else nn(opt["rez"])
         items = [it for it in items if it["rez"] == r]
+    if opt["text"]:
+        hled = opt["text"].lower()
+        items = [it for it in items if hled in it["text"].lower()]
     p = pocty(items)
     rel = os.path.relpath(soubor, cwd) if soubor.startswith(cwd) else soubor
 

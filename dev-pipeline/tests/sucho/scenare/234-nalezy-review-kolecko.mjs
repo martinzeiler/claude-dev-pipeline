@@ -14,12 +14,15 @@ export default {
   blok: 'blok-kolecko',
   args: argsKolecko({ obnova: OBNOVA }),
   odpoved: l => l === 'e2e-stav:kolečko' ? MINULE : l === 'e2e:kolečko:1' ? e2ePass(1) : null,
-  async over(v, volani) {
+  async over(v, volani, logy) {
     const k = kontrola(volani)
     const pod = (jmeno, m) => k.chyby.push(...m.chyby.map(x => `${jmeno}: ${x}`))
 
-    // Verifikátor nezměřil všechna jmenovaná: FAIL nesmí zmizet.
-    k.navrat(v, { vysledek: 'selhalo', faze: 'e2e' })
+    // Verifikátor nezměřil všechna jmenovaná: FAIL nesmí zmizet. Od review N2 (1.12.0) si kritérium výběru bez verdiktu drží verdikt
+    // minulého kola: FAIL AK5 platí, jde do opravy a kolo 2 ho přeměří (dřív obnova selhala bez opravy).
+    k.ok(logy.includes('obnova.jen_kriteria: verifikátor nevrátil verdikt u AK2 | AK5; platí verdikt minulého kola'), `log: ${logy.filter(l => /jen_kriteria/.test(l)).join(' | ')}`)
+    k.ok(logy.some(l => /^E2E 1: fail \(/.test(l)), `FAIL AK5 z minulého kola platí: ${logy.filter(l => /^E2E 1:/.test(l)).join(' | ')}`)
+    k.jeden('fix-e2e:kolečko:1'); k.obsahuje(k.jeden('e2e:kolečko:2'), 'AK5', 'kolo 2 přeměří AK5')
     k.obsahuje(k.jeden('e2e-scénáře:kolečko'), 'nepřepisuj ani nepřečíslovávej', 'scénáře se při výběru nemění')
     k.obsahuje(k.jeden('e2e-stav:kolečko'), 'poslední verdikt napříč koly', 'verdikty přes všechna kola')
 

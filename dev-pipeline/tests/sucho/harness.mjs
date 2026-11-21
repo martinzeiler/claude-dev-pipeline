@@ -27,6 +27,8 @@ export function nactiBlok(blok, adresar = BLOKY) {
 // Emulace cache Workflow (volby.cache = volani původního běhu): runtime při resumeFromRunId vrací z cache nejdelší nezměněný
 // prefix volání agent(); i-té volání tu dostane odpověď původního běhu, dokud se label i prompt shodují s i-tým původním voláním,
 // od první neshody dál odpovídají stuby. Volání z cache nese z_cache: true; scénář tak vidí, co by se v ostrém běhu neopakovalo.
+// Volání, které v původním běhu nevrátilo výsledek, runtime z cache nevrací (1.12.0): první takové volání a všechno za ním běží živě.
+// Na tom stojí obnova po limitu účtu: tři volání bez výsledku a sonda se po resetu limitu přehrají živě, ne z cache.
 export async function spust(scenar, volby = {}) {
   const { adresar = BLOKY, cache = null } = typeof volby === 'string' ? { adresar: volby } : volby
   const volani = [], logy = [], faze = [], nezname = []
@@ -45,9 +47,9 @@ export async function spust(scenar, volby = {}) {
     // čeká (mikroúlohy), tak pořád začne dřív, než souběžný soused skončí.
     await new Promise(res => skutecnyTimeout(res, 0))
     const puvodni = cache && !cacheZiva ? cache[z.i] : null
-    if (cache && !cacheZiva && !(puvodni && puvodni.label === z.label && puvodni.prompt === z.prompt)) cacheZiva = true
+    if (cache && !cacheZiva && !(puvodni && puvodni.label === z.label && puvodni.prompt === z.prompt && puvodni.odpoved != null)) cacheZiva = true
     let r
-    if (cache && !cacheZiva) { r = puvodni.odpoved == null ? NIC : puvodni.odpoved; z.z_cache = true }
+    if (cache && !cacheZiva) { r = puvodni.odpoved; z.z_cache = true }
     else {
       r = scenar.odpoved ? await scenar.odpoved(z.label, z.prompt, opts, stav) : null
       if (r == null) {

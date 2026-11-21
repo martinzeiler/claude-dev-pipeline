@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Funkční testy scripts/follow-ups.py nad syntetickým docs/follow-ups.md: značka osudu jako druhý token, položky bez osudu,
-# přeškrtnuté se nepočítají, řez z nadpisu, kolečko, víceřádková položka, cesty, filtry --osud/--oblast/--rez a --json.
+# přeškrtnuté se nepočítají, řez z nadpisu, kolečko, víceřádková položka, cesty, filtry --osud/--oblast/--rez/--text a --json.
 # Spusť: dev-pipeline/tests/skripty/follow-ups.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); plugin=$(cd "$here/../.." && pwd)
@@ -71,6 +71,25 @@ o=$(fu "$proj" --osud neznamy); [ $? -eq 2 ] && ok || ko "osud-neznamy: $o"
 o=$(fu "$proj" --rez 6 --json); [ "$(printf '%s' "$o" | jq -r '.otevrene')" = 3 ] && ok || ko "rez-6: $o"
 o=$(fu "$proj" --rez kolecko --json); [ "$(printf '%s' "$o" | jq -r '.otevrene')" = 4 ] && ok || ko "rez-kolecko: $o"
 o=$(fu "$proj" --oblast WEB --json); [ "$(printf '%s' "$o" | jq -r '.otevrene')" = 4 ] && ok || ko "oblast-web: $o"
+
+# 4b. --text: podřetězec textu za značkami bez ohledu na velikost písmen, v kombinaci s --osud; várky čitelnosti kolečka
+cat > "$tmp/cit.md" <<'EOF'
+## Řez 04 Přehled
+
+- [řez 04 · E2E] [oprava] čitelnost: Přehled klienta: „hodnota 0“ bez jednotky (čte se jako nula korun)
+- [řez 04 · E2E] [nápad] Čitelnost: nápad se stejným slovem, ale jiným osudem.
+- [řez 04 · api] [oprava] `apps/api/src/a.ts` vrací 500.
+- ~~[řez 04 · E2E] [oprava] čitelnost: Inbox: uzavřená položka~~ VYŘEŠENO 2026-11-01: kolečko
+
+## Kolečko
+
+- [kolečko · E2E] [oprava] čitelnost: Strategie: datum bez roku
+EOF
+o=$(fu "$proj" --soubor "$tmp/cit.md" --osud oprava --text 'čitelnost:' --json); rc=$?
+[ $rc -eq 0 ] && [ "$(printf '%s' "$o" | jq -r '[.otevrene, ([.polozky[].rez] | join(","))] | @csv')" = '2,"04,kolecko"' ] && ok || ko "text-s-osudem: rc=$rc $o"
+o=$(fu "$proj" --soubor "$tmp/cit.md" --text 'ČITELNOST:' --json); [ "$(printf '%s' "$o" | jq -r '.otevrene')" = 3 ] && ok || ko "text-velikost-pismen: $o"
+o=$(fu "$proj" --soubor "$tmp/cit.md" --text 'nic takového' --json); [ "$(printf '%s' "$o" | jq -r '.otevrene')" = 0 ] && ok || ko "text-nic: $o"
+o=$(fu "$proj" --text); [ $? -eq 2 ] && ok || ko "text-bez-hodnoty: $o"
 
 # 5. chybějící soubor a --help
 o=$(fu "$tmp/neni"); [ $? -eq 2 ] && ok || ko "chybi-soubor: $o"

@@ -2,7 +2,10 @@
 """dev-pipeline: přepíše odkazy na docs/prd/*.md a docs/e2e/*.md na archiv vize, ve které odkaz vznikl.
 
 Spouští ho orchestrate-setup.sh před archivací předchozí vize:
-    odkazy-archivu.py <projekt> <slug archivované vize> <cesta nové vize>
+    odkazy-archivu.py <projekt> <slug archivované vize> <cesta nové vize> [trvalý soubor…]
+
+Trvalé soubory (seznam TRVALE_SOUBORY v orchestrate-setup.sh, například docs/e2e/pasti.md) setup nearchivuje, patří
+projektu napříč vizemi: odkazy na ně zůstávají beze změny a mezi nevyřešené se nepočítají.
 
 Proč: setup přesouvá docs/prd a docs/e2e předchozí vize do docs/archive/<slug>/. Odkaz z kódu nebo dokumentu na
 docs/e2e/rez-01.md pak buď vede do prázdna (pre-commit brána projektu commit setupu odmítne), nebo po startu nové
@@ -19,6 +22,12 @@ projektu) a živý docs/follow-ups.md. Dokumenty v docs/ (journal, vize, reporty
 ve větším projektu by jich byly stovky v desítkách souborů a commit setupu by tím nabobtnal. Nová vize leží v docs/, takže se jí to netýká:
 její docs/e2e/rez-01.md je budoucí dokument nové vize.
 Změněné soubory přidá do indexu: setup je commitne jedním commitem s archivem.
+
+Migrace nepřepisuje (soubor s komponentou cesty migrations nebo s příponou .sql): aplikovaná migrace se nemění, migrátor
+s kontrolním součtem by nasazení odmítl; odkaz v ní je komentář. Vypíše je jako „nepřepsáno (migrace): soubor (odkazů: N)“.
+Přepis je čistě textový: kód, který tvar cesty poznává regexem s escapovanými lomítky (docs\\/e2e\\/), nezmění, a test nad
+přepsaným literálem pak spadne až v pre-commit bráně. Když něco přepsal, vypíše proto taková místa mimo docs/ jako
+„pozor: vzor cesty v regexu, přepis ho nezmění: soubor:řádek“.
 Návratové kódy: 0 hotovo (i s nevyřešenými) · 2 chybné argumenty nebo není git repo.
 """
 import os
@@ -27,7 +36,12 @@ import subprocess
 import sys
 
 VZOR = re.compile(r"docs/(e2e|prd)/[A-Za-z0-9._-]+\.md")
+VZOR_V_REGEXU = r"docs\\/(e2e|prd)\\/"   # tvar cesty s escapovanými lomítky (pro git grep -E)
 MAX_VYPIS = 20
+
+
+def je_migrace(soubor):
+    return soubor.lower().endswith(".sql") or "migrations" in soubor.lower().split("/")
 
 
 def git(*args, ok=(0,)):
@@ -68,10 +82,11 @@ def cil(soubor, cesta, slug, archivovane):
 
 
 def main():
-    if len(sys.argv) != 4:
-        print("použití: odkazy-archivu.py <projekt> <slug archivované vize> <cesta nové vize>", file=sys.stderr)
+    if len(sys.argv) < 4:
+        print("použití: odkazy-archivu.py <projekt> <slug archivované vize> <cesta nové vize> [trvalý soubor…]", file=sys.stderr)
         return 2
     projekt, slug = sys.argv[1:3]  # třetí argument (nová vize) leží v docs/, prohledávání se jí netýká
+    trvale = set(sys.argv[4:])
     try:
         os.chdir(projekt)
     except OSError as e:
@@ -81,7 +96,7 @@ def main():
         print("odkazy-archivu: není git repozitář", file=sys.stderr)
         return 2
     archivovane = {f"docs/{d}/{n}" for d in ("prd", "e2e") if os.path.isdir(f"docs/{d}")
-                   for n in os.listdir(f"docs/{d}") if n.endswith(".md") and os.path.isfile(f"docs/{d}/{n}")}
+                   for n in os.listdir(f"docs/{d}") if n.endswith(".md") and os.path.isfile(f"docs/{d}/{n}")} - trvale
     vystup = ""
     for spec in ([".", ":(exclude)docs"], ["docs/follow-ups.md"]):
         cast = git("grep", "-z", "-n", "-I", "-o", "-E", VZOR.pattern, "--", *spec, ok=(0, 1))
@@ -95,10 +110,15 @@ def main():
         if len(kusy) < 3:
             continue
         soubor, radek, cesta = kusy[0], int(kusy[1]), kusy[2]
+        if cesta in trvale:
+            continue
         nalezy.setdefault(soubor, {}).setdefault(radek, set()).add(cesta)
-    prepsano, nevyreseno, zmenene = [], [], []
+    prepsano, nevyreseno, zmenene, migrace = [], [], [], []
     cache = {}
     for soubor in sorted(nalezy):
+        if je_migrace(soubor):
+            migrace.append(f"{soubor} (odkazů: {sum(len(c) for c in nalezy[soubor].values())})")
+            continue
         try:
             with open(soubor, encoding="utf-8") as f:
                 radky = f.read().split("\n")
@@ -126,17 +146,29 @@ def main():
             zmenene.append(soubor)
     if zmenene:
         git("add", "--", *zmenene)
-    if not prepsano and not nevyreseno:
+    if not prepsano and not nevyreseno and not migrace:
         print("odkazy na archiv: žádné")
         return 0
     print(f"odkazy na archiv: přepsáno {len(prepsano)} v {len(zmenene)} souborech" +
-          (f", nevyřešeno {len(nevyreseno)}" if nevyreseno else ""))
+          (f", nevyřešeno {len(nevyreseno)}" if nevyreseno else "") +
+          (f", migrace beze změny {len(migrace)}" if migrace else ""))
     for r in prepsano[:MAX_VYPIS]:
         print(f"  {r}")
     if len(prepsano) > MAX_VYPIS:
         print(f"  … a dalších {len(prepsano) - MAX_VYPIS}")
     for r in nevyreseno[:MAX_VYPIS]:
         print(f"  nevyřešeno: {r}")
+    for r in migrace[:MAX_VYPIS]:
+        print(f"  nepřepsáno (migrace): {r}")
+    if len(migrace) > MAX_VYPIS:
+        print(f"  … a dalších {len(migrace) - MAX_VYPIS} migrací")
+    if prepsano:
+        v_regexu = git("grep", "-z", "-n", "-I", "-E", VZOR_V_REGEXU, "--", ".", ":(exclude)docs", ok=(0, 1)) or ""
+        mista = [":".join(z.split("\0")[:2]) for z in v_regexu.splitlines() if z.count("\0") >= 2]
+        for m in mista[:MAX_VYPIS]:
+            print(f"  pozor: vzor cesty v regexu, přepis ho nezmění: {m}")
+        if len(mista) > MAX_VYPIS:
+            print(f"  … a dalších {len(mista) - MAX_VYPIS} míst se vzorem cesty v regexu")
     return 0
 
 

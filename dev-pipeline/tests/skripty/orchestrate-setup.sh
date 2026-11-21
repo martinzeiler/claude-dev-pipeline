@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Testy commitu v scripts/orchestrate-setup.sh nad dočasným repem s pre-commit hookem: jedno opakování, když výstup hooku nese
 # jako selhání jen Test timed out, jinak hned chyba s hotovou zprávou commitu (pod set -u, past $zprava před ne-ASCII).
+# Dál poslední řádek stdout „hotovo: rc=<kód>“, stav po selhaném commitu (soubor identity, handoff „zastaveno: setup“)
+# a navázání po ručním commitu, razítko cronu docs/.cron-od, trvalé soubory projektu při archivaci a příznak běžícího
+# setupu v adresáři gitu (Stop hook podle něj pouští konec tahu): během commitu existuje, po konci nezůstane.
 # Spusť: bash dev-pipeline/tests/skripty/orchestrate-setup.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); plugin=$(cd "$here/../.." && pwd)
@@ -18,12 +21,17 @@ novy_repo() { # jméno; hook N-tého běhu vypíše $h/vystup-N a skončí 1, be
   cat > "$r/.git/hooks/pre-commit" <<HOOK
 #!/bin/sh
 n=\$((\$(cat "$h/n" 2>/dev/null || echo 0) + 1)); echo \$n > "$h/n"
+[ -f "$r/.git/dev-pipeline-setup-bezi" ] && echo \$n >> "$h/priznak"
 [ -f "$h/vystup-\$n" ] || exit 0
 cat "$h/vystup-\$n"; exit 1
 HOOK
   chmod +x "$r/.git/hooks/pre-commit"
 }
-setup() { o=$(cd "$r" && HOME="$tmp/home" CLAUDE_CONFIG_DIR="$tmp/cfg" bash "$plugin/scripts/orchestrate-setup.sh" docs/vize/v.md 2>&1); rc=$?; }
+setup() { o=$(cd "$r" && HOME="$tmp/home" CLAUDE_CONFIG_DIR="$tmp/cfg" bash "$plugin/scripts/orchestrate-setup.sh" "${1:-docs/vize/v.md}" 2>&1); rc=$?; }
+# jen stdout: poslední řádek nese kód i bez stderr (hlášku chyby nese stderr)
+setup_stdout() { o=$(cd "$r" && HOME="$tmp/home" CLAUDE_CONFIG_DIR="$tmp/cfg" bash "$plugin/scripts/orchestrate-setup.sh" "${1:-docs/vize/v.md}" 2>/dev/null); rc=$?; }
+posledni() { printf '%s\n' "$o" | tail -1; }
+stav() { grep -m1 '^stav běhu:' "$r/docs/handoff.md"; }
 behu() { cat "$h/n" 2>/dev/null; }
 zprava() { git -C "$r" log -1 --format=%s; }
 TIMEOUT=' FAIL  src/a.test.ts > stráž > drží hranici
@@ -48,7 +56,7 @@ printf '%s' "$o" | grep -qF 'Test timed out in 5000ms' && ok || ko "jednou-vystu
 novy_repo dvakrat; printf '%s\n' "$TIMEOUT" > "$h/vystup-1"; printf '%s\n' "$TIMEOUT" > "$h/vystup-2"; printf '%s\n' "$TIMEOUT" > "$h/vystup-3"; setup
 [ $rc -eq 2 ] && [ "$(behu)" = 2 ] && [ "$(zprava)" = start ] && ok || ko "dvakrat: rc=$rc behu=$(behu) $(zprava) $o"
 printf '%s' "$o" | grep -qF 'orchestrate-setup: timeout v plné suitě, přeměř; opakovaný commit spadl taky. commit selhal' && ok || ko "dvakrat-hlaska: $o"
-printf '%s' "$o" | grep -qF 'commitni index zprávou „běh: start vize v (gitignore vize)“' && ok || ko "dvakrat-zprava: $o"
+printf '%s' "$o" | grep -qF 'přidej opravené soubory do indexu (git add <soubory>) a commitni na pozadí zprávou „běh: start vize v (gitignore vize)“' && ok || ko "dvakrat-zprava: $o"
 printf '%s' "$o" | grep -q 'unbound variable' && ko "dvakrat-unbound: $o" || ok
 
 # asertace vedle timeoutu: bez opakování, bez hlášky o timeoutu
@@ -75,8 +83,64 @@ novy_repo zeleny; setup
 [ $rc -eq 0 ] && [ "$(behu)" = 1 ] && printf '%s' "$o" | grep -qF 'commit: běh: start vize v' && ok || ko "zeleny: rc=$rc behu=$(behu) $o"
 printf '%s' "$o" | grep -q 'přeměř' && ko "zeleny-hlaska: $o" || ok
 
+# poslední řádek stdout je vždy „hotovo: rc=<kód>“: úspěch, die před commitem i po něm, vize bez plánu (kód 3)
+[ "$(posledni)" = 'hotovo: rc=0' ] && [ "$(printf '%s\n' "$o" | grep -c '^hotovo: rc=')" = 1 ] && ok || ko "hotovo-rc0: $(posledni)"
+[ "$(cat "$h/priznak" 2>/dev/null)" = 1 ] && [ ! -e "$r/.git/dev-pipeline-setup-bezi" ] && ok || ko "priznak-po-uspechu: při commitu $(cat "$h/priznak" 2>/dev/null), po konci $(ls "$r/.git" | grep setup)"
+[ ! -e "$r/docs/.orchestrator-session" ] && ok || ko "identita-po-uspechu: soubor identity zůstal"
+novy_repo bez-identity; rm "$r/docs/.orchestrator-session"; setup_stdout
+[ $rc -eq 2 ] && [ "$o" = 'hotovo: rc=2' ] && [ ! -e "$r/.git/dev-pipeline-setup-bezi" ] && ok || ko "hotovo-rc2-die: rc=$rc $o"
+novy_repo bez-planu; printf '# Vize\n\n## Cíle\n\ntext\n' > "$r/docs/vize/v.md"; setup_stdout
+[ $rc -eq 3 ] && [ "$(posledni)" = 'hotovo: rc=3' ] && ok || ko "hotovo-rc3: rc=$rc $(posledni)"
+novy_repo spatna-vize; setup_stdout docs/vize/neni.md
+[ $rc -eq 2 ] && [ "$o" = 'hotovo: rc=2' ] && ok || ko "hotovo-rc2-vize: rc=$rc $o"
+
+# selhaný commit: kód 2 na posledním řádku, soubor identity zůstává, handoff nese zastaveno (Stop hook konec tahu pustí),
+# index čeká na ruční commit; po něm setup naváže bez zásahu do stavových souborů a stav vrátí
+novy_repo selhany; printf 'AssertionError: expected false to be true\n' > "$h/vystup-1"; setup
+[ $rc -eq 2 ] && [ "$(posledni)" = 'hotovo: rc=2' ] && ok || ko "selhany-rc: rc=$rc $(posledni)"
+[ "$(cat "$h/priznak" 2>/dev/null)" = 1 ] && [ ! -e "$r/.git/dev-pipeline-setup-bezi" ] && ok || ko "priznak-po-selhani: při commitu $(cat "$h/priznak" 2>/dev/null), po konci $(ls "$r/.git" | grep setup)"
+[ "$(jq -r .session_id "$r/docs/.orchestrator-session" 2>/dev/null)" = sess-setup ] && ok || ko "selhany-identita: soubor identity po selhaném commitu chybí"
+[ "$(stav)" = 'stav běhu: zastaveno: setup, commit archivace selhal v pre-commit bráně' ] && ok || ko "selhany-handoff: $(stav)"
+printf '%s' "$o" | grep -qF 'dej ho opravit agentovi dev-pipeline:fix s výstupem brány; jinou příčinu řekni uživateli a skonči. Po opravě přidej opravené soubory do indexu (git add <soubory>) a commitni na pozadí zprávou „běh: start vize v (gitignore vize)“, pak spusť setup znovu: vizi naváže a stav vrátí.' && ok || ko "selhany-hlaska: $o"
+[ "$(git -C "$r" show :docs/handoff.md | grep -m1 '^stav běhu:')" = 'stav běhu: čeká: výběr prvního řezu' ] && ok || ko "selhany-index: zastaveno nemá jít do indexu"
+printf 'x\n' > "$h/vystup-3"   # kdyby navázání commitovalo, hook by ho shodil: po ručním commitu není co commitovat
+git -C "$r" commit -q -m 'běh: start vize v (gitignore vize)' && setup
+[ $rc -eq 0 ] && [ "$(posledni)" = 'hotovo: rc=0' ] && printf '%s' "$o" | grep -qF 'navázání: v projektu je stav téže vize (v)' && ok || ko "selhany-navazani: rc=$rc $o"
+[ "$(stav)" = 'stav běhu: čeká: výběr prvního řezu' ] && printf '%s' "$o" | grep -qF 'handoff: stav běhu vrácen po selhaném commitu setupu (čeká: výběr prvního řezu)' && ok || ko "selhany-navazani-stav: $(stav) $o"
+[ -z "$(git -C "$r" status --porcelain)" ] && [ "$(behu)" = 2 ] && [ ! -e "$r/docs/.orchestrator-session" ] && ok || ko "selhany-navazani-strom: behu=$(behu) $(git -C "$r" status --porcelain)"
+# postup z hlášky: oprava mimo docs/ v pracovním stromu, git add opravených souborů, commit, nové spuštění setupu naváže
+novy_repo selhany-oprava; printf 'AssertionError: expected false to be true\n' > "$h/vystup-1"; setup
+echo opraveno > "$r/README.md"; git -C "$r" add README.md && git -C "$r" commit -q -m 'běh: start vize v (gitignore vize)' && setup
+[ $rc -eq 0 ] && [ "$(stav)" = 'stav běhu: čeká: výběr prvního řezu' ] && [ -z "$(git -C "$r" status --porcelain)" ] && [ "$(git -C "$r" show HEAD:README.md)" = opraveno ] && ok || ko "selhany-oprava-navazani: rc=$rc $(stav) $(git -C "$r" status --porcelain) $o"
+[ ! -e "$r/.git/dev-pipeline-setup-bezi" ] && ok || ko "selhany-oprava-priznak: příznak zůstal"
+# selhaný commit navázání: původní stav (s id běhu Workflow a podtržítky) přežije v závorce a navázání ho vrátí
+novy_repo selhany-navazani; setup; nova_session() { jq -n --arg s "$1" '{session_id:$s}' > "$r/docs/.orchestrator-session"; }
+PUV='běží workflow blok-stavby řez 01 (wf_1a2b_3c-4d)'
+sed -i '' "s/^stav běhu:.*/**Stav běhu:** $PUV/" "$r/docs/handoff.md"; nova_session sess-2; printf 'AssertionError: x\n' > "$h/vystup-2"; setup
+[ $rc -eq 2 ] && [ "$(grep -m1 -i 'stav běhu' "$r/docs/handoff.md")" = "stav běhu: zastaveno: setup, commit navázání selhal v pre-commit bráně (předtím: $PUV)" ] && ok || ko "selhany-navazani-handoff: rc=$rc $(grep -m1 -i 'stav běhu' "$r/docs/handoff.md")"
+git -C "$r" commit -q -m 'běh: navázání vize v (dokumenty běhu)' && setup
+[ $rc -eq 0 ] && [ "$(stav)" = "stav běhu: $PUV" ] && [ -z "$(git -C "$r" status --porcelain)" ] && ok || ko "selhany-navazani-vraceno: rc=$rc $(stav) $(git -C "$r" status --porcelain) $o"
+
+# razítko cronu docs/.cron-od: gitignorované, rozpracovaný strom nedělá a setup staré maže (nový i navázání)
+novy_repo cron; echo 1700000000 > "$r/docs/.cron-od"; setup
+[ $rc -eq 0 ] && [ ! -e "$r/docs/.cron-od" ] && grep -qxF 'docs/.cron-od' "$r/.gitignore" && ok || ko "cron-novy: rc=$rc $(ls -a "$r/docs") $o"
+nova_session sess-2; date +%s > "$r/docs/.cron-od"; setup
+[ $rc -eq 0 ] && [ ! -e "$r/docs/.cron-od" ] && [ -z "$(git -C "$r" status --porcelain)" ] && ok || ko "cron-navazani: rc=$rc $(git -C "$r" status --porcelain) $o"
+
+# trvalé soubory projektu (docs/e2e/pasti.md) se s předchozí vizí nearchivují; ostatní dokumenty ano
+novy_repo trvale; setup
+printf '# Vize w\n\n## Plán řezů\n\n| # | název | stav |\n|---|---|---|\n| 01 | první | |\n' > "$r/docs/vize/w.md"
+printf '# Pasti projektu\n\n- past jedna\n' > "$r/docs/e2e/pasti.md"; echo '# E2E 01' > "$r/docs/e2e/rez-01.md"; echo '# PRD 01' > "$r/docs/prd/rez-01-x.md"
+git -C "$r" add -A; git -C "$r" commit -q -m 'vize v: řez 01, vize w'; nova_session sess-3; setup docs/vize/w.md
+[ $rc -eq 0 ] && printf '%s' "$o" | grep -qF 'archiv: v → docs/archive/v' && ok || ko "trvale-archiv: rc=$rc $o"
+[ "$(cat "$r/docs/e2e/pasti.md" 2>/dev/null)" = "$(printf '# Pasti projektu\n\n- past jedna')" ] && [ ! -e "$r/docs/archive/v/e2e/pasti.md" ] && ok || ko "trvale-pasti: $(ls "$r/docs/e2e" "$r/docs/archive/v/e2e" 2>&1)"
+[ -f "$r/docs/archive/v/e2e/rez-01.md" ] && [ ! -e "$r/docs/e2e/rez-01.md" ] && [ -f "$r/docs/archive/v/prd/rez-01-x.md" ] && [ -z "$(git -C "$r" status --porcelain)" ] && ok || ko "trvale-ostatni: $(git -C "$r" status --porcelain) $(ls "$r/docs/e2e")"
+# v docs/e2e zůstal jen trvalý soubor: další vize kvůli němu nezakládá prázdný archiv e2e
+printf '# Vize z\n\n## Plán řezů\n\n| # | název | stav |\n|---|---|---|\n| 01 | první | |\n' > "$r/docs/vize/z.md"
+git -C "$r" add -A; git -C "$r" commit -q -m 'vize z'; nova_session sess-4; setup docs/vize/z.md
+[ $rc -eq 0 ] && [ -f "$r/docs/e2e/pasti.md" ] && [ ! -e "$r/docs/archive/w/e2e" ] && [ -f "$r/docs/archive/w/handoff.md" ] && ok || ko "trvale-jen-pasti: rc=$rc $(ls "$r/docs/archive/w" 2>&1) $o"
+
 # navázání na tutéž vizi v nové session: rozpracované docs/ projdou a přibalí je commit navázání; kód mimo docs/ ne
-nova_session() { jq -n --arg s "$1" '{session_id:$s}' > "$r/docs/.orchestrator-session"; }
 rozpracuj_docs() { echo "- řez 01 uzavřen" >> "$r/docs/journal.md"; echo "# PRD 02" > "$r/docs/prd/rez-02-žluťoučký.md"; echo "# E2E" > "$r/docs/e2e/rez-02.md"; }
 novy_repo navazani; setup; nova_session sess-2; rozpracuj_docs; setup
 [ $rc -eq 0 ] && printf '%s' "$o" | grep -qF 'navázání: v projektu je stav téže vize (v)' && [ "$(zprava)" = 'běh: navázání vize v (dokumenty běhu)' ] && ok || ko "navazani-docs: rc=$rc $(zprava) $o"

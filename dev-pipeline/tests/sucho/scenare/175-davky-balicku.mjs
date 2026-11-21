@@ -1,6 +1,7 @@
-// 175 · stavba · 1.9.0 (§ 4.1): balíček oprav nad 6 nálezů jde dávkami po nejvýš 6 nálezech se stejnou množinou souborů, sériově
-// (nikdy dva agenti nad týmiž soubory), každá dávka vlastní agent fix:řez NN:kolo K:balíček B:dávka D jen se svými nálezy; balíček
-// do 6 nálezů jede jako dřív jedním agentem souběžně. Návraty dávek se sčítají (fix_agentu počítá dávky).
+// 175 · stavba · 1.9.0 (§ 4.1): balíček oprav nad 6 nálezů jde dávkami po nejvýš 6 nálezech, každá dávka vlastní agent
+// fix:řez NN:kolo K:balíček B:dávka D jen se svými nálezy; balíček do 6 nálezů jede jako dřív jedním agentem souběžně. Návraty dávek se
+// sčítají (fix_agentu počítá dávky). Review tu nevrací soubory nálezů: záložní režim, dávky sériově nad stejnou množinou souborů
+// (nikdy dva agenti nad týmiž soubory). Od 1.12.0 (spec L2) log říká počet dávek, vln a šířku; vlny měří scénář 228.
 import { argsStavby, kontrola, oprava, CWD } from '../stuby.mjs'
 
 const IDS = Array.from({ length: 14 }, (_, i) => `N${i + 1}`)
@@ -28,7 +29,8 @@ export default {
     k.obsahuje(maly, 'tvoje nálezy: N15, N16, N17.', 'malý balíček jedním agentem'); k.neobsahuje(maly, 'dávka', 'věta o dávce u malého balíčku')
     k.soubezne(d[0], maly)
     k.rovno(v && v.review && v.review.fix_agentu, 4, 'review.fix_agentu (3 dávky + 1)')
-    k.ok(logy.some(l => l.includes('balíček 1 (kolo 1): 14 nálezů nad 2 soubory jde 3 dávkami sériově')), 'log dávek')
+    k.ok(logy.some(l => l === 'balíček 1 (kolo 1): 14 nálezů, 3 dávek ve 3 vlnách, nejvíc 1 souběžně'), `log dávek: ${logy.filter(l => /balíček/.test(l)).join(' | ')}`)
+    k.ok(logy.some(l => l.includes('balíček nad 6 nálezů běží sériově: nález bez souborů')), 'log záložního režimu')
     return k.chyby
   },
 }

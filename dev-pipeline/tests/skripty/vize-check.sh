@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Funkční testy scripts/vize-check.py nad syntetickou vizí: správný tvar projde (exit 0, součet odhadů a délka běhu),
-# každá vada dá exit 1 s řádkem problému (i Cíl, který by scripts/zprava.py nepřečetl), upozornění exit nemění;
-# chybějící soubor exit 2.
+# každá vada dá exit 1 s řádkem problému (i Cíl, který by scripts/zprava.py nepřečetl), upozornění exit nemění
+# (i počet zápisů v Povolení); chybějící soubor exit 2.
 # Spusť: dev-pipeline/tests/skripty/vize-check.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); plugin=$(cd "$here/../.." && pwd)
@@ -133,7 +133,61 @@ o=$(vc "$tmp/hrana.md"); rc=$?; [ $rc -eq 0 ] && printf '%s' "$o" | grep -q 'upo
 zmen bez-kriteria 'Řadí se podle české kolace. Kritérium: test nad vzorkem.' 'Řadí se podle české kolace.'
 o=$(vc "$tmp/bez-kriteria.md"); rc=$?; [ $rc -eq 0 ] && printf '%s' "$o" | grep -q 'upozornění: požadavek F1.1 bez věty s kritériem' && ok || ko "bez-kriteria: rc=$rc $o"
 
-# 6. chybějící soubor, nápověda
+# 6. Povolení s počtem zápisů jen upozorní (exit 0): odrážky pod podnadpisem Povolení i se značkou PV bez podnadpisu,
+# pokračovací řádek odrážky se svým číslem řádku; částka s měnou, procenta a ochranné mechanismy (M1 …) se nehlásí
+BEZ='## 8. Mantinely a Povolení
+
+Bez mantinelů; bez zápisu do živých systémů.'
+VETA='nahraď účelem a hranicemi; číselný strop jen u peněz nebo jako pojistku, kterou vyslovil majitel'
+zmen povoleni "$BEZ" '## 8. Mantinely a Povolení
+
+### Ochranné mechanismy (uzavřený seznam)
+
+- **M1 Meze pravomoci.** Navýšení rozpočtu nejvýš 15 % za týden, negativa nejvýš 3 zápisy za den a 2× kontrola.
+
+### Povolení (trvalá, po celý běh)
+
+- **PV1 Google Ads, jen účet X (AUD).** Přímé změny přes API nejvýš 10 za běh; meze: nejvýš 20 zápisů za den, rozpočet nejvýš 5 AUD/den, navýšení nejvýš o 15 % do 5 AUD.
+- **PV2 Útrata LLM.** Strop **100 USD vlastní útraty za celý běh**, denní strop 10 USD na klienta, nejvýš 100 CZK za den, kvóta 15 000 operací/den projektu.
+- **PV3 MCP plocha.** Odevzdání přes `submit_result`,
+  každé nejvýš 3× a nejvýš 30 provedení a 2 000 operací API za pražský den.
+- **PV4 Produkční databáze.** Účel: ověřit převod paměti (F1.1). Hranice: jen tabulky, které zavádí tato vize; mazat smí běh jen to, co sám založil.'
+o=$(vc "$tmp/povoleni.md"); rc=$?
+[ $rc -eq 0 ] && printf '%s' "$o" | grep -q 'vize-check: chyb 0, upozornění 2;' && ok || ko "povoleni: rc=$rc $o"
+printf '%s\n' "$o" | grep -qxF "60: upozornění: Povolení nese počet zápisů (ř. 60: „nejvýš 10 za běh“, „nejvýš 20 zápisů za den“): $VETA" && ok || ko "povoleni-pv1: $o"
+printf '%s\n' "$o" | grep -qxF "63: upozornění: Povolení nese počet zápisů (ř. 63: „3×“, „nejvýš 30 provedení a 2 000 operací API za pražský den“): $VETA" && ok || ko "povoleni-pokracovani: $o"
+printf '%s\n' "$o" | grep -qE '^(56|61|62|64): ' && ko "povoleni-falesny-poplach (mantinel, měna, procenta, účel): $o" || ok
+zmen povoleni-znacka "$BEZ" '## 8. Mantinely a Povolení
+
+- **M1 Brzda.** Nejvýš 3 zápisy za den.
+- **PV1 Sklik.** Sonda, nejvýš **4 kusy** za den.
+- **Povolení: produkční DB.** Reseed nejvýš 6 za celou vizi.
+- Obsah z podkladů: nejvýš 5 zpráv za den.'
+o=$(vc "$tmp/povoleni-znacka.md"); rc=$?
+[ $rc -eq 0 ] && [ "$(printf '%s\n' "$o" | grep -c 'Povolení nese počet zápisů')" = 2 ] && printf '%s\n' "$o" | grep -qF '(ř. 55: „nejvýš 4 kusy za den“)' && printf '%s\n' "$o" | grep -qF '(ř. 56: „nejvýš 6 za celou vizi“)' && ok || ko "povoleni-znacka: rc=$rc $o"
+zmen povoleni-penize "$BEZ" '## 8. Mantinely a Povolení
+
+### Povolení
+
+- **PV1 Útrata.** Rozpočet nejvýš 5 AUD/den, nejvýš 100 CZK za den, strop 100 USD za běh, navýšení nejvýš 15 % za den, nejvýš 2 000 Kč za běh.'
+o=$(vc "$tmp/povoleni-penize.md"); rc=$?
+[ $rc -eq 0 ] && printf '%s' "$o" | grep -q 'vize-check: chyb 0, upozornění 0;' && ok || ko "povoleni-penize: rc=$rc $o"
+# počet bez „nejvýš“ a druhy operací reseed, synchronizace, spuštění a běh; mantinel s týmž tvarem a desetinné číslo ne
+zmen povoleni-bez-stropu "$BEZ" '## 8. Mantinely a Povolení
+
+- **M1 Brzda.** Reseed 2 za běh, 20 zápisů za den.
+- **PV1 Sklik.** Meze: 20 zápisů za den.
+- **PV2 Produkční DB.** Reseed produkční DB 7 za běh, nejvýš 3 reseedy za běh.
+- **PV3 Synchronizace.** Ruční 4 synchronizace za den, 2 spuštění na řez a 2× za běh.
+- **PV4 Noční vlna.** Nejvýš 5 běhů za den.
+- **PV5 Útrata.** Strop 100 USD za běh, rozpočet 3,5 za den.'
+o=$(vc "$tmp/povoleni-bez-stropu.md"); rc=$?
+[ $rc -eq 0 ] && [ "$(printf '%s\n' "$o" | grep -c 'Povolení nese počet zápisů')" = 4 ] && ok || ko "povoleni-bez-stropu-pocet: rc=$rc $o"
+printf '%s\n' "$o" | grep -qF '(ř. 55: „20 zápisů za den“)' && printf '%s\n' "$o" | grep -qF '(ř. 56: „7 za běh“, „nejvýš 3 reseedy za běh“)' \
+  && printf '%s\n' "$o" | grep -qF '(ř. 57: „4 synchronizace za den“, „2 spuštění na řez“, „2×“)' && printf '%s\n' "$o" | grep -qF '(ř. 58: „Nejvýš 5 běhů za den“)' && ok || ko "povoleni-bez-stropu: $o"
+printf '%s\n' "$o" | grep -qE '^(54|59): ' && ko "povoleni-bez-stropu-falesny-poplach (mantinel, měna, desetinné číslo): $o" || ok
+
+# 7. chybějící soubor, nápověda
 o=$(vc "$tmp/neni.md"); [ $? -eq 2 ] && ok || ko "chybi-soubor: $o"
 o=$(python3 -I "$plugin/scripts/vize-check.py" --help); [ $? -eq 0 ] && printf '%s' "$o" | grep -q 'Odhad řádků' && ok || ko "help"
 

@@ -5,7 +5,7 @@ Načti v kroku 12 Průběhu, až je draft vize hotový. Spusť **paralelně něk
 ## Role
 
 - **implementátor**: co bych musel domyslet, abych to postavil bez jediné otázky; kde jsou dvě čtení téže věty.
-- **orchestrátor**: má každý Cíl řez a každý řez definici hotového; který z důvodů zastavení (seznam v `../orchestrate/SKILL.md`, sekce Zastavení) by předvídatelně nastal; na jaký zápis chybí Povolení; která UI plocha chybí v seznamu; které kritérium, krok nebo scénář čeká na čas a o kolik hodin to běh prodlouží; má každé kritérium a scénář, které potřebují něco spustit nebo zapsat v živém systému, v Povolení místo (i přeměření po opravě a E2E kolečka, u Povolení s počty kusů rezervu); má řádek „Merge do main po běhu“ a mají kroky na pozadí hranici souborů.
+- **orchestrátor**: má každý Cíl řez a každý řez definici hotového; který z důvodů zastavení (seznam v `../orchestrate/SKILL.md`, sekce Zastavení) by předvídatelně nastal; který zápis nebo spuštění v živém systému, které kritéria a scénáře potřebují, nespadá do účelu a hranic žádného Povolení (počty zápisů neposuzuj: opakování po opravě, další kolo E2E i kolečko účel kryje); která UI plocha chybí v seznamu; které kritérium, krok nebo scénář čeká na čas a o kolik hodin to běh prodlouží; má řádek „Merge do main po běhu“ a mají kroky na pozadí hranici souborů.
 - **UX**: které stavy obrazovek vize neřeší (prázdný, chybový, načítací, první použití, desetkrát víc dat).
 - **data a migrace**: co to udělá se schématem a s existujícími daty, co je nevratné, co chybí dopočítat.
 - **provoz a bezpečnost**: kdo to smí, co se loguje, co se stane, když integrace spadne nebo dojde limit.
@@ -19,7 +19,7 @@ Role přidávej podle toho, čeho se vize dotýká (platby, i18n, SEO, výkon, o
 2. **Oprava vize**: rozpor mezi dvěma místy vize nebo mezi vizí a přílohou, který rozhodneš z už učiněných rozhodnutí.
 3. **Technický detail**, který PRD agent dohledá v kódu a prd-check ověří (jméno sloupce, pořadí migrace, chování trasy, přesné počty); do vize se nepíše.
 
-Koš 1 předlož uživateli, koš 2 zapracuj (z kola 1, další kola viz níže), koš 3 zahoď. Značky BLOKUJE a ZDRŽUJE od agentů jsou vstup triáže, ne podmínka dalšího kola.
+Koš 1 předlož uživateli, koš 2 zapracuj (z kola 1, další kola viz níže), koš 3 zahoď. Nález, který žádá v Povolení počet zápisů nebo rezervu, zahoď také: Povolení je na účel (SKILL.md, bod 10). Značky BLOKUJE a ZDRŽUJE od agentů jsou vstup triáže, ne podmínka dalšího kola.
 
 **Do koše 3 nikdy, i když je agent značí „zdržuje“:** Ne-cíl v rozporu s požadavkem nebo kritériem; kritérium, jehož ověření vyžaduje zápis nebo prostředí mimo Povolení; nemechanické pravidlo pro hromadný zápis do produkce (párování, import, mazání podle pravidla); kritérium závislé na řezu, který plán staví později; čekání na čas (koš 1 vždy). PRD agent je nerozhodne, jen vyloží po svém a spor se vrátí v běhu. Patří do koše 2, a když je nejde rozhodnout z učiněných rozhodnutí (Povolení by se muselo rozšířit, Ne-cíl změnit), do koše 1.
 

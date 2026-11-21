@@ -6,22 +6,77 @@
 #   2. vyžaduje čistý pracovní strom (kromě vize samé, .gitignore a markerů běhu; při navázání na tutéž vizi i docs/),
 #   3. stav předchozí vize (handoff, journal, vize-spory, prd/, e2e/, zpráva, marker) přesune do docs/archive/<slug>/,
 #      reporty z docs/reviews/ do docs/reviews/_archiv/<slug>/, z follow-ups odloží přeškrtnuté položky;
-#      stejná vize = navázání, nic se nearchivuje,
+#      stejná vize = navázání, nic se nearchivuje; trvalé soubory projektu (TRVALE_SOUBORY níže) zůstávají na místě,
 #   4. doplní .gitignore (a .prettierignore, když projekt prettier používá), vytvoří větev vize/<slug>, stavové soubory
 #      a založí docs/follow-ups.md, docs/pojmy.md a docs/rozhodnuti.md, když chybí,
-#   5. zapíše marker docs/.orchestrator-run (JSON se session_id) a docs/handoff.md s tabulkou plánu z vize,
+#   5. zapíše marker docs/.orchestrator-run (JSON se session_id) a docs/handoff.md s tabulkou plánu z vize; smaže razítko
+#      cronu docs/.cron-od (cron kontroly stavu patřil minulé session, orchestrátor založí nový a razítko zapíše sám),
 #   6. všechno (gitignore, vize, archiv, stavové soubory) commitne JEDNÍM commitem: projekty s pomalou
-#      pre-commit bránou platí bránu jednou, ne čtyřikrát,
+#      pre-commit bránou platí bránu jednou, ne čtyřikrát; soubor identity maže až po úspěšném commitu. Selhaný commit
+#      nechá index k ručnímu commitu a řádek stavu v handoffu přepíše na „zastaveno: setup, …“ (Stop hook pak konec tahu
+#      pustí); další spuštění po ručním commitu naváže a stav vrátí,
 #   7. vypíše mapu sekcí vize (řádky) pro orchestrátora, stav nastavení Claude Code, na kterém běh závisí
 #      (autoContinueAtUsageLimit, zápis do ~/dev-pipeline-feedback.md ze sandboxu; autocompact jen jako informace,
 #      varuje nad 400k; do ~/.claude nezapisuje, jen hlásí), a varování o velikosti souborů.
 # Návratové kódy: 0 ok · 2 chybí předpoklad (zpráva na stderr) · 3 vize nemá sekci Plán řezů.
+# Poslední řádek stdout je vždy „hotovo: rc=<kód>“ (úspěch, die, kód 3 i neočekávaný konec): orchestrátor pouští setup
+# samotný na pozadí a výsledek čte odtud; notifikace úlohy nese kód posledního členu složeného příkazu, ne skriptu.
+# Po dobu běhu drží příznak <adresář gitu>/dev-pipeline-setup-bezi (mimo pracovní strom) a maže ho při každém konci: tah
+# orchestrátora končí dřív, než setup na pozadí doběhne, a Stop hook podle příznaku konec tahu pustí.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 
+commit_log=""; priznak=""
+konec() { local k=$?; [ -n "$commit_log" ] && rm -f "$commit_log"; [ -n "$priznak" ] && rm -f "$priznak"; echo "hotovo: rc=$k"; }
+trap konec EXIT
 die() { echo "orchestrate-setup: $*" >&2; exit 2; }
+
+# Trvalé soubory projektu v docs/prd a docs/e2e: patří projektu napříč vizemi, takže je setup nearchivuje a odkazy na ně
+# se nepřepisují (seznam dostane i odkazy-archivu.py jako argumenty). docs/e2e/pasti.md doplňuje uzavření každého řezu.
+TRVALE_SOUBORY=(docs/e2e/pasti.md)
+je_trvaly() { local t; for t in "${TRVALE_SOUBORY[@]}"; do [ "$t" = "$1" ] && return 0; done; return 1; }
+# dokumenty adresáře, které se archivují (bez trvalých)
+k_archivaci() { local g; for g in "$1"/*.md; do [ -f "$g" ] || continue; je_trvaly "$g" || printf '%s\n' "$g"; done; }
+
+# Řádek stavu v docs/handoff.md je první řádek „stav běhu:“, stejně ho hledá Stop hook. Po selhaném commitu ho setup
+# přepíše na zastaveno (jen v pracovním stromu; index zůstává k ručnímu commitu), navázání ho vrátí: bez toho by Stop hook
+# se stavem „čeká“ hnal orchestrátora dál, ačkoli má říct chybu a skončit. Při navázání nese původní stav závorka.
+STAV_RE='^[*_[:space:]]*stav běhu[*_[:space:]]*:'
+ZAST_START="zastaveno: setup, commit archivace selhal v pre-commit bráně"
+ZAST_NAVAZANI="zastaveno: setup, commit navázání selhal v pre-commit bráně"
+stav_handoffu() { grep -m1 -iE "$STAV_RE" docs/handoff.md 2>/dev/null | sed -E 's/^[^:]*:[*_[:space:]]*//; s/[[:space:]]+$//'; }
+prepis_stav() { # nový stav (text za „stav běhu: “)
+  local n
+  n=$(grep -m1 -n -iE "$STAV_RE" docs/handoff.md 2>/dev/null | cut -d: -f1)
+  [ -n "$n" ] || return 1
+  n="$n" t="stav běhu: $1" awk 'NR == ENVIRON["n"] + 0 { print ENVIRON["t"]; next } { print }' docs/handoff.md > docs/handoff.tmp \
+    && mv docs/handoff.tmp docs/handoff.md
+}
+zastav_handoff() {
+  local pred
+  [ -f docs/handoff.md ] || return 0
+  if [ "$resume" = 1 ]; then
+    pred=$(stav_handoffu)
+    case "$pred" in "zastaveno: setup, commit "*) return 0 ;; esac
+    prepis_stav "$ZAST_NAVAZANI (předtím: ${pred})"
+  else
+    prepis_stav "$ZAST_START"
+  fi
+}
+vrat_stav_handoffu() {
+  local s; s=$(stav_handoffu)
+  case "$s" in
+    "$ZAST_NAVAZANI (předtím: "*")") s=${s#"$ZAST_NAVAZANI (předtím: "}; s=${s%)} ;;
+    "zastaveno: setup, commit "*) s="čeká: výběr prvního řezu" ;;
+    *) return 0 ;;
+  esac
+  prepis_stav "$s" && echo "handoff: stav běhu vrácen po selhaném commitu setupu (${s})"
+}
+
 proj=$(git rev-parse --show-toplevel 2>/dev/null) || die "nejsi v git repozitáři"
 cd "$proj" || die "nelze vstoupit do $proj"
+# Příznak běžícího setupu pro Stop hook (hooks/on-stop.sh): čerstvý (do 30 minut) pouští konec tahu bez blokace.
+gd=$(git rev-parse --absolute-git-dir 2>/dev/null) && priznak="$gd/dev-pipeline-setup-bezi" && : > "$priznak"
 [ $# -ge 1 ] || die "použití: orchestrate-setup.sh <cesta k vizi>"
 vize_in=$1
 case "$vize_in" in /*) vize_abs=$vize_in ;; *) vize_abs="$proj/$vize_in" ;; esac
@@ -46,7 +101,7 @@ claude_args=$(jq -r '.claude_args // empty' "$sess_file" 2>/dev/null)
 navazani=0
 [ -f docs/.orchestrator-run ] && [ "$(jq -r '.slug // empty' docs/.orchestrator-run 2>/dev/null)" = "$slug" ] && navazani=1
 bez_docs_navazani() { if [ "$navazani" = 1 ]; then grep -v -E '^.. "?docs/' || true; else cat; fi; }
-dirty=$(git status --porcelain --untracked-files=all | grep -v -E ' docs/(\.orchestrator-session|\.orchestrator-run|\.vize-done|\.review-passed|\.deploy-unlocked|\.verify-passed|\.kontext\.jsonl|\.run-args\.json|\.stavba-[^/]*\.json|\.prd-[^/]*\.json|\.kolecko\.json|\.vysledek-stavba-[^/]*\.json|\.vysledek-kolecko\.json|reviews/)' \
+dirty=$(git status --porcelain --untracked-files=all | grep -v -E ' docs/(\.orchestrator-session|\.orchestrator-run|\.vize-done|\.review-passed|\.deploy-unlocked|\.verify-passed|\.cron-od|\.kontext\.jsonl|\.run-args\.json|\.stavba-[^/]*\.json|\.prd-[^/]*\.json|\.kolecko\.json|\.vysledek-stavba-[^/]*\.json|\.vysledek-kolecko\.json|reviews/)' \
   | grep -v -E '^.. \.gitignore$' | grep -v -F -- " $vize_rel" | grep -v -F -- " docs/vize/$slug/" | bez_docs_navazani || true)
 [ -z "$dirty" ] || die "pracovní strom není čistý, běh startuje z čistého stavu (při navázání na tutéž vizi smí být rozpracované jen docs/):
 $dirty"
@@ -57,7 +112,8 @@ gi_changed=0
 # načítacím agentem a po compactu z nich orchestrátor navazuje. docs/.vysledek-stavba-*.json píše uzavření řezu (i seznamy
 # zastaveného bloku, -zastaveno.json), docs/.vysledek-kolecko.json závěr kolečka.
 # docs/e2e/*-vykon/ jsou surové výstupy měřidel (JSON, HAR, snímky); do commitu jde jen doklad se souhrnem.
-for e in docs/.orchestrator-run docs/.orchestrator-session docs/.deploy-unlocked docs/.vize-done docs/.review-passed docs/.verify-passed docs/reviews/ docs/.kontext.jsonl docs/.run-args.json "docs/.stavba-*.json" "docs/.prd-*.json" docs/.kolecko.json "docs/.vysledek-stavba-*.json" docs/.vysledek-kolecko.json "docs/e2e/*-vykon/" "CLAUDE-SECURITY-*/"; do
+# docs/.cron-od je razítko cronu kontroly stavu (epocha v sekundách): píše ho orchestrátor po CronCreate, čte Stop hook.
+for e in docs/.orchestrator-run docs/.orchestrator-session docs/.deploy-unlocked docs/.vize-done docs/.review-passed docs/.verify-passed docs/.cron-od docs/reviews/ docs/.kontext.jsonl docs/.run-args.json "docs/.stavba-*.json" "docs/.prd-*.json" docs/.kolecko.json "docs/.vysledek-stavba-*.json" docs/.vysledek-kolecko.json "docs/e2e/*-vykon/" "CLAUDE-SECURITY-*/"; do
   grep -qxF -- "$e" .gitignore 2>/dev/null || { echo "$e" >> .gitignore; gi_changed=1; }
 done
 if [ "$gi_changed" = 1 ] || [ -n "$(git status --porcelain -- .gitignore)" ]; then git add .gitignore; obsah="$obsah gitignore"; fi
@@ -95,8 +151,8 @@ if [ -z "$old_slug" ] && [ -f docs/handoff.md ]; then
 fi
 stare=""
 for f in docs/handoff.md docs/journal.md docs/vize-spory.md docs/zaverecna-zprava.md docs/.orchestrator-run; do [ -e "$f" ] && stare="$stare $f"; done
-ls docs/prd/*.md >/dev/null 2>&1 && stare="$stare docs/prd"
-ls docs/e2e/*.md >/dev/null 2>&1 && stare="$stare docs/e2e"
+[ -n "$(k_archivaci docs/prd)" ] && stare="$stare docs/prd"
+[ -n "$(k_archivaci docs/e2e)" ] && stare="$stare docs/e2e"
 
 if [ -n "$stare" ]; then
   if [ "$old_slug" = "$slug" ]; then
@@ -108,13 +164,14 @@ if [ -n "$stare" ]; then
     # Odkazy z kódu a z follow-ups na docs/prd a docs/e2e minulých vizí přepíše na archiv vize, ve které vznikly, dřív než
     # se dokumenty přesunou: jinak pre-commit brána odmítne commit setupu kvůli odkazům na přesunuté soubory, nebo odkaz
     # tiše ukazuje na stejnojmenný dokument pozdější vize. Změny skript dá do indexu.
-    python3 -I "$here/odkazy-archivu.py" "$proj" "$old_slug" "$vize_rel" || echo "odkazy na archiv: kontrola selhala, odkazy zůstaly beze změny"
+    python3 -I "$here/odkazy-archivu.py" "$proj" "$old_slug" "$vize_rel" "${TRVALE_SOUBORY[@]}" || echo "odkazy na archiv: kontrola selhala, odkazy zůstaly beze změny"
     mkdir -p "$arch"
     for f in $stare; do
       base=$(basename "$f")
       if [ -d "$f" ]; then
         mkdir -p "$arch/$base"
         for g in "$f"/*.md; do
+          je_trvaly "$g" && continue
           if git ls-files --error-unmatch "$g" >/dev/null 2>&1; then git mv -k "$g" "$arch/$base/"; else mv "$g" "$arch/$base/"; fi
         done
       else
@@ -166,10 +223,12 @@ mkdir -p docs/prd docs/e2e docs/reviews
 # 5. marker a handoff
 jq -n --arg s "$sid" --arg t "$now" --arg v "$vize_rel" --arg g "$slug" --arg b "$branch" \
   '{session_id:$s, started:$t, vize:$v, slug:$g, branch:$b}' > docs/.orchestrator-run
-rm -f "$sess_file"
+# Razítko cronu patřilo minulé session (cron je vázaný na proces): orchestrátor po setupu zakládá nový a razítko zapíše sám.
+rm -f docs/.cron-od
 
 rc=0
 if [ "$resume" = 1 ] && [ -f docs/handoff.md ]; then
+  vrat_stav_handoffu
   sed -i '' -E "s/^(session:).*/\1 $sid/" docs/handoff.md 2>/dev/null || true
   echo "handoff: ponechán (navázání), $(wc -c < docs/handoff.md | tr -d ' ') B"
   git add docs/handoff.md 2>/dev/null
@@ -206,9 +265,8 @@ if ! git diff --cached --quiet; then
   # Výstup hooku jde přes soubor, opakování se rozhoduje podle něj: stráž blízko limitu padá timeoutem ve vlastní plné suitě
   # a samostatně prochází. Opakuje se jednou a jen tehdy, když je timeout jediné selhání: řádek s Test timed out je, žádná
   # asertace ani jiná chyba a řádků FAIL nejvýš tolik co timeoutů. ERR_PNPM_…_FAIL není test.
-  commit_log=$(mktemp "${TMPDIR:-/tmp}/setup-commit.XXXXXX") || die "nelze založit dočasný soubor pro výstup commitu"
-  trap 'rm -f "$commit_log"' EXIT
-  zkus_commit() { local k; git commit -q -m "$zprava" > "$commit_log" 2>&1; k=$?; cat "$commit_log"; return $k; }
+  commit_log=$(mktemp "${TMPDIR:-/tmp}/setup-commit.XXXXXX") || { zastav_handoff; die "nelze založit dočasný soubor pro výstup commitu; index zůstal připravený, commitni ho zprávou „${zprava}“ a spusť setup znovu: vizi naváže"; }
+  zkus_commit() { local k; [ -n "$priznak" ] && touch "$priznak"; git commit -q -m "$zprava" > "$commit_log" 2>&1; k=$?; cat "$commit_log"; return $k; }
   jen_timeout() {
     awk '/Test timed out/ { t++; next }
       /AssertionError|expect\(received\)|Error:|Unhandled|error TS[0-9]/ { jine++ }
@@ -223,10 +281,13 @@ if ! git diff --cached --quiet; then
   fi
   if [ "$commit_ok" = 0 ]; then
     predpona=""; jen_timeout && predpona="timeout v plné suitě, přeměř; opakovaný commit spadl taky. "
-    die "${predpona}commit selhal (pre-commit brána?). Archiv, stavové soubory a přepsané odkazy zůstaly v indexu a docs/.orchestrator-run existuje, takže pouhé nové spuštění setupu neprojde na čistém stromu. Oprav příčinu podle výstupu brány (kód opravuje uživatel nebo jiná session, orchestrátor ne), commitni index zprávou „${zprava}“ a napiš znovu /dev-pipeline:orchestrate $vize_rel: setup vizi naváže."
+    zastav_handoff
+    die "${predpona}commit selhal (pre-commit brána?). Archiv, stavové soubory a přepsané odkazy zůstaly v indexu a handoff nese „stav běhu: zastaveno: setup“. Orchestrátor kód needituje: když bránu shodilo místo, které přepsala archivace (řádky „odkazy na archiv“ a „pozor:“ výše), dej ho opravit agentovi dev-pipeline:fix s výstupem brány; jinou příčinu řekni uživateli a skonči. Po opravě přidej opravené soubory do indexu (git add <soubory>) a commitni na pozadí zprávou „${zprava}“, pak spusť setup znovu: vizi naváže a stav vrátí."
   fi
   echo "commit: $zprava"
 fi
+# Soubor identity až po úspěšném commitu: po selhaném commitu z něj další spuštění setupu v téže session čte session_id.
+rm -f "$sess_file"
 
 # 7. mapa sekcí vize: orchestrátor čte sekce po řádcích (sed -n), Funkční požadavky a Tvar UI jsou pro PRD agenty
 echo "sekce vize (řádky od-do; orchestrátor čte všechny kromě označených, ty jsou pro PRD agenty):"
@@ -301,5 +362,4 @@ if [ -f turbo.json ] && ! grep -qE '"envMode"[[:space:]]*:[[:space:]]*"loose"' t
   fi
 fi
 echo "marker: docs/.orchestrator-run (session $sid, start $now)"
-echo "hotovo: rc=$rc"
-exit $rc
+exit $rc   # řádek „hotovo: rc=…“ tiskne konec() při výstupu

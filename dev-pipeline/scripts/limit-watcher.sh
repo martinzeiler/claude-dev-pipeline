@@ -11,6 +11,8 @@
 #      (v něm `claude` a `/dev-pipeline:orchestrate ...`)
 #   2. V druhém terminálu:          limit-watcher.sh [session] [interval-s]
 #      (default: session=pipeline, interval=300)
+#   Zkouška vzoru: limit-watcher.sh --je-limit < text  → kód 0, když text nese hlášku vyčerpaného limitu, jinak 1
+#      (tutéž funkci volá smyčka nad obsahem pane).
 #
 # Chování: každý interval přečte viditelný obsah pane. Když vidí limit hlášku
 # a session zrovna nepracuje, pošle Enter (potvrdí volbu "počkat") a po chvíli
@@ -19,10 +21,17 @@
 # Skončí sám, když session zmizí nebo vznikne docs/.vize-done v cwd.
 set -uo pipefail
 
+# Hlášky vyčerpaného limitu: „You've hit your weekly limit · resets …“, „You've hit your limit · resets …“,
+# „5-hour limit reached ∙ resets …“, starší „Claude usage limit reached. Your limit will reset at …“.
+# Varování před limitem („Approaching weekly limit · resets …“) hlášku vyčerpání nenese.
+LIMIT_PATTERN='limit reached|limit will reset|limit resets|hit your (.* )?limit'
+BUSY_PATTERN='esc to interrupt'
+je_limit() { grep -Eqi "$LIMIT_PATTERN"; }   # text na stdin
+
+if [ "${1:-}" = "--je-limit" ]; then je_limit; exit $?; fi
+
 SESSION="${1:-pipeline}"
 INTERVAL="${2:-300}"
-LIMIT_PATTERN='usage limit reached|limit will reset|limit resets'
-BUSY_PATTERN='esc to interrupt'
 
 log() { echo "[$(date '+%H:%M:%S')] $1"; }
 
@@ -37,8 +46,8 @@ while true; do
     log "tmux session '$SESSION' neexistuje — končím."
     exit 0
   }
-  if printf '%s' "$pane" | grep -Eqi "$LIMIT_PATTERN"; then
-    if printf '%s' "$pane" | grep -Eqi "$BUSY_PATTERN"; then
+  if je_limit <<< "$pane"; then
+    if grep -Eqi "$BUSY_PATTERN" <<< "$pane"; then
       log "Limit hláška viditelná, ale session pracuje — nechávám být."
     else
       log "Limit hláška + idle session — posílám Enter a 'pokračuj'."

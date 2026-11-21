@@ -40,8 +40,9 @@ souboru nepíšou (kromě rez); `_pole` je seřazený seznam klíčů sloučené
 pozná, že načítací agent pole vynechal nebo přidal. `_delky` nese ke každému poli délku kompaktního JSON (ensure_ascii=False, bez
 mezer) v UTF-16 jednotkách: blok ji porovná s JSON.stringify a pozná opis s jiným obsahem.
 
-`deploy_podminky` v --doplnit stavby: pole objektů {popis, kontrola, pravidlo}; jde přímo do zadání deploye a nesplněná podmínka
-znamená odklad. Jiný tvar skončí kódem 2.
+`deploy_podminky` v --doplnit stavby: pole objektů {popis, kontrola, pravidlo, plati}; jde přímo do zadání deploye. Nepovinné
+`plati` je "vzdy" (nesplněná podmínka znamená odklad; platí i bez pole, skript ho nedoplňuje) nebo "pri-zasahu" (podmínka
+omezuje, co nasazení smí udělat: odklad jen s doloženým zásahem). Jiný tvar nebo jiná hodnota `plati` skončí kódem 2.
 
 Běžící blok: když v session běhu (session_id z docs/.orchestrator-run) právě běží blok téhož typu pro týž řez (u kolečka
 jakékoli kolečko), skript args nesloží a skončí kódem 6: druhý běh téhož řezu by přepisoval tentýž strom (typicky po
@@ -300,6 +301,7 @@ def prazdne(v):
 APP_PRISTUP_MAX = 1500
 POKYN_MAX = 1500
 ROZHODNUTI_STROP = 8000
+PLATI = ("vzdy", "pri-zasahu")   # deploy_podminky[].plati; bez pole platí podmínka vždy (výchozí řeší blok stavby)
 OBNOVA_KLICE = ("od_faze", "znacka", "pokus", "bez_cache", "app_pristup", "rozhodnuti_majitele", "pokyn_orchestratora", "jen_kriteria")
 
 
@@ -389,6 +391,10 @@ def over_podminky(v):
         return
     if not (isinstance(v, list) and all(isinstance(x, dict) and str(x.get("popis") or "").strip() for x in v)):
         chyba(2, "deploy_podminky musí být seznam objektů {popis, kontrola, pravidlo} s neprázdným popisem")
+    for i, x in enumerate(v):
+        if "plati" in x and x["plati"] not in PLATI:
+            chyba(2, f"deploy_podminky[{i}].plati musí být \"vzdy\" nebo \"pri-zasahu\", ne "
+                     f"{json.dumps(x['plati'], ensure_ascii=False)}; bez pole platí podmínka vždy")
 
 
 def run_args(cwd):

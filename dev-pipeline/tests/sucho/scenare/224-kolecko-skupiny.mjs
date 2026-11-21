@@ -1,15 +1,17 @@
 // 224 · kolečko · 1.11.0 (spec G1, G2): sekce ze scénářů dají souběžné verifikátory jako ve stavbě (kolo 1 v běhu brief-a-provedeni 3 h 04 jedním
-// verifikátorem); blok zaloguje součty pro porovnání s Povolením. V kole, které přeměřuje všechna kritéria, se skupiny mimo opravu přenesou.
-import { argsKolecko, kontrola, e2ePass, oprava, parsujLabel } from '../stuby.mjs'
+// verifikátorem); blok zaloguje součty sekcí. V kole, které přeměřuje všechna kritéria, se skupiny mimo opravu přenesou.
+// Od 1.12.0 (spec A6) blok živé kusy nežádá, nečte ani nesčítá: Povolení je na účel a hranice, ne na počet zápisů. Pole zive_kusy, které by
+// autor scénářů přesto vrátil, se ignoruje.
+import { argsKolecko, kontrola, e2ePass, odSkupiny, oprava, parsujLabel } from '../stuby.mjs'
 import { spust } from '../harness.mjs'
 
 const SEKCE = [
-  { nazev: 'Sekce A', kriterii: 8, doba_min: 20, cekani_min: 10, zive_kusy: 2, oblasti: ['apps/a'] },
+  { nazev: 'Sekce A', kriterii: 8, doba_min: 20, cekani_min: 10, zive_kusy: 2, oblasti: ['apps/a'] }, // zive_kusy navíc: blok ho nesmí číst
   { nazev: 'Sekce B', kriterii: 6, doba_min: 15, oblasti: ['apps/b'] },
-  { nazev: 'Sekce C', kriterii: 4, doba_min: 5, bez_soubehu: true, zive_kusy: 1, oblasti: ['apps/c'] },
+  { nazev: 'Sekce C', kriterii: 4, doba_min: 5, bez_soubehu: true, oblasti: ['apps/c'] },
 ]
 const sestav = { e2e_path: '/x', kriterii: 18, plochy: [], e2e_sekce: SEKCE }
-const zSkupiny = l => { const p = parsujLabel(l); return p.typ === 'e2e' && p.pismeno ? e2ePass({ a: 8, b: 6, c: 4 }[p.pismeno], { report_path: `/r/${p.kolo}-${p.pismeno}.md` }) : null }
+const zSkupiny = l => { const p = parsujLabel(l); return p.typ === 'e2e' && p.pismeno ? e2ePass({ a: 8, b: 6, c: 4 }[p.pismeno], { report_path: `/r/${p.kolo}-${p.pismeno}.md` }, odSkupiny(p.pismeno)) : null }
 
 export default {
   nazev: 'kolečko: skupiny sekcí souběžně',
@@ -24,8 +26,14 @@ export default {
     k.soubezne(a, b); k.pred(a, c); k.pred(b, c)
     k.obsahuje(a, 'VÝHRADNĚ sekce: Sekce A', 'sekce skupiny a'); k.obsahuje(c, 'nad aplikací teď běžíš sám', 'skupina bez souběhu sama'); k.obsahuje(a, '[E2E-a]', 'prefix dat')
     k.obsahuje(k.jeden('e2e-scénáře:kolečko'), 'e2e_sekce', 'pokyn autorovi'); k.pole(k.jeden('e2e-scénáře:kolečko'), ['e2e_sekce'], 'SESTAV')
-    k.rovno(v && v.e2e && v.e2e.celkem, 18, 'součet verifikátorů')
-    k.ok(logy.some(l => /E2E sekce kolečka: 3 sekcí, odhad 40 min, s čekáním 1, živých kusů 3, 3 skupin verifikátorů/.test(l)), `log součtů: ${logy.filter(l => /E2E sekce/.test(l)).join(' | ')}`)
+    k.rovno(v && v.e2e && [v.e2e.celkem, v.e2e.pass], [18, 18], 'kritéria tří verifikátorů ze seznamů')
+    k.ok(logy.some(l => /E2E sekce kolečka: 3 sekcí, odhad 40 min, s čekáním 1, 3 skupin verifikátorů/.test(l)), `log součtů: ${logy.filter(l => /E2E sekce/.test(l)).join(' | ')}`)
+    // Živé kusy zmizely celé: schéma, zadání autora scénářů i logy.
+    const sc = k.jeden('e2e-scénáře:kolečko')
+    k.ok(sc && !Object.keys(sc.schema.properties.e2e_sekce.items.properties).includes('zive_kusy'), 'schéma sekcí bez zive_kusy')
+    k.neobsahuje(sc, 'zive_kusy', 'pokyn k živým kusům'); k.neobsahuje(sc, 'živým čerpáním', 'pokyn k živému čerpání')
+    k.ok(!logy.some(l => /živých kusů|zive/.test(l)), `log bez živých kusů: ${logy.filter(l => /živých kusů|zive/.test(l)).join(' | ')}`)
+    k.ok(!volani.some(x => /zive_kusy|živých kusů/.test(x.prompt)), 'žádné zadání nezmiňuje živé kusy')
     const oprav = await spust({ blok: 'blok-kolecko', args: argsKolecko(), odpoved: l => {
       if (l === 'e2e-scénáře:kolečko') return sestav
       if (l === 'e2e:kolečko:1:a') return e2ePass(8, { vysledek: 'fail', pass: 6, fail: 2, fail_kriteria: [{ kriterium: 'AK1 A', selhani: 'x' }], report_path: '/r/1-a.md' })
